@@ -16,7 +16,7 @@ if [ "$account" != lesantos ]; then
 fi
 publish_dir=$(mktemp -d /tmp/smabafiba-publish-XXXXXX)
 trap 'rm -rf "$publish_dir"' EXIT HUP INT TERM
-git clone "$bundle" "$publish_dir"
+git clone --branch main "$bundle" "$publish_dir"
 git -C "$publish_dir" remote set-url origin "https://github.com/$repository.git"
 if ! gh repo view "$repository" --json name >/dev/null 2>&1; then
   gh repo create "$repository" --private --description 'Smart batch file backups for Linux, local storage and Amazon S3'
