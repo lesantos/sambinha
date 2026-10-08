@@ -1,0 +1,74 @@
+"""Stable source inventories with strong fingerprints and race detection."""
+from dataclasses import asdict, dataclass
+import hashlib
+import os
+from pathlib import Path, PurePosixPath
+import stat
+
+from .errors import BackupError
+
+
+@dataclass(frozen=True)
+class File:
+    path: str
+    size: int
+    sha256: str
+    md5: str
+    mtime_ns: int
+    mode: int
+
+    def metadata(self):
+        return asdict(self)
+
+
+def safe_relative(value: str) -> str:
+    p = PurePosixPath(value)
+    if not value or p.is_absolute() or ".." in p.parts or value != p.as_posix() or "\n" in value or "\r" in value:
+        raise BackupError(f"Caminho relativo inválido: {value!r}")
+    return value
+
+
+def fingerprint(root: Path, relative: str) -> File:
+    path = root / safe_relative(relative)
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+    sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
+    # O_NOFOLLOW stops a symlink replacement between lstat and open.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (before.st_ino, before.st_dev) != (opened.st_ino, opened.st_dev):
+            raise BackupError(f"Arquivo mudou durante leitura: {relative}")
+        while chunk := stream.read(64 * 1024):
+            sha.update(chunk)
+            md5.update(chunk)
+        after = os.fstat(stream.fileno())
+    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        raise BackupError(f"Arquivo mudou durante leitura: {relative}")
+    return File(relative, before.st_size, sha.hexdigest(), md5.hexdigest(),
+                before.st_mtime_ns, stat.S_IMODE(before.st_mode))
+
+
+def scan(root: Path) -> list[File]:
+    if not root.is_dir() or root.is_symlink():
+        raise BackupError(f"Origem não é diretório regular: {root}")
+    result = []
+    def fail(error):
+        raise error
+    for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
+        for name in dirs:
+            if (Path(directory) / name).is_symlink():
+                raise BackupError("Links simbólicos não são aceitos; origem permanece intacta")
+        for name in files:
+            relative = (Path(directory) / name).relative_to(root).as_posix()
+            if relative.split("/")[0] == ".smabafiba":
+                raise BackupError(".smabafiba é reservado para metadados")
+            result.append(fingerprint(root, relative))
+    return sorted(result, key=lambda f: f.path)
+
+
+def verify(root: Path, files: list[File]):
+    for item in files:
+        if fingerprint(root, item.path) != item:
+            raise BackupError(f"Origem alterada durante backup: {item.path}; execute novamente")

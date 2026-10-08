@@ -1,0 +1,161 @@
+"""Validated TOML configuration and command-line overrides."""
+from dataclasses import dataclass, field
+import os
+from pathlib import Path
+import re
+import tomllib
+from urllib.parse import urlsplit
+
+from .errors import ConfigError
+
+STORAGE_CLASSES = {"STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING",
+                   "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"}
+
+
+@dataclass(frozen=True)
+class Job:
+    name: str
+    source: Path
+    destination: str
+    type: str = "local"
+    logic: str = "simple"
+    storage_class: str = "GLACIER_IR"
+    max_bytes: int = 1024 ** 3
+    max_files: int = 1000
+    compressor: str = "7z"
+    archive_format: str = "7z"
+
+
+@dataclass(frozen=True)
+class Config:
+    jobs: tuple[Job, ...]
+    state_dir: Path = field(default_factory=lambda: Path("state").resolve())
+    log_dir: Path = field(default_factory=lambda: Path("logs").resolve())
+    deleted_days: int = 10
+    version_days: int = 2
+    dry_run: bool = False
+    cronitor_url: str = ""
+    rclone: str = "rclone"
+    rclone_config: str = ""
+    timeout: int = 3600
+
+
+def local_path(value, base):
+    if not isinstance(value, str) or not value:
+        raise ConfigError("Caminho deve ser uma string não vazia")
+    path = Path(os.path.expandvars(value)).expanduser()
+    return (base / path).resolve() if not path.is_absolute() else path.resolve()
+
+
+def overlap(a: Path, b: Path) -> bool:
+    return a == b or a in b.parents or b in a.parents
+
+
+def validate(config: Config) -> Config:
+    if not config.jobs:
+        raise ConfigError("Configure pelo menos um [[jobs]]")
+    for name in ("deleted_days", "version_days", "timeout"):
+        value = getattr(config, name)
+        if type(value) is not int or value < (1 if name == "timeout" else 0):
+            raise ConfigError(f"{name}: inteiro fora do intervalo permitido")
+    if type(config.dry_run) is not bool:
+        raise ConfigError("dry_run deve ser booleano")
+    if not isinstance(config.cronitor_url, str) or (config.cronitor_url and
+            urlsplit(config.cronitor_url).scheme != "https"):
+        raise ConfigError("cronitor_url deve usar HTTPS")
+    if not isinstance(config.rclone, str) or not config.rclone:
+        raise ConfigError("rclone deve indicar um executável")
+    if not isinstance(config.rclone_config, str):
+        raise ConfigError("rclone_config deve ser uma string")
+    seen = set()
+    destinations = []
+    for job in config.jobs:
+        if not isinstance(job.name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", job.name):
+            raise ConfigError("Nome de job inválido; use letras, números, _ e -")
+        if job.name in seen:
+            raise ConfigError(f"Job duplicado: {job.name}")
+        seen.add(job.name)
+        if job.type not in {"local", "s3"} or job.logic not in {"simple", "batch"}:
+            raise ConfigError(f"Tipo ou lógica inválidos: {job.name}")
+        if job.storage_class not in STORAGE_CLASSES:
+            raise ConfigError(f"Classe S3 inválida: {job.storage_class}")
+        if job.type == "s3" and job.logic == "simple" and job.storage_class in {"GLACIER", "DEEP_ARCHIVE"}:
+            raise ConfigError("simple exige S3 acessível sem restore; use GLACIER_IR ou batch")
+        if type(job.max_bytes) is not int or job.max_bytes < 1:
+            raise ConfigError("max_bytes deve ser positivo")
+        if type(job.max_files) is not int or job.max_files < 2:
+            raise ConfigError("max_files deve ser pelo menos 2")
+        if not isinstance(job.compressor, str) or not job.compressor:
+            raise ConfigError("compressor deve indicar um executável compatível com 7-Zip")
+        if job.archive_format not in {"7z", "zip"}:
+            raise ConfigError("archive_format deve ser 7z ou zip")
+        if not isinstance(job.destination, str) or not job.destination:
+            raise ConfigError("Destino vazio")
+        for internal in (config.state_dir, config.log_dir):
+            if overlap(job.source, internal):
+                raise ConfigError("Origem não pode sobrepor diretórios de estado ou logs")
+        if job.type == "local":
+            target = Path(job.destination).resolve()
+            for source in (j.source for j in config.jobs):
+                if overlap(source, target):
+                    raise ConfigError("Destino local não pode sobrepor nenhuma origem")
+            if any(overlap(target, p) for p in (config.state_dir, config.log_dir)):
+                raise ConfigError("Destino não pode sobrepor estado ou logs")
+        elif not re.fullmatch(r"[\w-]+:[^/][^\n\r]*", job.destination):
+            raise ConfigError("S3: use remote:bucket/prefixo configurado no rclone")
+        for kind, dest in destinations:
+            if kind == job.type and (overlap(Path(dest), Path(job.destination)) if kind == "local"
+                                    else dest == job.destination or dest.startswith(job.destination + "/")
+                                    or job.destination.startswith(dest + "/")):
+                raise ConfigError("Jobs precisam de destinos separados sem sobreposição")
+        destinations.append((job.type, job.destination))
+    if overlap(config.state_dir, config.log_dir):
+        raise ConfigError("Estado e logs devem ter diretórios separados")
+    return config
+
+
+def load(path: Path, overrides: dict | None = None) -> Config:
+    try:
+        with path.open("rb") as stream:
+            data = tomllib.load(stream)
+        if set(data) - {"backup", "jobs"}:
+            raise ConfigError("Seções desconhecidas no TOML")
+        global_values = dict(data.get("backup", {}))
+        job_keys = set(Job.__dataclass_fields__)
+        config_keys = set(Config.__dataclass_fields__) - {"jobs"}
+        if set(global_values) - config_keys:
+            raise ConfigError("Parâmetros desconhecidos em [backup]")
+        raw_jobs = data.get("jobs", [])
+        if not isinstance(raw_jobs, list):
+            raise ConfigError("Use [[jobs]]")
+        overrides = {k: v for k, v in (overrides or {}).items() if v is not None}
+        selected = overrides.pop("job", None)
+        if set(overrides) - config_keys - job_keys:
+            raise ConfigError("Override desconhecido")
+        global_values.update({k: v for k, v in overrides.items() if k in config_keys})
+        base = path.resolve().parent
+        for name in ("state_dir", "log_dir"):
+            global_values[name] = local_path(global_values.get(name, "state" if name == "state_dir" else "logs"), base)
+        if global_values.get("rclone_config"):
+            global_values["rclone_config"] = str(local_path(global_values["rclone_config"], base))
+        global_values["cronitor_url"] = os.path.expandvars(
+            global_values.get("cronitor_url", os.environ.get("CRONITOR_URL", "")))
+        jobs = []
+        for raw in raw_jobs:
+            raw = dict(raw)
+            if set(raw) - job_keys:
+                raise ConfigError("Parâmetros desconhecidos em [[jobs]]")
+            if selected and raw.get("name") != selected:
+                continue
+            raw.update({k: v for k, v in overrides.items() if k in job_keys})
+            raw["source"] = local_path(raw["source"], base)
+            if raw.get("type", "local") == "local":
+                raw["destination"] = str(local_path(raw["destination"], base))
+            else:
+                raw["destination"] = raw["destination"].rstrip("/")
+            jobs.append(Job(**raw))
+        if any(k in overrides for k in {"source", "destination", "type", "logic"}) and len(jobs) != 1:
+            raise ConfigError("Overrides de origem/destino/tipo/lógica exigem um único job (--job)")
+        return validate(Config(jobs=tuple(jobs), **global_values))
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ConfigError(f"Configuração inválida: {exc}") from exc

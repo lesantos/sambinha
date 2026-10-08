@@ -1,0 +1,378 @@
+from contextlib import redirect_stdout
+from dataclasses import replace
+import io
+import json
+import os
+from pathlib import Path
+import shutil
+import tarfile
+import unittest
+from unittest.mock import patch
+
+from smabafiba.errors import BackupError
+from smabafiba.engine import DAY
+from smabafiba.process import Runner
+from smabafiba.storage import Storage
+from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
+
+
+@unittest.skipUnless(REAL_TOOLS, 'Install rclone and 7z for real local integration')
+class LocalIntegrationTests(Sandbox):
+    def fixture(self):
+        fixture = Path(__file__).parent / 'fixtures' / 'source'
+        shutil.copytree(fixture, self.source, dirs_exist_ok=True)
+        self.file('empty', b'')
+        self.file('ação/with spaces.txt', 'Olá!'.encode())
+        self.file('ação/@leading.txt', b'@file')
+        self.file('ação/-leading.txt', b'-file')
+        self.file('ação/[wildcard]*?.txt', b'literal wildcards')
+        self.file('binary.dat', bytes(range(256)) * 100)
+
+    def use_batch(self, **values):
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch',
+                               max_bytes=100 * 1024, max_files=3, **values),))
+
+    def assert_complete(self, logic=None):
+        logic = logic or self.config.jobs[0].logic
+        if logic == 'simple':
+            self.assertEqual(contents(self.destination), contents(self.source))
+        else:
+            restored = self.root / ('restored-' + str(len(list(self.root.glob('restored-*')))))
+            actual = restore_batches(self.state(), self.destination, restored)
+            self.assertEqual(actual, contents(self.source))
+            active_keys = set(self.state()['active'])
+            for key in active_keys:
+                self.assertTrue((self.destination / key).is_file())
+                self.assertTrue((self.destination / (key + '.json')).is_file())
+            remote_files = contents(self.destination)
+            original_paths = set(contents(self.source))
+            self.assertFalse(original_paths.intersection(remote_files))
+            for item in self.state()['active'].values():
+                self.assertLessEqual(len(item['files']), 3)
+                self.assertTrue(sum(f['size'] for f in item['files']) <= 100 * 1024 or len(item['files']) == 1)
+
+    def test_simple_complete_byte_exact_and_metadata(self):
+        self.fixture()
+        self.file('private.sh', b'#!/bin/sh\nexit 0\n', mode=0o750)
+        (self.source / 'empty_directory').mkdir(mode=0o750)
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assert_complete()
+        self.assertCountEqual([e["path"] for e in self.events if e["event"] == "transferred"], contents(self.source))
+        for source in self.source.rglob('*'):
+            target = self.destination / source.relative_to(self.source)
+            self.assertTrue(target.exists())
+            self.assertEqual(source.stat().st_mode & 0o777, target.stat().st_mode & 0o777)
+            self.assertEqual(source.stat().st_mtime_ns, target.stat().st_mtime_ns)
+        self.assertEqual([e['event'] for e in self.events if e['event'] in ('start', 'end')], ['start', 'end'])
+        self.assertEqual([n[1] for n in self.notifications], ['run', 'complete'])
+
+    def test_simple_identical_skipped_and_same_size_edit_detected(self):
+        target = self.file('file', b'abc')
+        self.assertEqual(self.execute(), 0)
+        old_time = target.stat().st_mtime_ns
+        self.assertEqual(self.execute(), 0)
+        self.assertEqual([e['path'] for e in self.events if e['event'] == 'identical'], ['file'])
+        self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
+        target.write_bytes(b'xyz')
+        os.utime(target, ns=(old_time, old_time))
+        self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
+        self.assert_complete()
+        history = list(self.destination.glob('.smabafiba/history/version/*/file'))
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].read_bytes(), b'abc')
+
+    def test_simple_destination_corruption_repaired(self):
+        self.file('file', b'original')
+        self.assertEqual(self.execute(), 0)
+        (self.destination / 'file').write_bytes(b'corrupt!')
+        self.assertEqual(self.execute(), 0)
+        self.assert_complete()
+
+    def test_simple_retention_deleted_10_days_versions_2_days(self):
+        changed, deleted = self.file('changed', b'old'), self.file('deleted', b'keep')
+        self.assertEqual(self.execute(now=1000), 0)
+        changed.write_bytes(b'new')
+        deleted.unlink()
+        self.assertEqual(self.execute(now=2000), 0)
+        self.assert_complete()
+        self.assertEqual({r['reason'] for r in self.state()['retired']}, {'deleted', 'version'})
+        self.assertEqual(self.execute(now=2000 + 2 * DAY), 0)
+        self.assertEqual([r['reason'] for r in self.state()['retired']], ['deleted'])
+        self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
+        self.assertEqual(self.state()['retired'], [])
+        self.assert_complete()
+
+    def test_simple_file_directory_replacements(self):
+        self.file('node', b'file')
+        self.assertEqual(self.execute(), 0)
+        (self.source / 'node').unlink()
+        self.file('node/child', b'child')
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assert_complete()
+        shutil.rmtree(self.source / 'node')
+        self.file('node', b'file again')
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assert_complete()
+
+    def test_simple_empty_source_retains_removed_files(self):
+        self.file('a/b', b'backup')
+        self.assertEqual(self.execute(), 0)
+        shutil.rmtree(self.source / 'a')
+        self.assertEqual(self.execute(), 0)
+        self.assert_complete()
+        self.assertEqual(len(self.state()['retired']), 1)
+
+    def test_batch_roundtrip_completeness_and_control_backup(self):
+        self.fixture()
+        self.use_batch()
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assert_complete()
+        mirror = self.config.state_dir / 'test' / 'controls'
+        self.assertFalse(list(self.config.state_dir.rglob('*.7z')))
+        for key, control in self.state()['active'].items():
+            self.assertEqual(json.loads((mirror / (key + '.json')).read_text()), control)
+        with tarfile.open(self.destination / '.smabafiba/control.tar.gz') as tar:
+            recovered = json.load(tar.extractfile('state.json'))
+            self.assertEqual(recovered, self.state())
+            self.assertTrue(all('controls/' + key + '.json' in tar.getnames() for key in recovered['active']))
+
+    def test_batch_unchanged_second_run_has_no_transfers(self):
+        self.fixture()
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        self.assertEqual(self.execute(), 0)
+        self.assertEqual(sum(e['event'] == 'identical' for e in self.events), len(contents(self.source)))
+        self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
+
+    def test_batch_edit_add_delete_all_files_restorable(self):
+        self.fixture()
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        old = self.state()
+        (self.source / 'binary.dat').write_bytes(b'new bytes')
+        (self.source / 'empty').unlink()
+        self.file('new_directory/new.txt', b'new file')
+        self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
+        self.assert_complete()
+        self.assertTrue(self.state()['retired'])
+        for record in self.state()['retired']:
+            self.assertTrue((self.destination / record['key']).exists())
+            self.assertEqual(json.loads((self.destination / (record['key'] + '.json')).read_text()), old['active'][record['key']])
+        self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
+        self.assertEqual(self.state()['retired'], [])
+        self.assert_complete()
+
+    def test_batch_deleted_and_modified_mixed_lot_longest_retention(self):
+        self.file('a', b'old')
+        self.file('b', b'deleted')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        (self.source / 'a').write_bytes(b'new')
+        (self.source / 'b').unlink()
+        self.assertEqual(self.execute(now=2000), 0)
+        self.assertEqual(self.state()['retired'][0]['expires'], 2000 + 10 * DAY)
+        self.assertEqual(self.execute(now=2000 + 2 * DAY), 0)
+        self.assert_complete()
+
+    def test_batch_oversized_and_same_stem_roundtrip(self):
+        # A 100 KiB file exceeds a deliberately smaller 32 KiB batch limit.
+        self.file('dir/big.txt', bytes(range(256)) * 400)
+        self.file('dir/big.csv', bytes(range(256)) * 400)
+        self.use_batch()
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_bytes=32 * 1024),))
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assert_complete()
+        self.assertEqual(len(self.state()['active']), 2)
+        self.assertTrue(all(k.endswith('big.7z') for k in self.state()['active']))
+
+    def test_zip_compression_roundtrip(self):
+        self.fixture()
+        self.use_batch(archive_format='zip')
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assert_complete()
+        self.assertTrue(all(k.endswith('.zip') for k in self.state()['active']))
+
+    def test_dry_run_simple_and_batch_no_mutations_or_notifications(self):
+        self.fixture()
+        for logic in ('simple', 'batch'):
+            with self.subTest(logic=logic):
+                config = replace(self.config, dry_run=True, jobs=(replace(self.config.jobs[0], logic=logic),))
+                self.assertEqual(self.execute(config), 0)
+                self.assertFalse(self.destination.exists())
+                self.assertFalse(self.config.state_dir.exists())
+                self.assertEqual(self.notifications, [])
+                self.assertTrue(any(e['event'] in ('would_transfer', 'would_batch') for e in self.events))
+
+    def test_existing_backup_dry_run_preserves_all_bytes(self):
+        for logic in ('simple', 'batch'):
+            with self.subTest(logic=logic):
+                self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic),),
+                                      state_dir=self.root / ('state-' + logic))
+                self.destination = self.root / ('dest-' + logic)
+                self.config = replace(self.config, jobs=(replace(self.config.jobs[0], destination=str(self.destination)),))
+                self.file('file', b'old')
+                self.assertEqual(self.execute(), 0)
+                before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*')
+                          if p.is_file() and 'logs' not in p.parts and 'source' not in p.parts}
+                (self.source / 'file').write_bytes(b'new')
+                self.assertEqual(self.execute(replace(self.config, dry_run=True), now=1000000), 0)
+                after = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*')
+                         if p.is_file() and 'logs' not in p.parts and 'source' not in p.parts}
+                self.assertEqual(before, after)
+
+    def test_preflight_missing_dependency_never_creates_destination(self):
+        self.file('a')
+        config = replace(self.config, rclone='definitely-not-installed')
+        self.assertEqual(self.execute(config), 1)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual([n[1] for n in self.notifications], ['run', 'fail'])
+
+    def test_preflight_missing_source_fails_before_any_job_transfer(self):
+        self.file('a')
+        job = replace(self.config.jobs[0], name='missing', source=self.root / 'missing', destination=str(self.root / 'other'))
+        self.assertEqual(self.execute(replace(self.config, jobs=self.config.jobs + (job,))), 1)
+        self.assertFalse(self.destination.exists())
+
+    def test_corrupt_state_and_destination_symlink_stop_safely(self):
+        self.file('a')
+        self.assertEqual(self.execute(), 0)
+        state = self.config.state_dir / 'test/state.json'
+        state.write_text('corrupt')
+        self.assertEqual(self.execute(), 1)
+        self.assertEqual((self.destination / 'a').read_bytes(), b'test')
+        state.unlink()
+        outside = self.root / 'outside'
+        outside.write_bytes(b'untouched')
+        (self.destination / 'link').symlink_to(outside)
+        self.assertEqual(self.execute(), 1)
+        self.assertEqual(outside.read_bytes(), b'untouched')
+
+    def test_batch_transfer_failure_keeps_previous_committed_state(self):
+        self.file('a', b'old')
+        self.file('b', b'old')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        old = self.state()
+        (self.source / 'a').write_bytes(b'changed')
+        original = Storage.put
+        def fail_control(storage, source, key, **kwargs):
+            if key.endswith('.json'):
+                raise BackupError('network failure')
+            return original(storage, source, key, **kwargs)
+        with patch.object(Storage, 'put', fail_control):
+            self.assertEqual(self.execute(), 1)
+        self.assertEqual(self.state(), old)
+        self.assertTrue(all((self.destination / key).exists() for key in old['active']))
+        self.assertEqual(self.execute(), 0)
+        self.assert_complete()
+
+    def test_failed_control_index_upload_never_commits_new_state(self):
+        self.file('a')
+        self.file('b')
+        self.use_batch()
+        original = Storage.put
+        def fail_index(storage, source, key, **kwargs):
+            if key == '.smabafiba/control.tar.gz':
+                raise BackupError('index failure')
+            return original(storage, source, key, **kwargs)
+        with patch.object(Storage, 'put', fail_index):
+            self.assertEqual(self.execute(), 1)
+        self.assertFalse((self.config.state_dir / 'test/state.json').exists())
+        self.assertEqual(self.execute(), 0)
+        self.assert_complete()
+
+    def test_source_changed_while_snapshotting_aborts_before_upload(self):
+        self.file('a', b'old')
+        self.file('b', b'old')
+        self.use_batch()
+        original = shutil.copy2
+        def changed(source, target, **kwargs):
+            result = original(source, target, **kwargs)
+            Path(source).write_bytes(b'changed')
+            return result
+        with patch('smabafiba.engine.shutil.copy2', changed):
+            self.assertEqual(self.execute(), 1)
+        self.assertFalse(self.destination.exists())
+
+    def test_independent_jobs_continue_after_one_failure(self):
+        self.file('a')
+        first = replace(self.config.jobs[0], logic='batch', compressor='false')
+        second = replace(self.config.jobs[0], name='second', destination=str(self.root / 'second'))
+        self.assertEqual(self.execute(replace(self.config, jobs=(first, second))), 1)
+        self.assertEqual(contents(self.root / 'second'), contents(self.source))
+
+    def test_zero_day_retention(self):
+        self.file('a')
+        self.assertEqual(self.execute(), 0)
+        (self.source / 'a').unlink()
+        config = replace(self.config, deleted_days=0)
+        self.assertEqual(self.execute(config), 0)
+        self.assertEqual(self.state()['retired'], [])
+
+    def test_retired_batch_reactivation_never_expires_active_data(self):
+        self.file('a', b'original')
+        self.file('b', b'original')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        old = self.state()
+        timestamps = {p: (self.source / p).stat().st_mtime_ns for p in ('a', 'b')}
+        (self.source / 'a').write_bytes(b'changed')
+        self.assertEqual(self.execute(now=2000), 0)
+        self.assertTrue(self.state()['retired'])
+        (self.source / 'a').write_bytes(b'original')
+        os.utime(self.source / 'a', ns=(timestamps['a'], timestamps['a']))
+        self.assertEqual(self.execute(now=2000 + 10 * DAY), 0, self.output.getvalue())
+        self.assertEqual(self.state()['active'], old['active'])
+        self.assertFalse(any(r['key'] in self.state()['active'] for r in self.state()['retired']))
+        self.assert_complete()
+
+    def test_cleanup_index_failure_is_republished_on_next_run(self):
+        self.file('a', b'old')
+        self.file('b', b'old')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        (self.source / 'a').write_bytes(b'new')
+        self.assertEqual(self.execute(now=2000), 0)
+        original = Storage.put
+        uploads = 0
+        def fail_second_index(storage, source, key, **kwargs):
+            nonlocal uploads
+            if key == '.smabafiba/control.tar.gz':
+                uploads += 1
+                if uploads == 2:
+                    raise BackupError('cleanup index failure')
+            return original(storage, source, key, **kwargs)
+        with patch.object(Storage, 'put', fail_second_index):
+            self.assertEqual(self.execute(now=2000 + 2 * DAY), 1)
+        self.assertTrue(self.state()['index_pending'])
+        self.assertEqual(self.execute(now=2000 + 2 * DAY), 0, self.output.getvalue())
+        self.assertNotIn('index_pending', self.state())
+        with tarfile.open(self.destination / '.smabafiba/control.tar.gz') as tar:
+            self.assertEqual(json.load(tar.extractfile('state.json')), self.state())
+        self.assert_complete()
+
+    def test_expiration_is_idempotent_after_partial_cleanup_failure(self):
+        self.file('a')
+        self.file('b')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        (self.source / 'a').write_bytes(b'new')
+        self.assertEqual(self.execute(now=2000), 0)
+        original = Storage.delete
+        def fail_control(storage, key):
+            if key.endswith('.json'):
+                raise BackupError('failed to delete control')
+            return original(storage, key)
+        with patch.object(Storage, 'delete', fail_control):
+            self.assertEqual(self.execute(now=2000 + 2 * DAY), 1)
+        self.assertEqual(self.execute(now=2000 + 2 * DAY), 0, self.output.getvalue())
+        self.assertEqual(self.state()['retired'], [])
+        self.assert_complete()
+
+    def test_notifier_failure_returns_failure_but_backup_stays_complete(self):
+        from smabafiba.engine import run
+        self.file('a')
+        with redirect_stdout(io.StringIO()):
+            result = run(self.config, notifier=lambda *a: (_ for _ in ()).throw(BackupError('notification failed')))
+        self.assertEqual(result, 1)
+        self.assert_complete()

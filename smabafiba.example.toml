@@ -1,0 +1,47 @@
+# Paths are relative to THIS configuration file; ~ and environment variables work.
+[backup]
+state_dir = "./state"
+log_dir = "./logs"
+deleted_days = 10
+version_days = 2
+dry_run = false
+rclone = "rclone"
+# Point to a rclone configuration; empty uses ~/.config/rclone/rclone.conf.
+rclone_config = "./rclone.example.conf"
+timeout = 3600
+# Set CRONITOR_URL in the environment; never commit the credential-bearing URL.
+# With this line omitted, CRONITOR_URL is also read automatically.
+# cronitor_url = "${CRONITOR_URL}"
+
+# The same source may have multiple independent jobs/destinations/strategies.
+[[jobs]]
+name = "documents-local"
+source = "~/Documents"
+destination = "~/Backups/documents-simple"
+type = "local"
+logic = "simple"
+
+[[jobs]]
+name = "documents-s3"
+source = "~/Documents"
+# aws is the remote in rclone.example.conf; create the bucket first.
+# Each job must have an exclusive prefix. Bucket name must be globally unique.
+destination = "aws:YOUR-BUCKET/documents-batches"
+type = "s3"
+logic = "batch"
+max_bytes = 1073741824 # 1 GiB of original, uncompressed file bytes
+max_files = 1000
+compressor = "7z" # or 7zz, any executable implementing the 7-Zip CLI
+archive_format = "7z" # 7z or zip
+# Cold default: GLACIER_IR, immediate retrieval, retrieval fees, 90-day minimum
+# billed duration and 128 KiB minimum billed object size.
+# GLACIER: cheaper storage, asynchronous restore, 90-day minimum.
+# DEEP_ARCHIVE: lowest archive storage rates, hours to restore, 180-day minimum.
+# STANDARD: immediate access, higher storage rates, no archive minimum duration.
+# STANDARD_IA/ONEZONE_IA: retrieval fees, 30-day minimum; ONEZONE uses one AZ.
+# INTELLIGENT_TIERING: automatic tiers, monitoring fee (check AWS pricing).
+# Controls and the control recovery archive always use STANDARD.
+# 2/10-day retention can incur early-deletion charges in archival classes.
+# No prices are hardcoded: cost depends on region, volume and API operations.
+# See https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
+storage_class = "GLACIER_IR"

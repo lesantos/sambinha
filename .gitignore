@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.coverage*
+htmlcov/
+*.cover
+logs/
+state/
+smabafiba.toml
+# The original specification includes a private Cronitor telemetry key.
+backuper.md
+.aws/
+.agents/
+.codex/
+
+# Portable commit archive produced when .git is protected by the session.
+smabafiba.bundle

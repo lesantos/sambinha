@@ -1,0 +1,309 @@
+"""Backup orchestration, extensible strategies and retention transactions."""
+from contextlib import nullcontext
+import copy
+import json
+import os
+from pathlib import Path
+import shutil
+import tarfile
+import tempfile
+import time
+import uuid
+
+from .batches import plan
+from .config import Config, Job
+from .errors import BackupError
+from .inventory import scan, verify
+from .logging import RunLog
+from .notify import notify
+from .process import Runner
+from .state import atomic_json, load_state, lock
+from .storage import Storage
+
+DAY = 86400
+
+
+class Context:
+    def __init__(self, config, job, runner, log, files, now):
+        self.config, self.job, self.runner, self.log = config, job, runner, log
+        self.files, self.now = files, now
+        self.storage = Storage(job, config, runner)
+        self.directory = config.state_dir / job.name
+        self.state_path = self.directory / "state.json"
+        self.identity = {"source": str(job.source), "destination": job.destination,
+                         "type": job.type, "logic": job.logic}
+        self.state = load_state(self.state_path, self.identity)
+
+    def event(self, event, **values):
+        self.log.event(event, job=self.job.name, **values)
+
+    def save(self):
+        atomic_json(self.state_path, self.state)
+
+    def expire(self):
+        remaining = []
+        for entry in self.state["retired"]:
+            if entry["expires"] > self.now:
+                remaining.append(entry)
+                continue
+            self.event("would_expire" if self.config.dry_run else "expire", path=entry["key"])
+            if not self.config.dry_run:
+                self.storage.delete(entry["key"])
+                if entry.get("control"):
+                    self.storage.delete(entry["control"])
+                    (self.directory / "controls" / entry["control"]).unlink(missing_ok=True)
+        self.state["retired"] = remaining
+
+
+def preserve_metadata(ctx, item):
+    if ctx.job.type == "local" and not ctx.config.dry_run:
+        target = Path(ctx.storage.path(item.path))
+        shutil.copystat(ctx.job.source / item.path, target, follow_symlinks=False)
+
+
+def simple(ctx: Context):
+    destination = ctx.storage.inventory()
+    source = {f.path: f for f in ctx.files}
+    # Before deleting or replacing a current file, preserve its previous bytes
+    # and persist the retirement record. Interrupted retries cannot lose it.
+    for key, remote in sorted(destination.items()):
+        item = source.get(key)
+        md5 = remote.get("Hashes", {}).get("md5") or remote.get("Hashes", {}).get("MD5")
+        if item and not md5:
+            raise BackupError(f"Destino não fornece checksum MD5: {key}; comparação segura impossível")
+        identical = item and remote["Size"] == item.size and md5 == item.md5
+        if identical:
+            ctx.event("identical", path=key)
+            preserve_metadata(ctx, item)
+            continue
+        reason = "version" if item else "deleted"
+        days = ctx.config.version_days if item else ctx.config.deleted_days
+        history = f".smabafiba/history/{reason}/{uuid.uuid4().hex}/{key}"
+        ctx.event("would_preserve" if ctx.config.dry_run else "preserve", path=key, reason=reason)
+        if not ctx.config.dry_run:
+            ctx.storage.preserve(key, history)
+            ctx.state["retired"].append({"key": history, "reason": reason,
+                                         "expires": ctx.now + days * DAY})
+            ctx.save()
+            if not item:
+                ctx.storage.delete(key)
+    if ctx.job.type == "local" and not ctx.config.dry_run:
+        for directory, _, _ in os.walk(ctx.job.destination, topdown=False):
+            path = Path(directory)
+            relative = path.relative_to(ctx.job.destination)
+            if ".smabafiba" not in relative.parts and not (ctx.job.source / relative).is_dir():
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+    for item in ctx.files:
+        remote = destination.get(item.path, {})
+        hashes = remote.get("Hashes", {})
+        if remote.get("Size") == item.size and (hashes.get("md5") or hashes.get("MD5")) == item.md5:
+            continue
+        ctx.event("would_transfer" if ctx.config.dry_run else "transfer_start", path=item.path)
+        if not ctx.config.dry_run:
+            verify(ctx.job.source, [item])
+            transferred = ctx.storage.put(ctx.job.source / item.path, item.path)
+            verify(ctx.job.source, [item])
+            preserve_metadata(ctx, item)
+            ctx.event("transferred" if transferred else "identical", path=item.path)
+    # rclone transfers bytes; local copystat additionally preserves permissions
+    # and modification times, including empty directories (without root).
+    if ctx.job.type == "local" and not ctx.config.dry_run:
+        directories = [ctx.job.source] + sorted(p for p in ctx.job.source.rglob("*") if p.is_dir())
+        for directory in reversed(directories):
+            relative = directory.relative_to(ctx.job.source)
+            target = Path(ctx.job.destination) / relative
+            target.mkdir(parents=True, exist_ok=True)
+            shutil.copystat(directory, target, follow_symlinks=False)
+    ctx.state["active"] = {f.path: f.metadata() for f in ctx.files}
+    ctx.expire()
+    if not ctx.config.dry_run:
+        ctx.save()
+
+
+def compress(ctx, batch, work: Path):
+    snapshot = work / "snapshot"
+    snapshot.mkdir()
+    for item in batch.files:
+        source, target = ctx.job.source / item.path, snapshot / item.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target, follow_symlinks=False)
+    verify(snapshot, list(batch.files))
+    verify(ctx.job.source, list(batch.files))
+    archive = work / ("archive." + ctx.job.archive_format)
+    listing = work / "files.txt"
+    listing.write_text("".join(f"./{f.path}\n" for f in batch.files), encoding="utf-8")
+    # @listfile and -spd prevent option/wildcard interpretation of filenames.
+    ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,
+                    "-scsUTF-8", "-spd", "-spf", str(archive), "@" + str(listing)], cwd=snapshot)
+    ctx.runner.run([ctx.job.compressor, "t", str(archive)])
+    listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])
+    members = {}
+    for record in listing.strip().split("\n\n"):
+        fields = dict(line.split(" = ", 1) for line in record.splitlines() if " = " in line)
+        if "Path" in fields and fields.get("Folder") != "+" and not fields.get("Attributes", "").startswith("D"):
+            name = fields["Path"].removeprefix("./")
+            if name in members:
+                raise BackupError("Arquivo duplicado no lote")
+            members[name] = int(fields["Size"])
+    if members != {f.path: f.size for f in batch.files}:
+        raise BackupError("Lote incompleto ou caminhos incorretos; envio interrompido")
+    return archive
+
+
+def upload_index(ctx, state):
+    # The recovery archive includes the index AND all active/retired controls.
+    # Index files always use STANDARD, allowing recovery without Glacier restore.
+    with tempfile.TemporaryDirectory(prefix="smabafiba-index-") as temp:
+        work = Path(temp)
+        recovery_state = {k: v for k, v in state.items() if k != "index_pending"}
+        atomic_json(work / "state.json", recovery_state)
+        archive = work / "control.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(work / "state.json", arcname="state.json")
+            controls = ctx.directory / "controls"
+            if controls.exists():
+                tar.add(controls, arcname="controls")
+        transferred = ctx.storage.put(archive, ".smabafiba/control.tar.gz", standard=True)
+        ctx.event("transferred" if transferred else "identical", path=".smabafiba/control.tar.gz")
+
+
+def batch(ctx: Context):
+    batches = plan(ctx.files, ctx.job.max_bytes, ctx.job.max_files, ctx.job.archive_format)
+    next_state = copy.deepcopy(ctx.state)
+    active = {b.key: b.control() for b in batches}
+    old = ctx.state["active"]
+    current_files = {f.path: f.metadata() for f in ctx.files}
+    # Content-addressed archive keys allow old lots to remain in place, avoiding
+    # server-side copies/restores of GLACIER and DEEP_ARCHIVE objects.
+    for key, control in old.items():
+        if key in active:
+            continue
+        deleted = any(f["path"] not in current_files for f in control["files"])
+        changed = any(f["path"] in current_files and current_files[f["path"]] != f for f in control["files"])
+        days = max(ctx.config.deleted_days if deleted else 0,
+                   ctx.config.version_days if changed else 0)
+        next_state["retired"].append({"key": key, "control": key + ".json",
+            "reason": "deleted" if deleted else "version", "expires": ctx.now + days * DAY})
+        ctx.event("would_retire" if ctx.config.dry_run else "retired", path=key, days=days)
+    # Reactivated lots must never be deleted by their former retirement record.
+    next_state["retired"] = [r for r in next_state["retired"] if r["key"] not in active]
+    retired_keys = {entry["key"] for entry in ctx.state["retired"]}
+    for item in batches:
+        mirror = ctx.directory / "controls" / (item.key + ".json")
+        reusable = item.key in retired_keys and mirror.is_file() and json.loads(mirror.read_text()) == item.control()
+        if item.key in old or reusable:
+            for f in item.files:
+                ctx.event("identical", path=f.path, archive=item.key)
+            continue
+        ctx.event("would_batch" if ctx.config.dry_run else "batch_start",
+                  archive=item.key, files=[f.path for f in item.files], bytes=sum(f.size for f in item.files))
+        if ctx.config.dry_run:
+            continue
+        # Temporary archives disappear on success AND failure. The local mirror
+        # retains only small, human-readable JSON control files.
+        with tempfile.TemporaryDirectory(prefix="smabafiba-batch-") as temp:
+            archive = compress(ctx, item, Path(temp))
+            control_path = Path(temp) / "control.json"
+            atomic_json(control_path, item.control())
+            transferred = ctx.storage.put(archive, item.key)
+            ctx.event("transferred" if transferred else "identical", path=item.key, files=[f.path for f in item.files])
+            transferred = ctx.storage.put(control_path, item.key + ".json", standard=True)
+            ctx.event("transferred" if transferred else "identical", path=item.key + ".json")
+            atomic_json(ctx.directory / "controls" / (item.key + ".json"), item.control())
+    next_state["active"] = active
+    if ctx.state_path.exists() and next_state == ctx.state and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"]):
+        return
+    if ctx.config.dry_run:
+        ctx.state = next_state
+        ctx.expire()
+        ctx.event("would_transfer", path=".smabafiba/control.tar.gz")
+        return
+    verify(ctx.job.source, ctx.files)
+    # Publish the recovery index before the local commit. If upload fails, the
+    # previous local state stays authoritative; uploads can safely be repeated.
+    upload_index(ctx, next_state)
+    next_state.pop("index_pending", None)
+    ctx.state = next_state
+    ctx.save()
+    before_cleanup = copy.deepcopy(ctx.state)
+    ctx.expire()
+    if ctx.state != before_cleanup:
+        ctx.state["index_pending"] = True
+    ctx.save()
+    # Publish cleanup only when retention actually removed a control entry.
+    if ctx.state != before_cleanup:
+        upload_index(ctx, ctx.state)
+        ctx.state.pop("index_pending", None)
+        ctx.save()
+
+
+STRATEGIES = {"simple": simple, "batch": batch}
+
+
+def preflight(config, runner):
+    runner.require([config.rclone] + [j.compressor for j in config.jobs if j.logic == "batch"])
+    runner.run([config.rclone, "version"])
+    if config.rclone_config and not Path(config.rclone_config).is_file():
+        raise BackupError("Arquivo de configuração rclone não existe")
+    for job in config.jobs:
+        if job.type == "local":
+            target = Path(job.destination)
+            if target.exists() and not target.is_dir():
+                raise BackupError("Destino local não é um diretório")
+            if target.exists():
+                for directory, dirs, files in os.walk(target):
+                    for name in dirs + files:
+                        if (Path(directory) / name).is_symlink():
+                            raise BackupError("Destino contém link simbólico; operação interrompida")
+        else:
+            # Verify the configured remote is actually an S3 backend before
+            # writing; credentials are left to rclone's normal providers.
+            raw = runner.run([config.rclone, "config", "dump", *(
+                ["--config", config.rclone_config] if config.rclone_config else [])])
+            remotes = json.loads(raw)
+            remote = job.destination.split(":", 1)[0]
+            backend = os.environ.get("RCLONE_CONFIG_" + remote.upper() + "_TYPE",
+                                     remotes.get(remote, {}).get("type", ""))
+            if backend != "s3":
+                raise BackupError(f"Remote {remote} precisa ser do tipo s3")
+    return {job.name: scan(job.source) for job in config.jobs}
+
+
+def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int:
+    runner = runner or Runner(config.timeout)
+    log = RunLog(config.log_dir)
+    failed = False
+    def telemetry(state):
+        nonlocal failed
+        if config.dry_run:
+            return
+        try:
+            notifier(config.cronitor_url, state, log.id)
+        except BackupError as exc:
+            failed = True
+            log.event("notification_error", error=str(exc))
+    log.event("start", dry_run=config.dry_run, sources=[str(j.source) for j in config.jobs])
+    try:
+        with nullcontext() if config.dry_run else lock(config.state_dir):
+            telemetry("run")
+            inventories = preflight(config, runner)
+            for job in config.jobs:
+                log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
+                try:
+                    context = Context(config, job, runner, log, inventories[job.name], clock())
+                    STRATEGIES[job.logic](context)
+                except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
+                    failed = True
+                    log.event("error", job=job.name, error=str(exc))
+            telemetry("fail" if failed else "complete")
+    except (BackupError, OSError, ValueError) as exc:
+        failed = True
+        log.event("error", error=str(exc))
+        telemetry("fail")
+    finally:
+        log.event("end", success=not failed)
+        log.close()
+    return 1 if failed else 0
