@@ -10,9 +10,9 @@ from .errors import BackupError
 
 
 def parser():
-    result = argparse.ArgumentParser(prog="smabafiba", description="Backup local/S3 simples ou por lotes")
+    result = argparse.ArgumentParser(prog="sambinha", description="Backup local/S3 simples ou por lotes")
     result.add_argument("--version", action="version", version=__version__)
-    result.add_argument("--config", type=Path, default=Path("smabafiba.toml"))
+    result.add_argument("--config", type=Path, default=Path("sambinha.toml"))
     result.add_argument("--job", help="Executar apenas o job nomeado")
     result.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=None)
     for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
@@ -29,8 +29,8 @@ def main(argv=None):
     try:
         return run(load(path, arguments))
     except (BackupError, OSError) as exc:
-        print(f"smabafiba: {exc}", file=sys.stderr)
+        print(f"sambinha: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        print("smabafiba: execução interrompida", file=sys.stderr)
+        print("sambinha: execução interrompida", file=sys.stderr)
         return 130

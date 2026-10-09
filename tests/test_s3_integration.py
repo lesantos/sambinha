@@ -7,7 +7,7 @@ from pathlib import Path
 import tarfile
 import unittest
 
-from smabafiba.engine import DAY
+from sambinha.engine import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.s3_support import MotoRunner
 
@@ -29,8 +29,8 @@ class S3IntegrationTests(Sandbox):
         self.runner = MotoRunner(self.client)
 
     def prepare_s3(self):
-        self.client.create_bucket(Bucket='smabafiba-tests')
-        job = replace(self.config.jobs[0], type='s3', destination='aws:smabafiba-tests/backup',
+        self.client.create_bucket(Bucket='sambinha-tests')
+        job = replace(self.config.jobs[0], type='s3', destination='aws:sambinha-tests/backup',
                       max_bytes=100 * 1024, max_files=3)
         self.config = replace(self.config, jobs=(job,))
 
@@ -50,13 +50,13 @@ class S3IntegrationTests(Sandbox):
         import uuid
         directory = self.root / ('download-' + uuid.uuid4().hex)
         directory.mkdir()
-        for page in self.client.get_paginator('list_objects_v2').paginate(Bucket='smabafiba-tests', Prefix='backup/'):
+        for page in self.client.get_paginator('list_objects_v2').paginate(Bucket='sambinha-tests', Prefix='backup/'):
             for item in page.get('Contents', []):
                 key = item['Key']
-                head = self.client.head_object(Bucket='smabafiba-tests', Key=key)
+                head = self.client.head_object(Bucket='sambinha-tests', Key=key)
                 if head.get('StorageClass') in {'GLACIER', 'DEEP_ARCHIVE'} and 'Restore' not in head:
-                    self.client.restore_object(Bucket='smabafiba-tests', Key=key, RestoreRequest={'Days': 1})
-                payload = self.client.get_object(Bucket='smabafiba-tests', Key=key)['Body'].read()
+                    self.client.restore_object(Bucket='sambinha-tests', Key=key, RestoreRequest={'Days': 1})
+                payload = self.client.get_object(Bucket='sambinha-tests', Key=key)['Body'].read()
                 target = directory / key.removeprefix('backup/')
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(payload)
@@ -67,9 +67,9 @@ class S3IntegrationTests(Sandbox):
         if self.config.jobs[0].logic == 'simple':
             self.assertEqual(contents(download), contents(self.source))
         else:
-            actual = restore_batches(self.state(), download, download / '.smabafiba/restored')
+            actual = restore_batches(self.state(), download, download / '.sambinha/restored')
             self.assertEqual(actual, contents(self.source))
-            with tarfile.open(download / '.smabafiba/control.tar.gz') as tar:
+            with tarfile.open(download / '.sambinha/control.tar.gz') as tar:
                 recovered = json.load(tar.extractfile('state.json'))
                 self.assertEqual(recovered, self.state())
                 self.assertTrue(all('controls/' + key + '.json' in tar.getnames() for key in recovered['active']))
@@ -82,7 +82,7 @@ class S3IntegrationTests(Sandbox):
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
         for path in contents(self.source):
-            head = self.client.head_object(Bucket='smabafiba-tests', Key='backup/' + path)
+            head = self.client.head_object(Bucket='sambinha-tests', Key='backup/' + path)
             self.assertEqual(head.get('StorageClass'), 'GLACIER_IR')
 
     def test_batch_full_roundtrip_and_controls_in_standard(self):
@@ -91,11 +91,11 @@ class S3IntegrationTests(Sandbox):
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
         for key in self.state()['active']:
-            archive = self.client.head_object(Bucket='smabafiba-tests', Key='backup/' + key)
-            control = self.client.head_object(Bucket='smabafiba-tests', Key='backup/' + key + '.json')
+            archive = self.client.head_object(Bucket='sambinha-tests', Key='backup/' + key)
+            control = self.client.head_object(Bucket='sambinha-tests', Key='backup/' + key + '.json')
             self.assertEqual(archive.get('StorageClass'), 'GLACIER_IR')
             self.assertEqual(control.get('StorageClass', 'STANDARD'), 'STANDARD')
-        index = self.client.head_object(Bucket='smabafiba-tests', Key='backup/.smabafiba/control.tar.gz')
+        index = self.client.head_object(Bucket='sambinha-tests', Key='backup/.sambinha/control.tar.gz')
         self.assertEqual(index.get('StorageClass', 'STANDARD'), 'STANDARD')
 
     def test_simple_edit_delete_add_and_retention_integrity(self):
@@ -110,7 +110,7 @@ class S3IntegrationTests(Sandbox):
         histories = self.state()['retired']
         self.assertEqual({r['reason'] for r in histories}, {'deleted', 'version'})
         old_version = next(r['key'] for r in histories if r['reason'] == 'version')
-        self.assertEqual(self.client.get_object(Bucket='smabafiba-tests', Key='backup/' + old_version)['Body'].read(), old)
+        self.assertEqual(self.client.get_object(Bucket='sambinha-tests', Key='backup/' + old_version)['Body'].read(), old)
         self.assertEqual(self.execute(now=2000 + 2 * DAY), 0)
         self.assertEqual([r['reason'] for r in self.state()['retired']], ['deleted'])
         self.assert_complete()
@@ -129,7 +129,7 @@ class S3IntegrationTests(Sandbox):
         self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
         self.assert_complete()
         download = self.download()
-        previous = restore_batches(old, download, download / '.smabafiba/previous')
+        previous = restore_batches(old, download, download / '.sambinha/previous')
         self.assertEqual(previous['tree/a.txt'], b'original a')
         self.assertIn('tree/sub/empty', previous)
         self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
@@ -163,7 +163,7 @@ class S3IntegrationTests(Sandbox):
                 self.file('a')
                 self.file('b')
                 self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic,
-                    destination='aws:smabafiba-tests/' + logic),), state_dir=self.root / ('state-' + logic))
+                    destination='aws:sambinha-tests/' + logic),), state_dir=self.root / ('state-' + logic))
                 self.assertEqual(self.execute(), 0)
                 self.assertEqual(self.execute(), 0)
                 self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
@@ -175,7 +175,7 @@ class S3IntegrationTests(Sandbox):
             with self.subTest(logic=logic):
                 config = replace(self.config, dry_run=True, jobs=(replace(self.config.jobs[0], logic=logic),))
                 self.assertEqual(self.execute(config), 0)
-                self.assertEqual(self.client.list_objects_v2(Bucket='smabafiba-tests').get('KeyCount'), 0)
+                self.assertEqual(self.client.list_objects_v2(Bucket='sambinha-tests').get('KeyCount'), 0)
                 self.assertFalse(self.config.state_dir.exists())
 
     def test_s3_oversized_file_and_filename_collisions_integrity(self):

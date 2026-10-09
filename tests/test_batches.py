@@ -1,8 +1,8 @@
 from dataclasses import replace
 import unittest
 
-from smabafiba.batches import plan
-from smabafiba.inventory import File
+from sambinha.batches import plan
+from sambinha.inventory import File
 
 
 def file(path, size=10):

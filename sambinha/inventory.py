@@ -62,8 +62,8 @@ def scan(root: Path) -> list[File]:
                 raise BackupError("Links simbólicos não são aceitos; origem permanece intacta")
         for name in files:
             relative = (Path(directory) / name).relative_to(root).as_posix()
-            if relative.split("/")[0] == ".smabafiba":
-                raise BackupError(".smabafiba é reservado para metadados")
+            if relative.split("/")[0] == ".sambinha":
+                raise BackupError(".sambinha é reservado para metadados")
             result.append(fingerprint(root, relative))
     return sorted(result, key=lambda f: f.path)
 

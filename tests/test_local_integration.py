@@ -9,10 +9,10 @@ import tarfile
 import unittest
 from unittest.mock import patch
 
-from smabafiba.errors import BackupError
-from smabafiba.engine import DAY
-from smabafiba.process import Runner
-from smabafiba.storage import Storage
+from sambinha.errors import BackupError
+from sambinha.engine import DAY
+from sambinha.process import Runner
+from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 
 
@@ -77,7 +77,7 @@ class LocalIntegrationTests(Sandbox):
         os.utime(target, ns=(old_time, old_time))
         self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
         self.assert_complete()
-        history = list(self.destination.glob('.smabafiba/history/version/*/file'))
+        history = list(self.destination.glob('.sambinha/history/version/*/file'))
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].read_bytes(), b'abc')
 
@@ -131,7 +131,7 @@ class LocalIntegrationTests(Sandbox):
         self.assertFalse(list(self.config.state_dir.rglob('*.7z')))
         for key, control in self.state()['active'].items():
             self.assertEqual(json.loads((mirror / (key + '.json')).read_text()), control)
-        with tarfile.open(self.destination / '.smabafiba/control.tar.gz') as tar:
+        with tarfile.open(self.destination / '.sambinha/control.tar.gz') as tar:
             recovered = json.load(tar.extractfile('state.json'))
             self.assertEqual(recovered, self.state())
             self.assertTrue(all('controls/' + key + '.json' in tar.getnames() for key in recovered['active']))
@@ -272,7 +272,7 @@ class LocalIntegrationTests(Sandbox):
         self.use_batch()
         original = Storage.put
         def fail_index(storage, source, key, **kwargs):
-            if key == '.smabafiba/control.tar.gz':
+            if key == '.sambinha/control.tar.gz':
                 raise BackupError('index failure')
             return original(storage, source, key, **kwargs)
         with patch.object(Storage, 'put', fail_index):
@@ -290,7 +290,7 @@ class LocalIntegrationTests(Sandbox):
             result = original(source, target, **kwargs)
             Path(source).write_bytes(b'changed')
             return result
-        with patch('smabafiba.engine.shutil.copy2', changed):
+        with patch('sambinha.engine.shutil.copy2', changed):
             self.assertEqual(self.execute(), 1)
         self.assertFalse(self.destination.exists())
 
@@ -337,7 +337,7 @@ class LocalIntegrationTests(Sandbox):
         uploads = 0
         def fail_second_index(storage, source, key, **kwargs):
             nonlocal uploads
-            if key == '.smabafiba/control.tar.gz':
+            if key == '.sambinha/control.tar.gz':
                 uploads += 1
                 if uploads == 2:
                     raise BackupError('cleanup index failure')
@@ -347,7 +347,7 @@ class LocalIntegrationTests(Sandbox):
         self.assertTrue(self.state()['index_pending'])
         self.assertEqual(self.execute(now=2000 + 2 * DAY), 0, self.output.getvalue())
         self.assertNotIn('index_pending', self.state())
-        with tarfile.open(self.destination / '.smabafiba/control.tar.gz') as tar:
+        with tarfile.open(self.destination / '.sambinha/control.tar.gz') as tar:
             self.assertEqual(json.load(tar.extractfile('state.json')), self.state())
         self.assert_complete()
 
@@ -370,9 +370,26 @@ class LocalIntegrationTests(Sandbox):
         self.assert_complete()
 
     def test_notifier_failure_returns_failure_but_backup_stays_complete(self):
-        from smabafiba.engine import run
+        from sambinha.engine import run
         self.file('a')
         with redirect_stdout(io.StringIO()):
             result = run(self.config, notifier=lambda *a: (_ for _ in ()).throw(BackupError('notification failed')))
         self.assertEqual(result, 1)
         self.assert_complete()
+
+    def test_previous_metadata_namespace_cannot_modify_existing_backup(self):
+        # An index from a different namespace must be refused before any remote
+        # file can be reinterpreted as a document or removed as obsolete data.
+        self.file('a', b'original')
+        self.assertEqual(self.execute(), 0)
+        state = self.state()
+        state['identity'].pop('namespace')
+        path = self.config.state_dir / 'test/state.json'
+        path.write_text(json.dumps(state))
+        before = {p.relative_to(self.destination): p.read_bytes()
+                  for p in self.destination.rglob('*') if p.is_file()}
+        self.file('a', b'changed')
+        self.assertEqual(self.execute(), 1)
+        after = {p.relative_to(self.destination): p.read_bytes()
+                 for p in self.destination.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)

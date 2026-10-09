@@ -9,7 +9,7 @@ htmlcov/
 *.cover
 logs/
 state/
-smabafiba.toml
+sambinha.toml
 # The original specification includes a private Cronitor telemetry key.
 backuper.md
 .aws/
@@ -17,4 +17,4 @@ backuper.md
 .codex/
 
 # Portable commit archive produced when .git is protected by the session.
-smabafiba.bundle
+sambinha.bundle

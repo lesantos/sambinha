@@ -1,62 +1,60 @@
-# Resultado dos testes
+# Testes do Sambinha 0.2.0
 
-Execução da revisão final em **2026-10-08**, Linux Mint, Python **3.12.3**.
+A versão 0.2.0 foi verificada em 8 de outubro de 2026, no Linux Mint, com Python 3.12.3.
 
-**87 testes aprovados, zero falhas e zero testes ignorados**, em 489.793 segundos.
+**88 testes passaram, sem falhas ou testes ignorados.** A execução completa levou 125.864 segundos e alcançou **95% de cobertura**, incluindo decisões de código.
 
-A integração HTTP está incluída nesta execução: o **rclone real** acessou um servidor **Moto** em localhost para testar o transporte S3. Nenhum teste usou AWS ou Cronitor reais.
+## O que foi conferido
 
-## Comando executado
+Os testes fazem cópias e depois recuperam os arquivos. Conferem se todos os caminhos estão presentes e se o conteúdo recuperado é igual, byte por byte, ao da origem. Essa verificação cobre cópias simples e por lotes, para pastas locais e para S3.
 
-```bash
-SMABAFIBA_HTTP_S3_TESTS=1 /tmp/smabafiba-test-env/bin/python -m coverage run --branch -m unittest discover -v
-/tmp/smabafiba-test-env/bin/python -m coverage report --include='smabafiba/*' --show-missing --fail-under=85
-```
+Para S3, foram usados o rclone real e um servidor Moto no próprio computador. A suíte também utiliza o Moto dentro do processo para testar as regras de backup sem depender da rede. Nenhum dado foi enviado à AWS ou ao Cronitor reais.
 
-## Distribuição
+Também passaram verificações de arquivos vazios, nomes com acentos e caracteres especiais, edições que preservam tamanho e data, arquivos apagados, prazos de retenção, limites dos lotes, colisões de nomes, falhas e retomada. Um teste específico confirma que o novo formato de metadados não altera backups de uma instalação anterior.
+
+Os arquivos gerados têm no máximo 100 KiB. Para testar um arquivo maior que o lote, o limite do lote é reduzido para 32 KiB. As fixtures versionadas somam somente 147 bytes; as pastas temporárias são removidas ao final.
+
+## Suítes executadas
 
 | Suíte | Testes aprovados |
 | --- | ---: |
 | `tests.test_batches` | 11 |
 | `tests.test_config` | 11 |
-| `tests.test_local_integration` | 26 |
+| `tests.test_local_integration` | 27 |
 | `tests.test_s3_http` | 10 |
 | `tests.test_s3_integration` | 10 |
 | `tests.test_services` | 19 |
 
-## Cobertura
+## Como reproduzir
 
-Cobertura total, incluindo decisões de código: **95%**. Foram executadas 663 de 687 instruções e 242 de 262 ramificações. O limite obrigatório de 85% passou.
+Após preparar o ambiente descrito no [README](../README.md):
 
-```text
-Name                     Stmts   Miss Branch BrPart  Cover   Missing
---------------------------------------------------------------------
-smabafiba/__init__.py        1      0      0      0   100%
-smabafiba/batches.py        43      0     18      0   100%
-smabafiba/cli.py            29      3      4      0    91%   34-36
-smabafiba/config.py        140      5     80      5    95%   45, 134, 140, 147, 155
-smabafiba/engine.py        257      8     92      8    95%   50->45, 73, 97-98, 146->144, 149, 152, 250, 255, 271
-smabafiba/errors.py          2      0      0      0   100%
-smabafiba/inventory.py      59      3     26      2    94%   42, 48, 58
-smabafiba/logging.py        18      0      0      0   100%
-smabafiba/notify.py         20      1      8      2    89%   15->exit, 19
-smabafiba/process.py        26      0      8      1    97%   22->exit
-smabafiba/state.py          50      2     14      2    94%   35, 41
-smabafiba/storage.py        42      2     12      0    96%   53-54
---------------------------------------------------------------------
-TOTAL                      687     24    262     20    95%
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
+.venv/bin/python -m coverage report --include='sambinha/*' --show-missing --fail-under=85
 ```
 
-## Integridade e casos de borda
+O limite mínimo de 85% de cobertura também foi atendido.
 
-As quatro combinações — simples/local, lotes/local, simples/S3 e lotes/S3 — verificam a restauração de todos os caminhos e a igualdade dos bytes com a origem. Nos lotes, cada arquivo compactado é extraído e seus membros são comparados aos controles por SHA-256 e tamanho. Também são conferidos controles remotos, espelho local e índice de recuperação.
+```text
+Name                    Stmts   Miss Branch BrPart  Cover   Missing
+-------------------------------------------------------------------
+sambinha/__init__.py        1      0      0      0   100%
+sambinha/batches.py        43      0     18      0   100%
+sambinha/cli.py            29      3      4      0    91%   34-36
+sambinha/config.py        140      5     80      5    95%   45, 134, 140, 147, 155
+sambinha/engine.py        257      8     92      8    95%   50->45, 73, 97-98, 146->144, 149, 152, 250, 255, 271
+sambinha/errors.py          2      0      0      0   100%
+sambinha/inventory.py      59      3     26      2    94%   42, 48, 58
+sambinha/logging.py        18      0      0      0   100%
+sambinha/notify.py         20      1      8      2    89%   15->exit, 19
+sambinha/process.py        26      0      8      1    97%   22->exit
+sambinha/state.py          50      2     14      2    94%   35, 41
+sambinha/storage.py        42      2     12      0    96%   53-54
+-------------------------------------------------------------------
+TOTAL                     687     24    262     20    95%
+```
 
-A suíte cobre arquivos vazios, nomes Unicode/com espaços/caracteres especiais, arquivos alterados com mesmo tamanho e data, criação/remoção, limites de tamanho/quantidade, arquivo excedente, colisões de nomes, classes S3, reuso de lotes, retenção nos limites, falhas e retomada, simulação, concorrência e configuração inválida.
+## Instalação da versão
 
-Os arquivos gerados têm no máximo **100 KiB**. O caso de arquivo excedente usa um limite de lote de 32 KiB. As fixtures versionadas contêm somente **147 bytes** de texto; os dados maiores são temporários e removidos ao final.
-
-## Pacote instalável
-
-O wheel `smabafiba-0.1.0-py3-none-any.whl` foi gerado e instalado em um ambiente Python separado. O executável instalado retornou a versão `0.1.0`; uma configuração TOML temporária executou simulação e backup real de três arquivos, com igualdade de bytes e auditoria de transferência conferidas.
-
-O GitHub Actions configura Python 3.12, instala rclone/7-Zip/Moto, exige pelo menos 85% de cobertura e executa também a integração HTTP/S3.
+O arquivo `sambinha-0.2.0-py3-none-any.whl` foi gerado e instalado em um ambiente separado. O comando `sambinha --version` retornou `0.2.0`. A configuração padrão `sambinha.toml`, a simulação e a recuperação de três arquivos por cópia simples e por lotes foram verificadas usando o executável instalado.

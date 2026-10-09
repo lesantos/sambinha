@@ -1,9 +1,9 @@
 from dataclasses import replace
 from pathlib import Path
 
-from smabafiba.cli import parser, main
-from smabafiba.config import Job, load, validate
-from smabafiba.errors import ConfigError
+from sambinha.cli import parser, main
+from sambinha.config import Job, load, validate
+from sambinha.errors import ConfigError
 from tests.helpers import Sandbox
 
 
@@ -90,6 +90,8 @@ class ConfigurationTests(Sandbox):
 
     def test_cli_missing_values_inherit_config(self):
         args = parser().parse_args([])
+        self.assertEqual(args.config, Path("sambinha.toml"))
+        self.assertEqual(parser().prog, "sambinha")
         self.assertIsNone(args.dry_run)
         self.assertIsNone(args.max_bytes)
         self.assertFalse(parser().parse_args(["--no-dry-run"]).dry_run)

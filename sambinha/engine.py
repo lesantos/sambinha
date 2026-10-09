@@ -31,7 +31,7 @@ class Context:
         self.directory = config.state_dir / job.name
         self.state_path = self.directory / "state.json"
         self.identity = {"source": str(job.source), "destination": job.destination,
-                         "type": job.type, "logic": job.logic}
+                         "type": job.type, "logic": job.logic, "namespace": ".sambinha"}
         self.state = load_state(self.state_path, self.identity)
 
     def event(self, event, **values):
@@ -78,7 +78,7 @@ def simple(ctx: Context):
             continue
         reason = "version" if item else "deleted"
         days = ctx.config.version_days if item else ctx.config.deleted_days
-        history = f".smabafiba/history/{reason}/{uuid.uuid4().hex}/{key}"
+        history = f".sambinha/history/{reason}/{uuid.uuid4().hex}/{key}"
         ctx.event("would_preserve" if ctx.config.dry_run else "preserve", path=key, reason=reason)
         if not ctx.config.dry_run:
             ctx.storage.preserve(key, history)
@@ -91,7 +91,7 @@ def simple(ctx: Context):
         for directory, _, _ in os.walk(ctx.job.destination, topdown=False):
             path = Path(directory)
             relative = path.relative_to(ctx.job.destination)
-            if ".smabafiba" not in relative.parts and not (ctx.job.source / relative).is_dir():
+            if ".sambinha" not in relative.parts and not (ctx.job.source / relative).is_dir():
                 try:
                     path.rmdir()
                 except OSError:
@@ -156,7 +156,7 @@ def compress(ctx, batch, work: Path):
 def upload_index(ctx, state):
     # The recovery archive includes the index AND all active/retired controls.
     # Index files always use STANDARD, allowing recovery without Glacier restore.
-    with tempfile.TemporaryDirectory(prefix="smabafiba-index-") as temp:
+    with tempfile.TemporaryDirectory(prefix="sambinha-index-") as temp:
         work = Path(temp)
         recovery_state = {k: v for k, v in state.items() if k != "index_pending"}
         atomic_json(work / "state.json", recovery_state)
@@ -166,8 +166,8 @@ def upload_index(ctx, state):
             controls = ctx.directory / "controls"
             if controls.exists():
                 tar.add(controls, arcname="controls")
-        transferred = ctx.storage.put(archive, ".smabafiba/control.tar.gz", standard=True)
-        ctx.event("transferred" if transferred else "identical", path=".smabafiba/control.tar.gz")
+        transferred = ctx.storage.put(archive, ".sambinha/control.tar.gz", standard=True)
+        ctx.event("transferred" if transferred else "identical", path=".sambinha/control.tar.gz")
 
 
 def batch(ctx: Context):
@@ -204,7 +204,7 @@ def batch(ctx: Context):
             continue
         # Temporary archives disappear on success AND failure. The local mirror
         # retains only small, human-readable JSON control files.
-        with tempfile.TemporaryDirectory(prefix="smabafiba-batch-") as temp:
+        with tempfile.TemporaryDirectory(prefix="sambinha-batch-") as temp:
             archive = compress(ctx, item, Path(temp))
             control_path = Path(temp) / "control.json"
             atomic_json(control_path, item.control())
@@ -219,7 +219,7 @@ def batch(ctx: Context):
     if ctx.config.dry_run:
         ctx.state = next_state
         ctx.expire()
-        ctx.event("would_transfer", path=".smabafiba/control.tar.gz")
+        ctx.event("would_transfer", path=".sambinha/control.tar.gz")
         return
     verify(ctx.job.source, ctx.files)
     # Publish the recovery index before the local commit. If upload fails, the

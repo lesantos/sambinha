@@ -9,13 +9,13 @@ import subprocess
 import tempfile
 import unittest
 
-from smabafiba.config import Config, Job, validate
-from smabafiba.engine import run
+from sambinha.config import Config, Job, validate
+from sambinha.engine import run
 
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="smabafiba-test-")
+        self.temp = tempfile.TemporaryDirectory(prefix="sambinha-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.source = self.root / "source"
@@ -47,7 +47,7 @@ class Sandbox(unittest.TestCase):
 def contents(directory):
     return {p.relative_to(directory).as_posix(): p.read_bytes()
             for p in directory.rglob("*") if p.is_file()
-            and ".smabafiba" not in p.relative_to(directory).parts}
+            and ".sambinha" not in p.relative_to(directory).parts}
 
 
 def restore_batches(state, destination, restore):

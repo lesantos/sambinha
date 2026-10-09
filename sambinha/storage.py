@@ -34,7 +34,7 @@ class Storage:
         try:
             items = json.loads(raw)
             return {safe_relative(i["Path"]): i for i in items
-                    if not i["Path"].startswith(".smabafiba/")}
+                    if not i["Path"].startswith(".sambinha/")}
         except (ValueError, KeyError, TypeError) as exc:
             raise BackupError("Inventário rclone inválido") from exc
 

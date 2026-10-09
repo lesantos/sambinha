@@ -8,7 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from smabafiba.process import Runner
+from sambinha.process import Runner
 
 
 class MotoRunner(Runner):

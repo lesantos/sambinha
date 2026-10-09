@@ -9,13 +9,13 @@ import time
 import unittest
 from urllib.request import urlopen
 
-from smabafiba.process import Runner
+from sambinha.process import Runner
 from tests import test_s3_integration as suite
 from tests.helpers import Sandbox
 
 
-@unittest.skipUnless(os.environ.get('SMABAFIBA_HTTP_S3_TESTS') == '1',
-                     'HTTP integration requires SMABAFIBA_HTTP_S3_TESTS=1 and loopback networking')
+@unittest.skipUnless(os.environ.get('SAMBINHA_HTTP_S3_TESTS') == '1',
+                     'HTTP integration requires SAMBINHA_HTTP_S3_TESTS=1 and loopback networking')
 class S3HTTPTests(suite.S3IntegrationTests):
     @classmethod
     def setUpClass(cls):

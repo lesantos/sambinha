@@ -3,10 +3,10 @@
 # Creates a private repository if absent; never force-pushes existing history.
 set -eu
 project_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-repository=lesantos/smabafiba
-bundle="$project_dir/smabafiba.bundle"
+repository=lesantos/sambinha
+bundle="$project_dir/sambinha.bundle"
 if [ ! -f "$bundle" ]; then
-  printf '%s\n' 'Missing smabafiba.bundle: use git push from an ordinary Git checkout.' >&2
+  printf '%s\n' 'Missing sambinha.bundle: use git push from an ordinary Git checkout.' >&2
   exit 1
 fi
 account=$(gh api user --jq .login)
@@ -14,7 +14,7 @@ if [ "$account" != lesantos ]; then
   printf '%s\n' 'Authenticate gh with account lesantos before publishing.' >&2
   exit 1
 fi
-publish_dir=$(mktemp -d /tmp/smabafiba-publish-XXXXXX)
+publish_dir=$(mktemp -d /tmp/sambinha-publish-XXXXXX)
 trap 'rm -rf "$publish_dir"' EXIT HUP INT TERM
 git clone --branch main "$bundle" "$publish_dir"
 git -C "$publish_dir" remote set-url origin "https://github.com/$repository.git"

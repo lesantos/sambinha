@@ -1,6 +1,6 @@
-# Smart Batch File Backuper (smabafiba)
+# Sambinha
 
-Esse arquivo define as características de um programa de backup chamado smart batch file backuper (smabafiba é o nome do executável).
+Esse arquivo define as características do Sambinha, um programa de backup cujo executável é `sambinha`.
 
 ## Requisitos não funcionais
 

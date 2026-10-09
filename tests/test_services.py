@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import URLError
 
-from smabafiba.errors import BackupError
-from smabafiba.inventory import scan, safe_relative, verify
-from smabafiba.notify import notify
-from smabafiba.process import Runner
-from smabafiba.state import atomic_json, load_state, lock
-from smabafiba.storage import Storage
+from sambinha.errors import BackupError
+from sambinha.inventory import scan, safe_relative, verify
+from sambinha.notify import notify
+from sambinha.process import Runner
+from sambinha.state import atomic_json, load_state, lock
+from sambinha.storage import Storage
 from tests.helpers import Sandbox
 
 
@@ -78,7 +78,7 @@ class InventoryStateTests(Sandbox):
         for value in ('../x', '/x', 'a/../x', 'a\nb', '', 'a//b'):
             with self.subTest(value=value), self.assertRaises(BackupError):
                 safe_relative(value)
-        self.file('.smabafiba/private')
+        self.file('.sambinha/private')
         with self.assertRaises(BackupError):
             scan(self.source)
 
@@ -170,11 +170,11 @@ class StorageTests(Sandbox):
     def test_idempotent_delete_uses_literal_paths_without_shell(self):
         runner = Mock()
         storage = Storage(self.config.jobs[0], self.config, runner)
-        storage.delete('.smabafiba/history/a/[wild]*?.txt')
+        storage.delete('.sambinha/history/a/[wild]*?.txt')
         args = runner.run.call_args.args[0]
         self.assertEqual(args[1], 'delete')
         self.assertIn('--files-from-raw', args)
-        self.assertEqual(runner.run.call_args.kwargs['input'], '.smabafiba/history/a/[wild]*?.txt\n')
+        self.assertEqual(runner.run.call_args.kwargs['input'], '.sambinha/history/a/[wild]*?.txt\n')
 
     def test_copy_reports_actual_transfer_or_identical_skip(self):
         runner = Mock()

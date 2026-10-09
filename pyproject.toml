@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "smabafiba"
-version = "0.1.0"
-description = "Smart batch file backups with rclone and 7-Zip"
+name = "sambinha"
+version = "0.2.0"
+description = "Backups locais e S3 com cópias simples ou lotes compactados"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -13,7 +13,7 @@ authors = [{name = "Leandro Santos"}]
 dependencies = []
 
 [project.scripts]
-smabafiba = "smabafiba.cli:main"
+sambinha = "sambinha.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["smabafiba*"]
+include = ["sambinha*"]
