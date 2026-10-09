@@ -7,10 +7,10 @@ O [README](../README.md) apresenta a primeira cópia. Este guia detalha os ajust
 Todos os parâmetros operacionais têm overrides CLI; opções omitidas herdam o TOML:
 
 ```bash
-python3 -m sambinha --job documents-s3 --max-bytes 102400 --max-files 10 --dry-run
-python3 -m sambinha --job documents-local --deleted-days 30 --version-days 7
-python3 -m sambinha --config /caminho/outro.toml --job documents-local --destination /mnt/backup
-python3 -m sambinha --help
+.venv/bin/python -m sambinha --job documents-s3 --max-bytes 102400 --max-files 10 --dry-run
+.venv/bin/python -m sambinha --job documents-local --deleted-days 30 --version-days 7
+.venv/bin/python -m sambinha --config /caminho/outro.toml --job documents-local --destination /mnt/backup
+.venv/bin/python -m sambinha --help
 ```
 
 `--source`, `--destination`, `--type` e `--logic` exigem um único job selecionado. `--no-dry-run` sobrepõe simulação habilitada no TOML. Tipos: `local`, `s3`. Lógicas: `simple`, `batch`. Compactação: `7z` ou `zip`; `compressor` aceita `7z`, `7zz` ou outro executável compatível com a CLI do 7-Zip.

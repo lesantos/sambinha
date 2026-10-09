@@ -265,7 +265,8 @@ def preflight(config, runner):
                 ["--config", config.rclone_config] if config.rclone_config else [])])
             remotes = json.loads(raw)
             remote = job.destination.split(":", 1)[0]
-            backend = os.environ.get("RCLONE_CONFIG_" + remote.upper() + "_TYPE",
+            environment = os.environ if config.environment is None else config.environment
+            backend = environment.get("RCLONE_CONFIG_" + remote.upper() + "_TYPE",
                                      remotes.get(remote, {}).get("type", ""))
             if backend != "s3":
                 raise BackupError(f"Remote {remote} precisa ser do tipo s3")
@@ -273,7 +274,7 @@ def preflight(config, runner):
 
 
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int:
-    runner = runner or Runner(config.timeout)
+    runner = runner or Runner(config.timeout, env=config.environment)
     log = RunLog(config.log_dir)
     failed = False
     def telemetry(state):

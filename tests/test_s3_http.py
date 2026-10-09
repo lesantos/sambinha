@@ -7,9 +7,11 @@ import socket
 import subprocess
 import time
 import unittest
+from unittest.mock import patch
 from urllib.request import urlopen
 
 from sambinha.process import Runner
+from sambinha.config import load
 from tests import test_s3_integration as suite
 from tests.helpers import Sandbox
 
@@ -64,3 +66,29 @@ class S3HTTPTests(suite.S3IntegrationTests):
             f'endpoint={self.endpoint}\nforce_path_style=true\n')
         self.config = replace(self.config, rclone_config=str(rclone_config))
         self.runner = Runner()
+
+    def test_secrets_supply_remote_and_credentials_to_real_rclone(self):
+        self.fixture()
+        # A remote declared entirely in dotenv verifies both preflight and the
+        # real rclone subprocess use the configuration's private environment.
+        rclone_config = self.root / 'rclone.conf'
+        rclone_config.write_text('')
+        (self.root / 'secrets.env').write_text(
+            'RCLONE_CONFIG_AWS_TYPE=s3\nRCLONE_CONFIG_AWS_PROVIDER=Other\n'
+            'RCLONE_CONFIG_AWS_REGION=us-east-1\nRCLONE_CONFIG_AWS_ENV_AUTH=true\n'
+            f'RCLONE_CONFIG_AWS_ENDPOINT={self.endpoint}\n'
+            'RCLONE_CONFIG_AWS_FORCE_PATH_STYLE=true\n'
+            'AWS_ACCESS_KEY_ID=testing\nAWS_SECRET_ACCESS_KEY=PRIVATE-S3-SECRET\n')
+        path = self.root / 'config.toml'
+        path.write_text('[backup]\nsecrets_file="secrets.env"\n'
+            'rclone_config="rclone.conf"\ncronitor_url=""\n'
+            '[[jobs]]\nname="test"\nsource="source"\n'
+            'type="s3"\ndestination="aws:sambinha-tests/backup"\n')
+        inherited = {k: v for k, v in os.environ.items()
+                     if not k.startswith(('AWS_', 'RCLONE_'))}
+        with patch.dict(os.environ, inherited, clear=True):
+            self.config = load(path)
+            self.assertEqual(Sandbox.execute(self), 0, self.output.getvalue())
+            self.assertNotIn('AWS_SECRET_ACCESS_KEY', os.environ)
+        self.assert_complete()
+        self.assertNotIn('PRIVATE-S3-SECRET', self.output.getvalue())

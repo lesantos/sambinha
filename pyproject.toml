@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [{name = "Leandro Santos"}]
-dependencies = []
+dependencies = ["python-dotenv>=1.0,<2"]
 
 [project.scripts]
 sambinha = "sambinha.cli:main"

@@ -7,6 +7,7 @@ import tomllib
 from urllib.parse import urlsplit
 
 from .errors import ConfigError
+from .secrets import expand, read_environment
 
 STORAGE_CLASSES = {"STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING",
                    "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"}
@@ -34,16 +35,18 @@ class Config:
     deleted_days: int = 10
     version_days: int = 2
     dry_run: bool = False
-    cronitor_url: str = ""
+    cronitor_url: str = field(default="", repr=False)
     rclone: str = "rclone"
     rclone_config: str = ""
     timeout: int = 3600
+    secrets_file: Path | None = None
+    environment: dict[str, str] | None = field(default=None, repr=False, compare=False)
 
 
-def local_path(value, base):
+def local_path(value, base, environment=None):
     if not isinstance(value, str) or not value:
         raise ConfigError("Caminho deve ser uma string não vazia")
-    path = Path(os.path.expandvars(value)).expanduser()
+    path = Path(expand(value, os.environ if environment is None else environment)).expanduser()
     return (base / path).resolve() if not path.is_absolute() else path.resolve()
 
 
@@ -67,6 +70,8 @@ def validate(config: Config) -> Config:
         raise ConfigError("rclone deve indicar um executável")
     if not isinstance(config.rclone_config, str):
         raise ConfigError("rclone_config deve ser uma string")
+    if config.secrets_file is not None and not isinstance(config.secrets_file, Path):
+        raise ConfigError("secrets_file deve indicar um caminho")
     seen = set()
     destinations = []
     for job in config.jobs:
@@ -122,7 +127,7 @@ def load(path: Path, overrides: dict | None = None) -> Config:
             raise ConfigError("Seções desconhecidas no TOML")
         global_values = dict(data.get("backup", {}))
         job_keys = set(Job.__dataclass_fields__)
-        config_keys = set(Config.__dataclass_fields__) - {"jobs"}
+        config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"}
         if set(global_values) - config_keys:
             raise ConfigError("Parâmetros desconhecidos em [backup]")
         raw_jobs = data.get("jobs", [])
@@ -134,12 +139,22 @@ def load(path: Path, overrides: dict | None = None) -> Config:
             raise ConfigError("Override desconhecido")
         global_values.update({k: v for k, v in overrides.items() if k in config_keys})
         base = path.resolve().parent
+        environment = dict(os.environ)
+        secrets_file = global_values.get("secrets_file")
+        if secrets_file is not None and secrets_file != "":
+            secrets_file = local_path(secrets_file, base, environment)
+            environment = read_environment(secrets_file, environment)
+        else:
+            secrets_file = None
+        global_values["secrets_file"] = secrets_file
+        # Only a configured secrets file needs a private subprocess environment.
+        global_values["environment"] = environment if secrets_file is not None else None
         for name in ("state_dir", "log_dir"):
-            global_values[name] = local_path(global_values.get(name, "state" if name == "state_dir" else "logs"), base)
+            global_values[name] = local_path(global_values.get(name, "state" if name == "state_dir" else "logs"), base, environment)
         if global_values.get("rclone_config"):
-            global_values["rclone_config"] = str(local_path(global_values["rclone_config"], base))
-        global_values["cronitor_url"] = os.path.expandvars(
-            global_values.get("cronitor_url", os.environ.get("CRONITOR_URL", "")))
+            global_values["rclone_config"] = str(local_path(global_values["rclone_config"], base, environment))
+        global_values["cronitor_url"] = expand(
+            global_values.get("cronitor_url", environment.get("CRONITOR_URL", "")), environment)
         jobs = []
         for raw in raw_jobs:
             raw = dict(raw)
@@ -148,9 +163,9 @@ def load(path: Path, overrides: dict | None = None) -> Config:
             if selected and raw.get("name") != selected:
                 continue
             raw.update({k: v for k, v in overrides.items() if k in job_keys})
-            raw["source"] = local_path(raw["source"], base)
+            raw["source"] = local_path(raw["source"], base, environment)
             if raw.get("type", "local") == "local":
-                raw["destination"] = str(local_path(raw["destination"], base))
+                raw["destination"] = str(local_path(raw["destination"], base, environment))
             else:
                 raw["destination"] = raw["destination"].rstrip("/")
             jobs.append(Job(**raw))

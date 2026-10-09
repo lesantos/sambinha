@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from sambinha.errors import BackupError
+from sambinha.config import load
 from sambinha.engine import DAY
 from sambinha.process import Runner
 from sambinha.storage import Storage
@@ -393,3 +394,19 @@ class LocalIntegrationTests(Sandbox):
         after = {p.relative_to(self.destination): p.read_bytes()
                  for p in self.destination.rglob('*') if p.is_file()}
         self.assertEqual(before, after)
+
+    def test_secrets_file_backup_roundtrip_keeps_values_out_of_logs(self):
+        self.file('file', b'original')
+        (self.root / 'secrets.env').write_text(
+            'AWS_SECRET_ACCESS_KEY=PRIVATE-TEST-SECRET\n'
+            'CRONITOR_URL=https://cronitor.link/p/PRIVATE-TEST-TOKEN/monitor\n')
+        path = self.root / 'config.toml'
+        path.write_text('[backup]\nsecrets_file="secrets.env"\n'
+            '[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n')
+        self.assertEqual(self.execute(load(path)), 0, self.output.getvalue())
+        self.assert_complete()
+        self.assertEqual(self.notifications[0][0],
+                         'https://cronitor.link/p/PRIVATE-TEST-TOKEN/monitor')
+        for log in self.config.log_dir.glob('*.jsonl'):
+            self.assertNotIn('PRIVATE-TEST-SECRET', log.read_text())
+            self.assertNotIn('PRIVATE-TEST-TOKEN', log.read_text())

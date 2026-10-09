@@ -79,7 +79,7 @@ O terminal mostrará o que seria feito. A simulação grava o relatório, mas n�
 
 Para atualizar o backup depois de mudar seus arquivos, execute o mesmo comando novamente. Os arquivos iguais serão identificados e não precisarão ser enviados outra vez. Os relatórios ficam na pasta `logs` e registram começo, fim, arquivos copiados, arquivos já iguais e possíveis erros.
 
-Se você preferir executar diretamente a partir do código, pode usar `python3 -m sambinha` no lugar de `.venv/bin/sambinha`.
+Se você preferir executar diretamente a partir do código, pode usar `.venv/bin/python -m sambinha` no lugar de `.venv/bin/sambinha`.
 
 ## Leve uma cópia para a nuvem
 
@@ -88,6 +88,28 @@ Quando o backup local estiver funcionando, você pode adicionar outra tarefa par
 Para o S3, você precisará de uma conta AWS, de um **bucket** — o espaço onde os arquivos serão guardados — e de uma configuração do rclone que indique a região e como acessar essa conta. O [guia de S3 e credenciais](docs/s3.md) conduz essa preparação e mostra como manter senhas e tokens fora do Git. O arquivo `sambinha.toml` fica fora dos arquivos versionados, mas os exemplos públicos também devem permanecer sem segredos.
 
 O padrão de armazenamento é `GLACIER_IR`, uma modalidade para dados pouco acessados, com recuperação imediata. Ela pode cobrar pela recuperação e pela exclusão antes do prazo mínimo de armazenamento. As modalidades mais frias exigem uma etapa de restauração na AWS antes de baixar os arquivos. O guia explica essas diferenças para que você escolha a opção adequada, em vez de considerar apenas o preço para guardar os dados.
+
+## Deixe as credenciais em um arquivo privado
+
+Para não precisar carregar as variáveis no terminal toda vez, você pode indicar um arquivo de credenciais no `sambinha.toml`. Acrescente estas linhas à seção `[backup]` que já existe:
+
+```toml
+secrets_file = "~/.config/sambinha/secrets.env"
+cronitor_url = "${CRONITOR_URL}"
+```
+
+Crie esse arquivo fora da pasta do projeto. Ele pode conter o nome de um perfil AWS que você já configurou e a URL do Cronitor:
+
+```bash
+export AWS_PROFILE='sambinha'
+export CRONITOR_URL='https://cronitor.link/p/SEU_TOKEN/SEU_MONITOR'
+```
+
+Proteja o arquivo com `chmod 600 ~/.config/sambinha/secrets.env`, para que apenas sua conta possa lê-lo e alterá-lo. O [guia de credenciais](docs/s3.md#arquivo-privado-de-variáveis) também mostra como usar chaves AWS diretamente, caso você não tenha um perfil configurado.
+
+Depois disso, execute o comando de backup normalmente. O Sambinha lê o arquivo antes de interpretar os caminhos e iniciar o rclone; você não precisa executar `source`. Se uma variável já estiver definida no terminal, ela tem prioridade. Se o arquivo indicado não existir ou contiver um erro, o programa para antes do backup e informa o problema sem mostrar os valores privados.
+
+O arquivo é lido como dados, sem executar comandos. Você pode usar aspas, comentários e a palavra opcional `export`. Os valores nele são literais; para referenciar uma variável na configuração, use `${NOME}` no TOML, como no exemplo do Cronitor. Caminhos relativos de `secrets_file` partem da pasta do TOML. A opção `--secrets-file CAMINHO` permite escolher outro arquivo naquela execução.
 
 ## Como recuperar um arquivo
 

@@ -16,7 +16,7 @@ def parser():
     result.add_argument("--job", help="Executar apenas o job nomeado")
     result.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=None)
     for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
-                 "state_dir", "log_dir", "cronitor_url", "rclone", "rclone_config"):
+                 "state_dir", "log_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file"):
         result.add_argument("--" + name.replace("_", "-"), default=None)
     for name in ("deleted_days", "version_days", "max_bytes", "max_files", "timeout"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=None)

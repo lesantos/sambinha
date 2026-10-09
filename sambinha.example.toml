@@ -9,7 +9,12 @@ rclone = "rclone"
 # Point to a rclone configuration; empty uses ~/.config/rclone/rclone.conf.
 rclone_config = "./rclone.example.conf"
 timeout = 3600
-# Set CRONITOR_URL in the environment; never commit the credential-bearing URL.
+# Optional private dotenv file; ~ and inherited variables work in its path.
+# Relative paths start at the directory of this TOML, not the working directory.
+# secrets_file = "~/.config/sambinha/secrets.env"
+# Already-exported terminal variables take precedence over file values.
+# The file is read as data, not executed; a missing/invalid file stops execution.
+# Set CRONITOR_URL in the file/environment; never commit the credential-bearing URL.
 # With this line omitted, CRONITOR_URL is also read automatically.
 # cronitor_url = "${CRONITOR_URL}"
 

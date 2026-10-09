@@ -1,3 +1,3 @@
-# No Python dependencies are needed at runtime; these support tests only.
+# Install the application too; these dependencies support tests only.
 moto[s3,server]>=5.0,<6
 coverage>=7.6,<8
