@@ -12,6 +12,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ExampleTests(unittest.TestCase):
+    def test_english_and_brazilian_portuguese_examples_have_identical_settings(self):
+        from configparser import ConfigParser
+        import tomllib
+        self.assertEqual(tomllib.loads((ROOT / 'sambinha.example.toml').read_text()),
+                         tomllib.loads((ROOT / 'sambinha.example.pt-BR.toml').read_text()))
+        configs = []
+        for name in ('rclone.example.conf', 'rclone.example.pt-BR.conf'):
+            config = ConfigParser()
+            config.read(ROOT / name)
+            configs.append({section: dict(config[section]) for section in config.sections()})
+        self.assertEqual(*configs)
+        self.assertEqual(read_environment(ROOT / 'secrets.example.env', {}),
+                         read_environment(ROOT / 'secrets.example.pt-BR.env', {}))
+
+    def test_every_maintained_markdown_guide_has_reciprocal_language_links(self):
+        paths = [ROOT / n for n in ('README.md', 'CHANGELOG.md', 'SECURITY.md')]
+        if (ROOT / 'backuper.md').exists():
+            paths.append(ROOT / 'backuper.md')
+        paths += list((ROOT / 'docs').glob('*.md'))
+        for path in paths:
+            if '.pt-BR.' in path.name:
+                continue
+            counterpart = path.with_name(path.stem + '.pt-BR.md')
+            with self.subTest(path=path):
+                self.assertTrue(counterpart.is_file())
+                self.assertIn('(' + counterpart.name + ')', path.read_text())
+                self.assertIn('(' + path.name + ')', counterpart.read_text())
+        self.assertIn('Local', (ROOT / 'README.md').read_text())
+
     def test_all_public_options_present_even_when_commented(self):
         section, global_keys, job_keys = None, set(), []
         for line in (ROOT / 'sambinha.example.toml').read_text().splitlines():

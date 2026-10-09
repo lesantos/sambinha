@@ -4,18 +4,25 @@ import os
 import re
 import subprocess
 import time
+from configparser import ConfigParser, Error as ConfigParserError
 
 from .errors import BackupError
 
-_CREDENTIAL = re.compile(r"SECRET|TOKEN|PASSWORD|ACCESS_KEY|(?:^|_)KEY(?:$|_)|CRONITOR_URL", re.I)
+_CREDENTIAL = re.compile(r"SECRET|TOKEN|PASSWORD|(?:^|_)PASS(?:$|_)|ACCESS_KEY|(?:^|_)KEY(?:$|_)|CREDENTIAL|AUTHORIZATION|CRONITOR_URL", re.I)
+
+
+def credential_values(environment):
+    return {value for key, value in environment.items()
+            if isinstance(value, str) and value and _CREDENTIAL.search(key)}
 
 
 class Runner:
-    def __init__(self, timeout=3600, sleep=time.sleep, env=None):
+    def __init__(self, timeout=3600, sleep=time.sleep, env=None, secrets=()):
         self.timeout = timeout
         self.sleep = sleep
         self.last_stderr = None
         self.env = env
+        self.secrets = tuple(value for value in secrets if value)
 
     def require(self, programs):
         search_path = self.env.get("PATH", os.defpath) if self.env is not None else None
@@ -23,13 +30,35 @@ class Runner:
         if missing:
             raise BackupError("Dependências ausentes: " + ", ".join(missing))
 
+    def load_config_secrets(self, path):
+        if not path:
+            return
+        config = ConfigParser(interpolation=None, strict=False)
+        try:
+            with open(path, encoding="utf-8") as stream:
+                # Encrypted rclone files contain ciphertext rather than INI.
+                # Leave decryption to rclone and redact its environment key.
+                if stream.readline().startswith("RCLONE_ENCRYPT_"):
+                    return
+                stream.seek(0)
+                config.read_file(stream)
+            values = set(self.secrets)
+            for section in config.sections():
+                values.update(credential_values(dict(config[section])))
+            self.secrets = tuple(values)
+        except (OSError, UnicodeError, ConfigParserError):
+            raise BackupError("Configuração rclone ausente ou inválida; confira o arquivo privado") from None
+
     def safe_error(self, message):
         # Backends can echo credential identifiers in errors. Remove known
         # credential values before errors reach execution logs or the CLI.
         environment = os.environ if self.env is None else self.env
-        values = {value for key, value in environment.items() if value and _CREDENTIAL.search(key)}
+        values = credential_values(environment)
+        values.update(self.secrets)
         for value in sorted(values, key=len, reverse=True):
             message = message.replace(value, "[REDACTED]")
+        message = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[REDACTED]@", message)
+        message = re.sub(r"(https://cronitor\.link/p/)[^\s?]+", r"\1[REDACTED]", message)
         return message
 
     def run(self, args, *, cwd=None, retry=False, input=None):

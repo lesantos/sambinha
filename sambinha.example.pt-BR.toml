@@ -1,0 +1,107 @@
+# Português do Brasil. English: sambinha.example.toml
+# Caminhos são relativos a ESTE arquivo; ~ e variáveis de ambiente funcionam.
+[backup]
+state_dir = "./state"
+log_dir = "./logs"
+deleted_days = 10
+version_days = 2
+# Aviso consultivo do Cronitor acima desta quantidade de exclusões definitivas previstas.
+# Não interrompe o backup nem muda prazos; execute diariamente para receber aviso prévio.
+deletion_alert_threshold = 1000
+# Verificação só por metadados no S3; localmente lê o conteúdo do backup.
+# 0 desativa a agenda; use 7 para verificar semanalmente durante os backups.
+verify_interval_days = 0
+# P1: reutiliza hashes apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais.
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+# P2: listas literais limitadas e transferências concorrentes em um processo rclone.
+transfer_group_size = 100
+transfer_workers = 4
+# P4: cada worker tem temporários, estado de subprocesso e uploads próprios.
+batch_workers = 2
+dry_run = false
+rclone = "rclone"
+# Indique a configuração do rclone; vazio usa ~/.config/rclone/rclone.conf.
+rclone_config = "./rclone.example.conf"
+timeout = 3600
+# Arquivo dotenv privado opcional; ~ e variáveis herdadas funcionam no caminho.
+# Caminhos relativos partem da pasta deste TOML, independentemente da pasta de execução.
+# secrets_file = "~/.config/sambinha/secrets.env"
+# Variáveis já exportadas no terminal têm prioridade sobre as do arquivo.
+# O arquivo é lido como dados, sem execução; ausente/inválido interrompe o programa.
+# Defina CRONITOR_URL no arquivo/ambiente; nunca versione a URL com credenciais.
+# Sem esta linha, CRONITOR_URL também é lida automaticamente.
+# cronitor_url = "${CRONITOR_URL}"
+
+# A mesma origem pode ter tarefas/destinos/estratégias independentes.
+[[jobs]]
+name = "documents-local"
+source = "~/Documents"
+destination = "~/Backups/documents-simple"
+type = "local"
+logic = "simple"
+# Configurações de lotes, se esta tarefa mudar para logic = "batch".
+# max_bytes = 1073741824
+# max_files = 1000
+# compressor = "7z"
+# archive_format = "7z"
+# Configuração S3; não afeta destinos locais.
+# storage_class = "GLACIER_IR"
+# Padrões nativos de exclusão do rclone; caminhos são relativos a este TOML.
+# exclude_files = "./excludes.txt"
+# Fixe os volumes esperados (montados e não vazios), quando aplicável.
+# source_mount = "/mnt/dados"
+# destination_mount = "/mnt/backup"
+# Bloqueia remoções >50% quando o índice anterior selecionado tem pelo menos 20 arquivos.
+max_delete_percent = 50
+deletion_min_files = 20
+# P6 separado por categoria. Níveis 0..9; threads 1..64. Aplica a lotes novos.
+compression_text_level = 3
+compression_text_threads = 2
+compression_video_level = 0
+compression_video_threads = 1
+compression_photo_level = 1
+compression_photo_threads = 1
+compression_other_level = 3
+compression_other_threads = 2
+
+[[jobs]]
+name = "documents-s3"
+source = "~/Documents"
+# aws é o remote de rclone.example.conf; crie o bucket primeiro.
+# Cada tarefa deve ter prefixo exclusivo. O nome do bucket deve ser globalmente único.
+destination = "aws:YOUR-BUCKET/documents-batches"
+type = "s3"
+logic = "batch"
+# Padrões nativos de exclusão, opcionais também nesta tarefa.
+# exclude_files = "./excludes.txt"
+# Volume montado esperado na origem, quando aplicável.
+# source_mount = "/mnt/dados"
+# S3 não tem montagem local de destino; deixe vazio ou omita.
+# destination_mount = ""
+max_bytes = 1073741824 # 1 GiB de bytes originais, sem compactação
+max_files = 1000
+compressor = "7z" # ou 7zz, qualquer executável que implemente a CLI do 7-Zip
+archive_format = "7z" # 7z ou zip
+# Padrão frio: GLACIER_IR, acesso imediato, cobrança de recuperação, mínimo de 90 dias
+# de duração faturada e tamanho mínimo faturado de 128 KiB por objeto.
+# GLACIER: armazenamento mais barato, restore assíncrono, mínimo de 90 dias.
+# DEEP_ARCHIVE: menor preço de arquivo frio, horas para restaurar, mínimo de 180 dias.
+# STANDARD: acesso imediato, maior preço de armazenamento, sem prazo mínimo de arquivo frio.
+# STANDARD_IA/ONEZONE_IA: recuperação cobrada, mínimo de 30 dias; ONEZONE usa uma zona.
+# INTELLIGENT_TIERING: camadas automáticas, taxa de monitoramento (consulte a AWS).
+# Controles e arquivo de recuperação do índice sempre usam STANDARD.
+# Retenção de 2/10 dias pode gerar cobrança por exclusão antecipada em classes frias.
+# Não há preços fixos: custo depende de região, volume e operações de API.
+# Veja https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
+storage_class = "GLACIER_IR"
+max_delete_percent = 50
+deletion_min_files = 20
+compression_text_level = 3
+compression_text_threads = 2
+compression_video_level = 0
+compression_video_threads = 1
+compression_photo_level = 1
+compression_photo_threads = 1
+compression_other_level = 3
+compression_other_threads = 2

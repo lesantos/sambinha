@@ -37,6 +37,10 @@ class MotoRunner(Runner):
         if operation == 'copyto':
             self.last_stderr = '{"msg":"Copied (new)"}'
             source, target = args[2:4]
+            if target.startswith('/'):
+                bucket, key = self.split(source)
+                Path(target).write_bytes(self.client.get_object(Bucket=bucket, Key=key)['Body'].read())
+                return ''
             bucket, key = self.split(target)
             storage_class = args[args.index('--s3-storage-class') + 1]
             if ':' in source and not source.startswith('/'):
@@ -49,6 +53,15 @@ class MotoRunner(Runner):
                 self.client.put_object(Bucket=bucket, Key=key, Body=payload, StorageClass=storage_class,
                                        Metadata={'mtime': f'{ns // 1000000000}.{ns % 1000000000:09d}'})
             return ''
+        if operation == 'copy':
+            reports = []
+            for name in kwargs['input'].splitlines():
+                command = [args[0], 'copyto', str(Path(args[2]) / name), args[3].rstrip('/') + '/' + name,
+                           '--s3-storage-class', args[args.index('--s3-storage-class') + 1]]
+                self.run(command)
+                reports.append(json.dumps({'msg': 'Copied (new)', 'object': name}))
+            self.last_stderr = '\n'.join(reports)
+            return ''
         if operation == 'delete':
             bucket, prefix = self.split(args[2])
             key = prefix.rstrip('/') + '/' + kwargs['input'].strip()
@@ -56,6 +69,16 @@ class MotoRunner(Runner):
             return ''
         if operation == 'lsjson':
             bucket, prefix = self.split(args[2])
+            if '--stat' in args:
+                obj = self.client.head_object(Bucket=bucket, Key=prefix)
+                mtime = obj.get('Metadata', {}).get('mtime')
+                if mtime:
+                    seconds, _, fraction = mtime.partition('.')
+                    modified = datetime.fromtimestamp(int(seconds), timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + '.' + fraction.ljust(9, '0') + 'Z'
+                else:
+                    modified = obj['LastModified'].isoformat()
+                return json.dumps({'Path': prefix.rsplit('/', 1)[-1], 'Size': obj['ContentLength'],
+                                   'ModTime': modified, 'Hashes': {'md5': obj['ETag'].strip('"')}})
             prefix = prefix.rstrip('/') + '/' if prefix else ''
             items = []
             for page in self.client.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=prefix):

@@ -50,9 +50,22 @@ class ConfigurationTests(Sandbox):
     def test_invalid_job_values(self):
         for values in ({"name": "../bad"}, {"type": "ftp"}, {"logic": "unknown"},
                        {"storage_class": "wrong"}, {"max_bytes": 0}, {"max_files": 1},
-                       {"compressor": ""}, {"archive_format": "rar"}, {"destination": ""}):
+                       {"compressor": ""}, {"archive_format": "rar"}, {"destination": ""},
+                       {"max_delete_percent": 101}, {"max_delete_percent": float('nan')},
+                       {"deletion_min_files": 0}, {"compression_video_level": 10},
+                       {"compression_text_threads": 65}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, jobs=(replace(self.config.jobs[0], **values),)))
+
+    def test_invalid_new_global_values_and_cli_actions(self):
+        for values in ({'verify_interval_days': -1}, {'fingerprint_cache': 'yes'},
+                       {'fingerprint_full_scan_days': 0}, {'transfer_group_size': 0},
+                       {'transfer_workers': True}, {'batch_workers': 0}):
+            with self.subTest(values=values), self.assertRaises(ConfigError):
+                validate(replace(self.config, **values))
+        self.assertEqual(parser().parse_args(['restore', '--job', 'test', '--output', '/tmp/restored']).action, 'restore')
+        self.assertEqual(parser().parse_args(['verify']).action, 'verify')
+        self.assertFalse(parser().parse_args(['--no-fingerprint-cache']).fingerprint_cache)
 
     def test_destination_and_internal_overlap(self):
         for dest in (self.source, self.source / "backup", self.root, self.config.state_dir):

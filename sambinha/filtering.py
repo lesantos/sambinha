@@ -60,6 +60,7 @@ def path_groups(paths):
 class Selection:
     def __init__(self, exclude_file, config, runner):
         self.exclude_file, self.config, self.runner = exclude_file, config, runner
+        self._included = {}
 
     def listing(self, root, files_only=False):
         arguments = [self.config.rclone, "lsjson", str(root), "--recursive",
@@ -89,6 +90,9 @@ class Selection:
         paths = set(paths)
         if not self.exclude_file or not paths:
             return paths
+        cache_key = frozenset(paths)
+        if cache_key in self._included:
+            return set(self._included[cache_key])
         included = set()
         # Zero-byte local names let rclone classify paths no longer present in
         # the source, using identical glob semantics and no remote downloads.
@@ -100,4 +104,5 @@ class Selection:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.touch()
                 included.update(item["Path"] for item in self.listing(root, files_only=True))
+        self._included[cache_key] = frozenset(included)
         return included

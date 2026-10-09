@@ -1,5 +1,6 @@
 """Backup orchestration, extensible strategies and retention transactions."""
 from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 import os
@@ -14,14 +15,16 @@ from .batches import plan
 from .config import Config, Job
 from .errors import BackupError
 from .filtering import Selection, retired_paths, frozen_rules
-from .inventory import scan, verify
+from .inventory import fingerprint, scan, verify
 from .logging import RunLog
 from .notify import notify
-from .process import Runner
+from .process import Runner, credential_values
 from .protection import protect_newer, timestamp_ns
 from .retention import DeletionForecast, retirement, alert_time, date
 from .mounts import check_mounts
 from .state import atomic_json, load_state, lock
+from .disks import check_disks
+from .profiles import category, settings
 from .storage import Storage
 
 DAY = 86400
@@ -40,9 +43,47 @@ class Context:
         self.identity = {"source": str(job.source), "destination": job.destination,
                          "type": job.type, "logic": job.logic, "namespace": ".sambinha"}
         self.state = load_state(self.state_path, self.identity)
+        self.metrics = {"reused_batches": 0, "rebuilt_batches": 0,
+                        "bytes_planned": 0, "bytes_transferred": 0}
+        self.reused_batches = set()
+        self.file_sizes = {f.path: f.size for f in files}
+        self.before_files = ({p: f for p, f in self.state["active"].items()} if job.logic == "simple" else
+                             {f["path"]: f for c in self.state["active"].values() for f in c["files"]})
+        self.removed = []
+        self.inventory_changed = False
 
     def event(self, event, **values):
+        if event in {"batch_start", "would_batch"}:
+            self.metrics["rebuilt_batches"] += 1
+            self.metrics["bytes_planned"] += values["bytes"]
+        elif event in {"transfer_start", "would_transfer"} and values.get("path") in self.file_sizes:
+            self.metrics["bytes_planned"] += self.file_sizes[values["path"]]
+        elif event == "identical" and "archive" in values:
+            self.reused_batches.add(values["archive"])
+            self.metrics["reused_batches"] = len(self.reused_batches)
+        elif event == "transferred":
+            self.metrics["bytes_transferred"] += values.get("bytes", 0)
         self.log.event(event, job=self.job.name, **values)
+
+    def protect_deletions(self, allowed=False):
+        included = self.selection.include_paths(self.before_files)
+        self.removed = sorted(included - self.file_sizes.keys())
+        if (not allowed and len(included) >= self.job.deletion_min_files
+                and len(self.removed) * 100 > len(included) * self.job.max_delete_percent):
+            self.event("mass_deletion_blocked", removed_files=len(self.removed),
+                       previous_files=len(included), threshold_percent=self.job.max_delete_percent,
+                       paths=self.removed)
+            raise BackupError(f"Remoções em massa bloqueadas: {len(self.removed)} de {len(included)} arquivos; "
+                              "confira a origem e use --allow-mass-deletion apenas para remoções intencionais")
+
+    def summary(self, success):
+        current = {f.path: f.metadata() for f in self.files}
+        self.event("summary", success=success, dry_run=self.config.dry_run,
+                   total_files=len(current), new_files=len(current.keys() - self.before_files.keys()),
+                   modified_files=sum(p in self.before_files and f != self.before_files[p]
+                                      for p, f in current.items()), removed_files=len(self.removed),
+                   unchanged_files=sum(f == self.before_files.get(p) for p, f in current.items()),
+                   pending_deletions=sum(len(r.get("files", [])) for r in self.state["retired"]), **self.metrics)
 
     def save(self):
         atomic_json(self.state_path, self.state)
@@ -131,6 +172,7 @@ def simple(ctx: Context):
                     path.rmdir()
                 except OSError:
                     pass
+    pending = []
     for item in ctx.files:
         remote = destination.get(item.path, {})
         hashes = remote.get("Hashes", {})
@@ -138,12 +180,21 @@ def simple(ctx: Context):
             continue
         ctx.event("would_transfer" if ctx.config.dry_run else "transfer_start", path=item.path)
         if not ctx.config.dry_run:
-            verify(ctx.job.source, [item])
-            transferred = ctx.storage.put(ctx.job.source / item.path, item.path,
-                                          protected_mtime_ns=item.mtime_ns)
-            verify(ctx.job.source, [item])
+            pending.append(item)
+    for start in range(0, len(pending), ctx.config.transfer_group_size):
+        group = pending[start:start + ctx.config.transfer_group_size]
+        verify(ctx.job.source, group)
+        if len(group) == 1:
+            item = group[0]
+            copied = {item.path} if ctx.storage.put(ctx.job.source / item.path, item.path,
+                                                   protected_mtime_ns=item.mtime_ns) else set()
+        else:
+            copied = ctx.storage.put_many(ctx.job.source, group)
+        verify(ctx.job.source, group)
+        for item in group:
             preserve_metadata(ctx, item)
-            ctx.event("transferred" if transferred else "identical", path=item.path)
+            ctx.event("transferred" if item.path in copied else "identical", path=item.path,
+                      bytes=item.size if item.path in copied else 0)
     # rclone transfers bytes; local copystat additionally preserves permissions
     # and modification times, including empty directories (without root).
     if ctx.job.type == "local" and not ctx.config.dry_run:
@@ -175,8 +226,10 @@ def compress(ctx, batch, work: Path):
     listing = work / "files.txt"
     listing.write_text("".join(f"./{f.path}\n" for f in batch.files), encoding="utf-8")
     # @listfile and -spd prevent option/wildcard interpretation of filenames.
+    kind, level, threads = settings(ctx.job, batch.files)
     ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,
-                    "-scsUTF-8", "-spd", "-spf", str(archive), "@" + str(listing)], cwd=snapshot)
+                    "-scsUTF-8", "-spd", "-spf", f"-mx={level}", f"-mmt={threads}",
+                    str(archive), "@" + str(listing)], cwd=snapshot)
     ctx.runner.run([ctx.job.compressor, "t", str(archive)])
     listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])
     members = {}
@@ -209,6 +262,29 @@ def upload_index(ctx, state):
         ctx.event("transferred" if transferred else "identical", path=".sambinha/control.tar.gz")
 
 
+def upload_batch(ctx, item):
+    # Each worker owns its runner's last_stderr and its temporary archive.
+    worker = copy.copy(ctx)
+    worker.runner = copy.copy(ctx.runner)
+    worker.storage = Storage(ctx.job, ctx.config, worker.runner)
+    with tempfile.TemporaryDirectory(prefix="sambinha-batch-") as temp:
+        check_disks(ctx.job)
+        archive = compress(worker, item, Path(temp))
+        compressed = fingerprint(Path(temp), archive.name)
+        control = item.control()
+        control.update(archive_size=compressed.size, archive_md5=compressed.md5)
+        control_path = Path(temp) / "control.json"
+        atomic_json(control_path, control)
+        transferred = worker.storage.put(archive, item.key)
+        events = [("transferred" if transferred else "identical", {
+            "path": item.key, "files": [f.path for f in item.files],
+            "bytes": compressed.size if transferred else 0})]
+        transferred = worker.storage.put(control_path, item.key + ".json", standard=True)
+        events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
+        atomic_json(ctx.directory / "controls" / (item.key + ".json"), control)
+        return control, events
+
+
 def batch(ctx: Context):
     confirmed = {**ctx.state.get("excluded", {}), **ctx.state["active"]}
     destination_times = {}
@@ -216,9 +292,7 @@ def batch(ctx: Context):
         for item in control["files"]:
             destination_times[item["path"]] = max(destination_times.get(item["path"], -1), item["mtime_ns"])
     protect_newer(ctx.files, destination_times, ctx.event)
-    batches = plan(ctx.files, ctx.job.max_bytes, ctx.job.max_files, ctx.job.archive_format)
     next_state = copy.deepcopy(ctx.state)
-    active = {b.key: b.control() for b in batches}
     old = {}
     selected = ctx.selection.include_paths(f["path"] for c in confirmed.values() for f in c["files"])
     next_state["excluded"] = {}
@@ -228,6 +302,9 @@ def batch(ctx: Context):
             ctx.event("excluded_batch", archive=key, files=[f["path"] for f in control["files"]])
         else:
             old[key] = control
+    batches = plan(ctx.files, ctx.job.max_bytes, ctx.job.max_files,
+                   ctx.job.archive_format, previous=old, category=category)
+    active = {b.key: b.control() for b in batches}
     current_files = {f.path: f.metadata() for f in ctx.files}
     # Content-addressed archive keys allow old lots to remain in place, avoiding
     # server-side copies/restores of GLACIER and DEEP_ARCHIVE objects.
@@ -246,30 +323,35 @@ def batch(ctx: Context):
     # Reactivated lots must never be deleted by their former retirement record.
     next_state["retired"] = [r for r in next_state["retired"] if r["key"] not in active]
     retired_keys = {entry["key"] for entry in ctx.state["retired"]}
+    pending = []
     for item in batches:
         mirror = ctx.directory / "controls" / (item.key + ".json")
-        reusable = item.key in retired_keys and mirror.is_file() and json.loads(mirror.read_text()) == item.control()
+        saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None
+        reusable = saved_control is not None and all(saved_control.get(k) == item.control()[k]
+                                                     for k in ("schema", "archive", "files"))
+        if reusable:
+            active[item.key] = saved_control
         if item.key in old or reusable:
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
             continue
         ctx.event("would_batch" if ctx.config.dry_run else "batch_start",
-                  archive=item.key, files=[f.path for f in item.files], bytes=sum(f.size for f in item.files))
+                  archive=item.key, files=[f.path for f in item.files], bytes=sum(f.size for f in item.files),
+                  compression_profile=settings(ctx.job, item.files)[0])
         if ctx.config.dry_run:
             continue
-        # Temporary archives disappear on success AND failure. The local mirror
-        # retains only small, human-readable JSON control files.
-        with tempfile.TemporaryDirectory(prefix="sambinha-batch-") as temp:
-            archive = compress(ctx, item, Path(temp))
-            control_path = Path(temp) / "control.json"
-            atomic_json(control_path, item.control())
-            transferred = ctx.storage.put(archive, item.key)
-            ctx.event("transferred" if transferred else "identical", path=item.key, files=[f.path for f in item.files])
-            transferred = ctx.storage.put(control_path, item.key + ".json", standard=True)
-            ctx.event("transferred" if transferred else "identical", path=item.key + ".json")
-            atomic_json(ctx.directory / "controls" / (item.key + ".json"), item.control())
+        pending.append(item)
+    if pending:
+        with ThreadPoolExecutor(max_workers=ctx.config.batch_workers) as pool:
+            futures = [(item, pool.submit(upload_batch, ctx, item)) for item in pending]
+            for item, future in futures:
+                control, events = future.result()
+                active[item.key] = control
+                for event, values in events:
+                    ctx.event(event, **values)
     next_state["active"] = active
-    if ctx.state_path.exists() and next_state == ctx.state and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"]):
+    if (ctx.state_path.exists() and next_state == ctx.state and not ctx.inventory_changed
+            and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"])):
         return
     if ctx.config.dry_run:
         ctx.state = next_state
@@ -298,7 +380,8 @@ def batch(ctx: Context):
 STRATEGIES = {"simple": simple, "batch": batch}
 
 
-def preflight(config, runner):
+def preflight(config, runner, now=None):
+    now = time.time() if now is None else now
     runner.require([config.rclone] + [j.compressor for j in config.jobs if j.logic == "batch"]
                    + (["mountpoint"] if any(j.source_mount or j.destination_mount for j in config.jobs) else []))
     runner.run([config.rclone, "version"])
@@ -306,6 +389,7 @@ def preflight(config, runner):
         raise BackupError("Arquivo de configuração rclone não existe")
     for job in config.jobs:
         check_mounts(job, runner)
+        check_disks(job)
         if job.exclude_files:
             try:
                 with job.exclude_files.open(encoding="utf-8") as stream:
@@ -328,21 +412,43 @@ def preflight(config, runner):
                 ["--config", config.rclone_config] if config.rclone_config else [])])
             remotes = json.loads(raw)
             remote = job.destination.split(":", 1)[0]
+            if not isinstance(remotes, dict) or not isinstance(remotes.get(remote, {}), dict):
+                raise BackupError("Configuração de remotes rclone inválida")
+            runner.secrets = tuple(set(runner.secrets) | credential_values(remotes.get(remote, {})))
             environment = os.environ if config.environment is None else config.environment
             backend = environment.get("RCLONE_CONFIG_" + remote.upper() + "_TYPE",
                                      remotes.get(remote, {}).get("type", ""))
             if backend != "s3":
                 raise BackupError(f"Remote {remote} precisa ser do tipo s3")
-    inventories = {}
+    inventories, shared = {}, {}
     for job in config.jobs:
-        selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
-        inventories[job.name] = (scan(job.source, selected_files, selected_dirs), selected_dirs)
+        try:
+            from .recovery import identity
+            previous = load_state(config.state_dir / job.name / "state.json", identity(job))
+        except BackupError:
+            # Context will reject the corrupt index for this job; no cached
+            # fingerprints from it are trusted during the global preflight.
+            previous = {}
+        force = (not config.fingerprint_cache or "last_full_scan" not in previous or
+                 now < previous["last_full_scan"] or
+                 now - previous["last_full_scan"] >= config.fingerprint_full_scan_days * DAY)
+        rules = job.exclude_files.read_bytes() if job.exclude_files else None
+        cache_key = (job.source, rules, force)
+        if cache_key not in shared:
+            selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
+            fingerprints = {}
+            files = scan(job.source, selected_files, selected_dirs,
+                         cache=None if force else previous.get("fingerprints"), cache_out=fingerprints)
+            shared[cache_key] = (files, selected_dirs, fingerprints,
+                                 now if force else previous["last_full_scan"])
+        inventories[job.name] = shared[cache_key]
     return inventories
 
 
-def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int:
+def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False) -> int:
     runner = runner or Runner(config.timeout, env=config.environment)
-    log = RunLog(config.log_dir)
+    redactor = Runner(env=config.environment, secrets=(config.cronitor_url,)).safe_error
+    log = RunLog(config.log_dir, redact=redactor)
     failed = False
     errors = []
     def telemetry(state, message=""):
@@ -351,7 +457,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
             return
         try:
             if message:
-                notifier(config.cronitor_url, state, log.id, message[:2000])
+                notifier(config.cronitor_url, state, log.id, redactor(message)[:2000])
             else:
                 notifier(config.cronitor_url, state, log.id)
         except BackupError as exc:
@@ -361,16 +467,22 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
                                 lambda message: telemetry("fail", message))
     log.event("start", dry_run=config.dry_run, sources=[str(j.source) for j in config.jobs])
     try:
+        runner.load_config_secrets(config.rclone_config)
         with nullcontext() if config.dry_run else lock(config.state_dir):
             telemetry("run")
             with frozen_rules(config) as effective:
-                inventories = preflight(effective, runner)
+                inventories = preflight(effective, runner, clock())
                 contexts = []
                 for job in effective.jobs:
                     log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
                     try:
-                        files, selected_dirs = inventories[job.name]
+                        files, selected_dirs, fingerprints, last_full_scan = inventories[job.name]
                         context = Context(effective, job, runner, log, files, clock(), selected_dirs, forecast)
+                        cached_inventory = fingerprints if config.fingerprint_cache else {}
+                        context.inventory_changed = (context.state.get("fingerprints") != cached_inventory or
+                                                     context.state.get("last_full_scan") != last_full_scan)
+                        context.state["fingerprints"] = cached_inventory
+                        context.state["last_full_scan"] = last_full_scan
                         context.forecast_deletions()
                         contexts.append(context)
                     except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
@@ -378,12 +490,33 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
                         errors.append(f"{job.name}: {exc}")
                         log.event("error", job=job.name, error=str(exc))
                 for context in contexts:
+                    success = False
                     try:
+                        check_disks(context.job, context.event)
+                        context.protect_deletions(allow_mass_deletion)
                         STRATEGIES[context.job.logic](context)
+                        check_disks(context.job, context.event)
+                        interval = config.verify_interval_days * DAY
+                        if interval and ("last_verified" not in context.state or
+                                         context.now - context.state["last_verified"] >= interval):
+                            if config.dry_run:
+                                context.event("would_verify", mode="s3_metadata" if context.job.type == "s3" else "contents")
+                            else:
+                                from .recovery import verify_job
+                                verify_job(config, context.job, runner, log, context.state)
+                                verified = copy.deepcopy(context.state)
+                                verified["last_verified"] = context.now
+                                if context.job.logic == "batch":
+                                    upload_index(context, verified)
+                                context.state = verified
+                                context.save()
+                        success = True
                     except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
                         failed = True
                         errors.append(f"{context.job.name}: {exc}")
                         log.event("error", job=context.job.name, error=str(exc))
+                    finally:
+                        context.summary(success)
             if failed:
                 telemetry("fail", "; ".join(errors + ([forecast.message] if forecast.sent else [])))
             elif not forecast.sent:

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tarfile
 import unittest
+from unittest.mock import patch
 
 from sambinha.engine import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
@@ -238,7 +239,9 @@ class S3IntegrationTests(Sandbox):
         self.file('keep.txt', b'keep')
         self.file('skip.tmp', b'old')
         self.use_batch()
-        self.assertEqual(self.execute(), 0)
+        # Previous releases could mix text and other files in the same lot.
+        with patch('sambinha.engine.category', return_value='other'):
+            self.assertEqual(self.execute(), 0)
         old_keys = list(self.state()['active'])
         rules = self.root / 'exclude.txt'
         rules.write_text('*.tmp\n')
@@ -249,6 +252,35 @@ class S3IntegrationTests(Sandbox):
         actual = restore_batches(self.state(), download, download / '.sambinha/selected')
         self.assertEqual(actual, {'keep.txt': b'keep'})
         self.assertTrue(all((download / key).exists() for key in old_keys))
+
+    def test_s3_simple_and_batch_verification_only_uses_metadata_commands(self):
+        from sambinha.recovery import verify_job
+        from unittest.mock import Mock
+        from sambinha.storage import Storage
+        self.file('data.txt', bytes(range(256)))
+        self.file('more.txt', b'original')
+        original = self.runner.run
+        for logic in ('simple', 'batch'):
+            with self.subTest(logic=logic):
+                if logic == 'batch':
+                    # Keep the two strategies' independent indexes/prefixes.
+                    self.config = replace(self.config, jobs=(replace(self.config.jobs[0], name='batches',
+                        logic='batch', destination='aws:sambinha-tests/batches'),))
+                self.assertEqual(self.execute(), 0, self.output.getvalue())
+                import json
+                state = json.loads((self.config.state_dir / self.config.jobs[0].name / 'state.json').read_text())
+                commands = []
+                def metadata(args, **kwargs):
+                    commands.append(args)
+                    self.assertEqual(args[1], 'lsjson')
+                    self.assertIn('--stat', args)
+                    return original(args, **kwargs)
+                with patch.object(self.runner, 'run', metadata), \
+                     patch.object(Storage, 'get', side_effect=AssertionError('Object download prohibited')):
+                    result = verify_job(self.config, self.config.jobs[0], self.runner, Mock(), state)
+                self.assertEqual(result['files'], 2)
+                self.assertEqual(result['mode'], 's3_metadata')
+                self.assertTrue(commands)
 
     def test_s3_deletion_warning_continues_backup_and_expiration(self):
         for name in ('a', 'b', 'c'):

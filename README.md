@@ -1,40 +1,31 @@
 # Sambinha
 
-O Sambinha guarda cópias dos seus arquivos em outra pasta, em um disco externo ou no Amazon S3, um serviço de armazenamento na nuvem. Você escolhe o que quer proteger e onde quer guardar a cópia; o programa cuida de comparar os arquivos, enviar o que mudou e manter um histórico por algum tempo.
+[Português do Brasil](README.pt-BR.md)
 
-## Por que ele existe
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.6.0**.
 
-Fotos, documentos e projetos costumam ficar espalhados em várias pastas. Fazer uma cópia manual de tudo funciona por um tempo, mas é fácil esquecer uma pasta, gastar espaço com cópias repetidas ou perceber tarde demais que um arquivo importante foi apagado.
+## How it protects your files
 
-O Sambinha foi criado para tornar esse cuidado repetível. Ele registra o que fez em cada execução e evita enviar novamente arquivos que já estão iguais no destino. Se você editar ou apagar algo por engano, as versões anteriores podem continuar disponíveis durante o prazo que você escolheu.
+**Simple backups** keep the original names and directory tree. **Batch backups** use 7-Zip to package files into immutable archives, reducing the number of objects stored in S3. Each archive has a JSON control file listing its original files and metadata. Both strategies support local and S3 destinations, and one source can have multiple independent backup jobs.
 
-Há também uma preocupação com o custo da nuvem. Guardar milhares de arquivos pequenos separadamente pode ser pouco eficiente no S3. Por isso, o Sambinha pode reuni-los em arquivos compactados, chamados **lotes**, mantendo os caminhos das pastas dentro deles. É como organizar vários documentos em caixas identificadas: você consulta a lista do conteúdo antes de abrir uma caixa.
+New batches visit directories deterministically and sort files within each directory by modification time, oldest first, then by path for ties. New batches separate text, video, photo and other compression profiles without changing that time order. Existing intact batches keep their keys and member order, including archives from older versions. Only new files and members of affected or incompatible batches are repacked. Preserve the local index so intact batches can be reused without remote listings or uploads.
 
-## Como ele protege seus arquivos
+Files newer at the destination are preserved: the job reports an error before replacing them, and Cronitor receives the conflict details. Batch comparisons use original timestamps from the confirmed index, rather than archive upload times. Independent jobs continue after a job failure.
 
-Você pode escolher entre duas maneiras de fazer a cópia. A **cópia simples** deixa cada arquivo no destino com seu nome e sua pasta, o que facilita abrir ou recuperar um documento específico. A **cópia por lotes** reúne arquivos de várias pastas e os compacta com o 7-Zip. Ela é útil quando há muitos arquivos pequenos e você quer reduzir a quantidade de objetos guardados na nuvem.
+Deleted source files remain in history for **10 days** by default; previous versions of edited files remain for **2 days**. Expired history is removed during later backup runs. The soft `deletion_alert_threshold` warning reports upcoming permanent deletions without delaying retention.
 
-As duas maneiras funcionam tanto com uma pasta local quanto com o S3. Também é possível proteger a mesma pasta de duas formas: por exemplo, manter uma cópia simples em um disco externo e uma cópia compactada na nuvem.
+A separate safeguard blocks abnormal source removals **before any destination changes**: by default, more than 50% of a previously selected inventory of at least 20 files. Intentional removals can be authorized for one invocation with `--allow-mass-deletion`.
 
-Se um arquivo no destino tiver uma data de modificação mais recente que o arquivo da origem, o Sambinha preserva a cópia do destino e interrompe aquela tarefa com erro. O relatório lista os arquivos envolvidos, e o Cronitor recebe um evento de falha com a descrição. Outros backups independentes continuam. Nos lotes, a comparação usa as datas originais registradas no índice confirmado, não a data de envio do arquivo compactado.
+Source and local destination disks are checked before the backup and before transfers/deletions. Occupancy **above 95%** produces an error; exactly 95% is accepted. Batch temporary storage is also checked. S3 buckets do not expose a local disk occupancy percentage.
 
-Por padrão, arquivos apagados na origem ficam no histórico por **10 dias**, e versões anteriores de arquivos editados ficam por **2 dias**. Esses prazos podem ser alterados. A remoção do histórico vencido acontece nas execuções seguintes; deixar o programa parado não faz a limpeza acontecer sozinha.
+Metadata and logs use private permissions. Relative paths and indexes are validated before retention or recovery. Known secrets are redacted from errors, logs and telemetry. Retries are bounded: one attempt and up to three retries, two seconds apart.
 
-Antes de começar, o Sambinha verifica se as ferramentas necessárias estão disponíveis. Durante o envio, tenta novamente até três vezes se uma operação falhar, esperando dois segundos entre as tentativas. Ao terminar, grava um relatório. Se você configurar o Cronitor, um serviço de acompanhamento, ele também pode receber um aviso de sucesso ou erro.
+## Install
 
-## Prepare o computador
-
-O programa funciona no Linux com **Python 3.12 ou mais recente**. No Linux Mint, você pode usar o Python disponível nos pacotes do sistema. Ele utiliza duas ferramentas conhecidas: o **rclone**, para comparar e copiar arquivos, e o **7-Zip**, para compactar os lotes.
-
-Abra um terminal e instale as ferramentas. O `sudo` é necessário nesta etapa de instalação; os backups depois são executados pela sua conta normal:
+Use Linux and **Python 3.12 or newer**, with rclone and 7-Zip. Backups run under your normal account.
 
 ```bash
 sudo apt install git python3 python3-venv rclone p7zip-full
-```
-
-Baixe o projeto e prepare um ambiente separado para ele. Isso evita misturar a instalação do Sambinha com outros programas Python do computador:
-
-```bash
 git clone https://github.com/lesantos/sambinha.git
 cd sambinha
 python3 -m venv .venv
@@ -42,11 +33,11 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.3.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+The repository is private, so your GitHub account needs access. Installable artifacts are available from the [releases page](https://github.com/lesantos/sambinha/releases). From a source checkout, `.venv/bin/python -m sambinha` also works.
 
-## Faça seu primeiro backup
+## First backup
 
-Comece com uma cópia simples para outra pasta ou disco. Na pasta do projeto, crie um arquivo chamado `sambinha.toml`. Ele é a lista de instruções que o programa vai ler. Este exemplo contém uma única tarefa de backup:
+Create `sambinha.toml`, with paths relative to the configuration file. `~` and environment variables are supported.
 
 ```toml
 [backup]
@@ -54,111 +45,102 @@ state_dir = "./state"
 log_dir = "./logs"
 deleted_days = 10
 version_days = 2
+verify_interval_days = 7
 
 [[jobs]]
-name = "meus-documentos"
-source = "~/Documentos"
-destination = "/mnt/backup/documentos"
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 type = "local"
 logic = "simple"
 ```
 
-Troque `source` pela pasta que deseja proteger e `destination` pela pasta onde a cópia será guardada. O destino deve ficar fora da pasta de origem. Se ele estiver em um disco externo, conecte e monte o disco antes de executar. Use uma pasta exclusiva para esta tarefa: o Sambinha administra seus arquivos e seu histórico.
-
-`state_dir` guarda o registro que permite ao programa acompanhar os backups. `log_dir` guarda os relatórios de execução. Mantenha essas pastas fora da origem e preserve a pasta de estado entre as execuções. Quando um caminho começa com `~`, ele aponta para sua pasta pessoal; os caminhos relativos, como `./state`, partem do local do arquivo de configuração.
-
-Primeiro, faça uma **simulação**:
+Keep the destination outside the source. Use a destination managed exclusively by this job, and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
 
 ```bash
 .venv/bin/sambinha --config sambinha.toml --dry-run
-```
-
-O terminal mostrará o que seria feito. A simulação grava o relatório, mas não cria lotes, envia ou apaga arquivos de backup, nem avisa o Cronitor. Quando a configuração estiver correta, execute a cópia de verdade:
-
-```bash
 .venv/bin/sambinha --config sambinha.toml
 ```
 
-Para atualizar o backup depois de mudar seus arquivos, execute o mesmo comando novamente. Os arquivos iguais serão identificados e não precisarão ser enviados outra vez. Os relatórios ficam na pasta `logs` e registram começo, fim, arquivos copiados, arquivos já iguais e possíveis erros.
+Simulation writes a report and reads inventories, but creates no backup state or archives, transfers or deletes no backup objects, and sends no Cronitor notifications. Each job ends with a `summary` record containing new, modified, unchanged and removed files, batches reused/rebuilt, planned original bytes, transferred payload bytes, pending history entries and success. Compression can make transferred bytes differ from planned bytes. Empty source directories are preserved by local simple backups.
 
-Se você preferir executar diretamente a partir do código, pode usar `.venv/bin/python -m sambinha` no lugar de `.venv/bin/sambinha`.
+## Restore a file, folder or complete backup
 
-## Leve uma cópia para a nuvem
+```bash
+.venv/bin/sambinha restore --job documents --path projects --output /mnt/recovery/documents
+.venv/bin/sambinha restore --job documents --path notes.md --output /mnt/recovery/notes
+.venv/bin/sambinha restore --job documents --output /mnt/recovery/all
+```
 
-Quando o backup local estiver funcionando, você pode adicionar outra tarefa para o S3. O [arquivo de exemplo](sambinha.example.toml) mostra uma mesma origem protegida localmente e na nuvem. Cada tarefa recebe um nome, e você pode executar somente uma delas com `--job NOME`.
+`--path` can be repeated. Paths refer to the active index and preserve their original directory tree. The output must be new or empty and separate from sources, backups, state and logs. Selected files are staged and their sizes, SHA-256 and MD5 verified before publication; restore does not overwrite existing files or restore privileged permission bits. Source files need not still exist.
 
-Para o S3, você precisará de uma conta AWS, de um **bucket** — o espaço onde os arquivos serão guardados — e de uma configuração do rclone que indique a região e como acessar essa conta. O [guia de S3 e credenciais](docs/s3.md) conduz essa preparação e mostra como manter senhas e tokens fora do Git. O arquivo `sambinha.toml` fica fora dos arquivos versionados, mas os exemplos públicos também devem permanecer sem segredos.
+Restoration from S3 **downloads the selected objects** and can incur retrieval charges. Selecting one file in a batch downloads its entire archive. Glacier/Deep Archive objects must first be made available through AWS restore. Batch restoration can recover a missing local index from `.sambinha/control.tar.gz`; simple restoration needs its local index. Historical revisions remain accessible through the controls and history paths described in the [usage guide](docs/usage.md).
 
-O padrão de armazenamento é `GLACIER_IR`, uma modalidade para dados pouco acessados, com recuperação imediata. Ela pode cobrar pela recuperação e pela exclusão antes do prazo mínimo de armazenamento. As modalidades mais frias exigem uma etapa de restauração na AWS antes de baixar os arquivos. O guia explica essas diferenças para que você escolha a opção adequada, em vez de considerar apenas o preço para guardar os dados.
+## Verify integrity without S3 downloads
 
-## Deixe as credenciais em um arquivo privado
+```bash
+.venv/bin/sambinha verify --job documents
+```
 
-Para não precisar carregar as variáveis no terminal toda vez, você pode indicar um arquivo de credenciais no `sambinha.toml`. Acrescente estas linhas à seção `[backup]` que já existe:
+Local verification reads the backup contents and, for batches, tests/extracts archives and checks the indexed original files. S3 verification uses **only metadata requests**, comparing object size and MD5 against the local index. Batch archives and their JSON controls are checked. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This verifies recorded object checksums, not extraction of archived members.
+
+New batches record their compressed size and checksum at upload. Old batches lacking these fields, missing local indexes or unavailable remote hashes cause an explicit verification error, with no download fallback. Intact legacy archives are preserved rather than automatically rewritten. Keep rclone's S3 checksum metadata enabled for multipart uploads; see the [S3 guide](docs/s3.md).
+
+Set `[backup].verify_interval_days = 7` to verify after a successful backup when seven days have elapsed. The first eligible run verifies immediately. `0`, the default for compatibility, disables scheduled checks. This schedule runs during backups; it does not install a system timer. A failed check returns an error and keeps the last successful verification timestamp.
+
+## Performance settings and separate file profiles
+
+All six performance improvements are implemented: fingerprint caching with periodic full scans; bounded bulk rclone copies; shared inventories for equivalent source/selection jobs; limited concurrent batch compression/uploads; per-run filter caching; and per-category compression levels and threads.
 
 ```toml
+[backup]
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_group_size = 100
+transfer_workers = 4
+batch_workers = 2
+
+[[jobs]]
+name = "media"
+source = "~/Files"
+destination = "/mnt/backup/media"
+logic = "batch"
+compression_text_level = 3
+compression_text_threads = 2
+compression_video_level = 0
+compression_video_threads = 1
+compression_photo_level = 1
+compression_photo_threads = 1
+compression_other_level = 3
+compression_other_threads = 2
+```
+
+Cache reuse requires unchanged device, inode, size, nanosecond modification/change times and permissions. A full content scan runs every seven days by default; `--no-fingerprint-cache` forces hashing for each run. Transfer and archive validation still protect changed data. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](docs/performance.md).
+
+## S3, credentials, exclusions and notifications
+
+Use [sambinha.example.toml](sambinha.example.toml) for the complete configuration and [rclone.example.conf](rclone.example.conf) for the `aws` S3 remote. Create the bucket first and match its region. Each job needs a separate prefix. The default `GLACIER_IR` class provides immediate retrieval but charges for retrieval and has minimum billing terms. JSON controls and the recovery index use STANDARD. [S3 setup and storage classes](docs/s3.md).
+
+Store credentials outside the repository in an AWS profile/IAM role or a private dotenv file:
+
+```toml
+[backup]
 secrets_file = "~/.config/sambinha/secrets.env"
 cronitor_url = "${CRONITOR_URL}"
 ```
 
-Use [secrets.example.env](secrets.example.env) como modelo e crie o arquivo privado fora da pasta do projeto. Ele pode conter o nome de um perfil AWS que você já configurou e a URL do Cronitor:
+Protect the file with `chmod 600`. [secrets.example.env](secrets.example.env) contains placeholders only. The file is parsed as data, never executed; inherited environment values take precedence. `--secrets-file ""` disables loading for one run. Missing or malformed files fail without exposing their values. Notifications are optional; with no Cronitor URL, they are disabled. Never commit a credential-bearing URL or real AWS keys.
+
+Set `exclude_files` on a job to use rclone's native exclude-from patterns. Excluded files are not uploaded or considered removed. Existing history and mixed legacy archives containing excluded paths remain protected; mixed archives are tracked separately in `state.excluded`. Changing the filter file during a run affects the next run. [Filtering and retention details](docs/usage.md).
+
+## Tests and documentation
 
 ```bash
-export AWS_PROFILE='sambinha'
-export CRONITOR_URL='https://cronitor.link/p/SEU_TOKEN/SEU_MONITOR'
-```
-
-Proteja o arquivo com `chmod 600 ~/.config/sambinha/secrets.env`, para que apenas sua conta possa lê-lo e alterá-lo. O [guia de credenciais](docs/s3.md#arquivo-privado-de-variáveis) também mostra como usar chaves AWS diretamente, caso você não tenha um perfil configurado.
-
-Depois disso, execute o comando de backup normalmente. O Sambinha lê o arquivo antes de interpretar os caminhos e iniciar o rclone; você não precisa executar `source`. Se uma variável já estiver definida no terminal, ela tem prioridade. Se o arquivo indicado não existir ou contiver um erro, o programa para antes do backup e informa o problema sem mostrar os valores privados.
-
-O arquivo é lido como dados, sem executar comandos. Você pode usar aspas, comentários e a palavra opcional `export`. Os valores nele são literais; para referenciar uma variável na configuração, use `${NOME}` no TOML, como no exemplo do Cronitor. Caminhos relativos de `secrets_file` partem da pasta do TOML. A opção `--secrets-file CAMINHO` permite escolher outro arquivo naquela execução.
-
-## Escolha o que fica fora do backup
-
-Na tarefa (`[[jobs]]`), você pode definir `exclude_files = "excludes.txt"`. Esse arquivo usa os padrões do próprio rclone, um por linha: por exemplo, `*.tmp` ignora arquivos temporários, e `/cache/**` ignora a pasta `cache` na raiz da origem. Comentários e linhas vazias são aceitos.
-
-Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino e históricos que contenham esses arquivos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. O [guia de uso](docs/usage.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
-
-## Confirme que os discos estão disponíveis
-
-Para um backup em discos montados, informe na tarefa `source_mount` e `destination_mount`: são os pontos onde os discos aparecem no Linux, não necessariamente as subpastas copiadas. Por exemplo, um destino `/mnt/capsule/LLLD/linux` usa `destination_mount = "/mnt/capsule/LLLD"`.
-
-O Sambinha aplica a mesma estratégia do seu comando `mounted_nonempty`: o ponto precisa passar em `mountpoint -q` e conter pelo menos uma entrada. Se ele estiver ausente, desmontado, vazio ou ilegível, a execução para antes de copiar e envia erro ao Cronitor. A conferência se repete antes das cópias e exclusões. Configure o ponto da origem e, para destinos locais, o do destino; o S3 tem somente a origem local.
-
-Para pastas comuns que não dependem de um disco montado específico, as opções podem ficar ausentes. O [guia de montagem](docs/usage.md#verificação-dos-discos-montados) mostra a configuração completa e como localizar o ponto correto.
-
-## Saiba com antecedência o que será apagado
-
-Quando mais de 1000 arquivos ou versões do histórico estiverem próximos da exclusão definitiva, o Sambinha envia um evento de erro ao Cronitor e lista no relatório os caminhos originais, os objetos de backup e as datas de exclusão. Esse aviso não bloqueia o backup nem altera o prazo: a execução continua e retorna sucesso se não houver outro problema.
-
-O aviso começa dois dias antes do vencimento. Para retenção de um dia, começa um dia antes; para retenção zero, só pode ocorrer na própria execução. Configure `deletion_alert_threshold` em `[backup]` para mudar o limite. Arquivos excluídos pelas regras de seleção ficam fora desse alerta. Execute o programa diariamente para receber o aviso na janela prevista; se ficar parado até o vencimento, o aviso será emitido na próxima execução e a limpeza seguirá o prazo original.
-
-## Como recuperar um arquivo
-
-Na cópia simples, os arquivos atuais estão no destino com a mesma organização da origem. Você pode copiá-los de volta como faria com arquivos de qualquer outra pasta. Dentro do destino, a pasta oculta `.sambinha` guarda o histórico e os registros do programa; ela não faz parte dos seus documentos atuais.
-
-Na cópia por lotes, você consulta os arquivos de controle para descobrir em qual lote está o documento e depois extrai o arquivo compactado com o 7-Zip. O Sambinha também envia uma cópia compactada do índice de controle para o destino, para ajudar na recuperação se o computador de origem for perdido.
-
-O [guia de configuração e recuperação](docs/usage.md) mostra os caminhos do histórico e os passos para recuperar arquivos e o índice. Ele também explica os limites dos lotes e os cuidados para atualizar uma instalação anterior. Conhecer esses passos antes de precisar deles ajuda a escolher a forma de backup mais conveniente.
-
-## Como testar o programa
-
-Os testes fazem backups de arquivos pequenos, recuperam as cópias e comparam seus caminhos e seu conteúdo com a origem. Isso inclui cópias simples e por lotes, tanto locais quanto no S3. Para o S3, usam o **Moto**, um simulador da AWS que roda no próprio computador: seus dados e suas credenciais reais não são usados.
-
-Prepare as ferramentas de teste no mesmo ambiente do projeto e execute a suíte completa, incluindo o servidor S3 simulado:
-
-```bash
-.venv/bin/python -m pip install -r requirements-test.txt
+.venv/bin/python -m pip install -e . -r requirements-test.txt
 SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
-.venv/bin/python -m coverage report --include='sambinha/*'
+.venv/bin/python -m coverage report --include='sambinha/*' --show-missing --fail-under=85
 ```
 
-O resultado deve terminar em `OK`. A última linha da tabela de cobertura mostra quanto do código os testes percorreram. As verificações incluem arquivos vazios, nomes com acentos, arquivos editados ou apagados, falhas de envio, recuperação após falhas e simulação. Os arquivos gerados têm no máximo **100 KiB**, e as pastas temporárias são removidas ao final.
+Tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They do not require real AWS or Cronitor credentials. HTTP integration requires loopback networking. Results are recorded in [test results](docs/test-results.md); GitHub runs [continuous tests](https://github.com/lesantos/sambinha/actions).
 
-O [relatório da versão atual](docs/test-results.md) registra os resultados obtidos. A cada envio de código, o GitHub também executa esses testes automaticamente; você pode acompanhar o resultado na [página de testes do projeto](https://github.com/lesantos/sambinha/actions).
-
-## Para continuar
-
-Todas as opções públicas de configuração estão em [sambinha.example.toml](sambinha.example.toml), inclusive as opcionais comentadas; um teste confere essa lista com o código. Depois do primeiro backup, o [guia de uso](docs/usage.md) ajuda a ajustar prazos, limites e várias tarefas. O [guia de S3](docs/s3.md) trata da nuvem e das credenciais. Para quem quiser contribuir com o código, a [arquitetura](docs/architecture.md) explica como o projeto está organizado, e as [notas da versão](CHANGELOG.md) registram as mudanças.
-
-As orientações e os resultados da auditoria de credenciais estão em [SECURITY.md](SECURITY.md). A CI também verifica o histórico completo para detectar novas credenciais no código.
+English is the default documentation language. Every maintained Markdown guide and public commented configuration example has a `.pt-BR` counterpart. Code, configuration keys, dependency lists, backup data fixtures and license identifiers retain their stable names. See the [usage guide](docs/usage.md), [architecture](docs/architecture.md), [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [configuration example](sambinha.example.toml).

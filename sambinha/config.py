@@ -28,6 +28,16 @@ class Job:
     exclude_files: Path | None = None
     source_mount: Path | None = None
     destination_mount: Path | None = None
+    max_delete_percent: float = 50
+    deletion_min_files: int = 20
+    compression_text_level: int = 3
+    compression_text_threads: int = 2
+    compression_video_level: int = 0
+    compression_video_threads: int = 1
+    compression_photo_level: int = 1
+    compression_photo_threads: int = 1
+    compression_other_level: int = 3
+    compression_other_threads: int = 2
 
 
 @dataclass(frozen=True)
@@ -45,6 +55,12 @@ class Config:
     secrets_file: Path | None = None
     environment: dict[str, str] | None = field(default=None, repr=False, compare=False)
     deletion_alert_threshold: int = 1000
+    verify_interval_days: int = 0
+    fingerprint_cache: bool = True
+    fingerprint_full_scan_days: int = 7
+    transfer_group_size: int = 100
+    transfer_workers: int = 4
+    batch_workers: int = 2
 
 
 def local_path(value, base, environment=None):
@@ -61,12 +77,17 @@ def overlap(a: Path, b: Path) -> bool:
 def validate(config: Config) -> Config:
     if not config.jobs:
         raise ConfigError("Configure pelo menos um [[jobs]]")
-    for name in ("deleted_days", "version_days", "timeout", "deletion_alert_threshold"):
+    for name in ("deleted_days", "version_days", "timeout", "deletion_alert_threshold", "verify_interval_days"):
         value = getattr(config, name)
         if type(value) is not int or value < (1 if name == "timeout" else 0):
             raise ConfigError(f"{name}: inteiro fora do intervalo permitido")
     if type(config.dry_run) is not bool:
         raise ConfigError("dry_run deve ser booleano")
+    if type(config.fingerprint_cache) is not bool:
+        raise ConfigError("fingerprint_cache deve ser booleano")
+    for name in ("fingerprint_full_scan_days", "transfer_group_size", "transfer_workers", "batch_workers"):
+        if type(getattr(config, name)) is not int or getattr(config, name) < 1:
+            raise ConfigError(f"{name} deve ser um inteiro positivo")
     if not isinstance(config.cronitor_url, str) or (config.cronitor_url and
             urlsplit(config.cronitor_url).scheme != "https"):
         raise ConfigError("cronitor_url deve usar HTTPS")
@@ -98,6 +119,16 @@ def validate(config: Config) -> Config:
             raise ConfigError("compressor deve indicar um executável compatível com 7-Zip")
         if job.archive_format not in {"7z", "zip"}:
             raise ConfigError("archive_format deve ser 7z ou zip")
+        if type(job.max_delete_percent) not in (int, float) or not 0 <= job.max_delete_percent <= 100:
+            raise ConfigError("max_delete_percent deve estar entre 0 e 100")
+        if type(job.deletion_min_files) is not int or job.deletion_min_files < 1:
+            raise ConfigError("deletion_min_files deve ser pelo menos 1")
+        for kind in ("text", "video", "photo", "other"):
+            level, threads = getattr(job, f"compression_{kind}_level"), getattr(job, f"compression_{kind}_threads")
+            if type(level) is not int or not 0 <= level <= 9:
+                raise ConfigError(f"compression_{kind}_level deve estar entre 0 e 9")
+            if type(threads) is not int or not 1 <= threads <= 64:
+                raise ConfigError(f"compression_{kind}_threads deve estar entre 1 e 64")
         if job.exclude_files is not None and not isinstance(job.exclude_files, Path):
             raise ConfigError("exclude_files deve indicar um caminho")
         for name in ("source_mount", "destination_mount"):

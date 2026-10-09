@@ -1,44 +1,45 @@
-# Testes da revisão de segurança do Sambinha
+# Sambinha 0.6.0 test results
 
-Execução em 2026-10-08, Linux Mint, Python 3.12.3.
+[Português do Brasil](test-results.pt-BR.md)
 
-**174 testes aprovados, sem falhas nem testes ignorados**: 169 na suíte completa (1011.446 segundos) e 5 verificações adicionais dos exemplos e da regra de credenciais (0.149 segundos). Os testes adicionais foram incluídos após a execução principal e não mudam o código funcional medido.
+Run on 2026-10-09, Linux, Python 3.12.3: **222 tests passed, no failures or skips**, in **287.499 seconds**. Branch-inclusive coverage is **92%**, above the required 85%.
 
-A cobertura total foi de **95%**, incluindo decisões de código; o mínimo de 85% passou.
+## Verified behavior
 
-## Mudanças verificadas
+* Oldest-first new batches and preservation of intact/legacy archives; edits/removals only replace affected batches.
+* Active-index file/folder restoration, missing batch index recovery, binary data, ordinary permissions, checksum validation before publication and overwrite/traversal/link rejection.
+* Local content verification and scheduled success/failure timestamps. S3 verification only uses metadata. Real rclone completed verification against an HTTP server that allowed HEAD and rejected GET, with no object-body requests.
+* Mass-removal blocking before destination/state changes, exact-threshold handling and one-invocation overrides. Disk occupancy above 95% fails before backup and after a final transfer that crosses the limit.
+* Private metadata/log/lock permissions despite permissive umask, corrupt-index rejection, active/history conflict checks and multiline/password/URL secret redaction.
+* Fingerprint reuse without content reads, ctime detection of same-size/same-mtime changes, periodic full reads, cache opt-out and shared source inventory.
+* Bounded bulk copies, concurrently running limited batch workers, category compression settings and execution-scoped filter caching.
+* Existing local/S3 simple/batch round trips, newer-destination protection, filters/mounts/retention/notifications, and equivalent bilingual public examples with reciprocal guide links.
 
-Arquivos mais novos no destino são preservados, inclusive se forem idênticos ou se o destino mudar durante a cópia. A tarefa retorna erro, lista os conflitos e encaminha a descrição ao Cronitor. A proteção usa nanossegundos e, na cópia simples, também o `--update` do rclone.
+Tests used temporary data, real rclone and 7-Zip, and Moto both in-process and over localhost HTTP. No real AWS or Cronitor services were used. Speed tests validate reduced read/process counts and concurrency; these are not production timing guarantees.
 
-`exclude_files` usa os padrões nativos do rclone. Foram verificados caminhos relativos, regras ancoradas, Unicode, diretórios, alternativas e substituições antigas de arquivo por diretório. Arquivos excluídos não são transferidos ou tratados como apagados; seus históricos e lotes mistos são protegidos. Uma mudança nas regras durante a execução só afeta a próxima execução.
+## Distribution
 
-O alerta soma exclusões definitivas entre tarefas e conta arquivos/versões dentro dos lotes. Os testes verificam o limite estrito, a janela de dois dias, a retenção de um dia, a retenção zero, a lista completa de nomes no log e a notificação de erro que não altera o código de sucesso nem a data da limpeza. Históricos protegidos por filtros ficam fora da contagem.
-
-A montagem usa `mountpoint -q` e a presença de uma entrada no volume, como o helper `mounted_nonempty`. Foram testados volumes ausentes, vazios, desmontados e perdidos durante a cópia, além de subpastas legítimas e de origem local para S3. Falhas notificam o Cronitor antes de escrever no caminho de um volume indisponível.
-
-As combinações simples/lotes e local/S3 continuam conferindo caminhos, SHA-256, tamanho e bytes recuperados. O rclone real foi executado contra servidor Moto em localhost. Nenhum teste usou AWS ou Cronitor reais. Os arquivos de conteúdo gerados têm no máximo 100 KiB; o teste de 1001 exclusões usa apenas nomes em memória. Fixtures versionadas somam 147 bytes.
-
-Os exemplos são comparados ao esquema público de configuração, inclusive opções comentadas em cada tarefa. A regra de segurança rejeita URLs Cronitor com credenciais e permite placeholders e referências de ambiente.
-
-## Distribuição
-
-| Suíte | Testes aprovados |
+| Suite | Passed |
 | --- | ---: |
-| `tests.test_batches` | 11 |
-| `tests.test_config` | 11 |
-| `tests.test_examples` | 3 |
+| `tests.test_batches` | 17 |
+| `tests.test_config` | 12 |
+| `tests.test_disks` | 5 |
+| `tests.test_examples` | 5 |
 | `tests.test_filtering` | 11 |
+| `tests.test_hardening` | 10 |
 | `tests.test_local_integration` | 28 |
 | `tests.test_mounts` | 11 |
+| `tests.test_performance` | 8 |
 | `tests.test_protection` | 7 |
+| `tests.test_recovery` | 13 |
 | `tests.test_retention_alerts` | 10 |
-| `tests.test_s3_http` | 18 |
-| `tests.test_s3_integration` | 17 |
+| `tests.test_s3_http` | 20 |
+| `tests.test_s3_integration` | 18 |
 | `tests.test_secrets` | 25 |
 | `tests.test_security_examples` | 2 |
 | `tests.test_services` | 20 |
 
-## Como reproduzir
+## Reproduce
 
 ```bash
 SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
@@ -49,24 +50,25 @@ SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest d
 Name                     Stmts   Miss Branch BrPart  Cover   Missing
 --------------------------------------------------------------------
 sambinha/__init__.py         1      0      0      0   100%
-sambinha/batches.py         43      0     18      0   100%
-sambinha/cli.py             29      3      4      0    91%   35-37
-sambinha/config.py         169      4     94      4    97%   102, 105, 150, 173
-sambinha/engine.py         332     11    116      9    96%   52, 80->70, 106, 132-133, 185->183, 188, 191, 306, 313-314, 318, 335
+sambinha/batches.py         56      0     26      0   100%
+sambinha/cli.py             46      6      8      1    83%   50-52, 56-58
+sambinha/config.py         200      4    110      4    97%   133, 136, 181, 204
+sambinha/disks.py           22      1     12      1    94%   15
+sambinha/engine.py         432     14    150     12    96%   93, 121->111, 147, 173-174, 238->236, 241, 244, 389, 397-398, 402, 416, 422, 503, 510
 sambinha/errors.py           2      0      0      0   100%
-sambinha/filtering.py       83      8     32      3    89%   22-23, 38-42, 69->71, 79
-sambinha/inventory.py       65      4     32      3    93%   35, 42, 48, 58
-sambinha/logging.py         18      0      0      0   100%
+sambinha/filtering.py       88      8     34      3    89%   22-23, 38-42, 70->72, 80
+sambinha/inventory.py       82      6     42      5    91%   37, 44, 50, 65, 82, 91
+sambinha/logging.py         31      0      6      0   100%
 sambinha/mounts.py          19      1     12      1    94%   17
 sambinha/notify.py          22      1     10      2    91%   17->exit, 21
-sambinha/process.py         37      0     10      1    98%   37->exit
+sambinha/process.py         60      2     16      1    96%   49-50, 66->exit
+sambinha/profiles.py        11      0      2      0   100%
 sambinha/protection.py      21      0      8      0   100%
+sambinha/recovery.py       208     21     86     15    87%   34, 41, 70, 76, 83, 85, 88, 96, 132-135, 145, 183, 199, 222, 230, 237-240
 sambinha/retention.py       41      2     12      0    96%   28-29
 sambinha/secrets.py         22      0      6      0   100%
-sambinha/state.py           62      5     26      6    88%   36, 40, 46, 48, 49->54, 51
-sambinha/storage.py         56      4     18      1    93%   59-60, 65-66, 67->69
+sambinha/state.py          117     16     68     17    82%   25, 44, 50, 56, 61, 80, 88, 92, 104, 106, 107->112, 109, 115, 118, 121, 123, 129
+sambinha/storage.py         89     12     32      3    86%   65-66, 71-72, 73->75, 92, 94-95, 110-111, 114-116
 --------------------------------------------------------------------
-TOTAL                     1022     43    398     30    95%
+TOTAL                     1570     94    640     65    92%
 ```
-
-O aplicativo instalado também foi verificado com filtro, proteção de arquivo mais novo e recusa de montagem inválida. Os novos parâmetros aparecem na ajuda do executável.

@@ -22,8 +22,10 @@ class File:
 
 
 def safe_relative(value: str) -> str:
+    if not isinstance(value, str):
+        raise BackupError("Caminho relativo deve ser uma string")
     p = PurePosixPath(value)
-    if not value or p.is_absolute() or ".." in p.parts or value != p.as_posix() or "\n" in value or "\r" in value:
+    if not p.parts or p.is_absolute() or ".." in p.parts or value != p.as_posix() or any(c in value for c in "\n\r\x00"):
         raise BackupError(f"Caminho relativo inválido: {value!r}")
     return value
 
@@ -50,7 +52,12 @@ def fingerprint(root: Path, relative: str) -> File:
                 before.st_mtime_ns, stat.S_IMODE(before.st_mode))
 
 
-def scan(root: Path, included_files=None, included_dirs=None) -> list[File]:
+def signature(info):
+    return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+            stat.S_IMODE(info.st_mode)]
+
+
+def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cache_out=None) -> list[File]:
     if not root.is_dir() or root.is_symlink():
         raise BackupError(f"Origem não é diretório regular: {root}")
     result = []
@@ -70,7 +77,21 @@ def scan(root: Path, included_files=None, included_dirs=None) -> list[File]:
                 raise BackupError(".sambinha é reservado para metadados")
             if included_files is not None and relative not in included_files:
                 continue
-            result.append(fingerprint(root, relative))
+            before = (Path(directory) / name).lstat()
+            if not stat.S_ISREG(before.st_mode):
+                raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+            cached = (cache or {}).get(relative)
+            if cached and cached["signature"] == signature(before):
+                safe_relative(relative)
+                item = File(**cached["file"])
+            else:
+                item = fingerprint(root, relative)
+            after = (Path(directory) / name).lstat()
+            if signature(before) != signature(after):
+                raise BackupError(f"Arquivo mudou durante leitura: {relative}")
+            result.append(item)
+            if cache_out is not None:
+                cache_out[relative] = {"signature": signature(after), "file": item.metadata()}
     return sorted(result, key=lambda f: f.path)
 
 

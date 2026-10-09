@@ -1,3 +1,4 @@
+# English. Brazilian Portuguese: sambinha.example.pt-BR.toml
 # Paths are relative to THIS configuration file; ~ and environment variables work.
 [backup]
 state_dir = "./state"
@@ -7,6 +8,17 @@ version_days = 2
 # Soft Cronitor alert for more than this many impending permanent deletions.
 # Does not stop backups or change deadlines; run daily for advance notice.
 deletion_alert_threshold = 1000
+# Metadata-only verification in S3; local verification reads backup contents.
+# 0 disables scheduled verification; set 7 for a weekly check during backups.
+verify_interval_days = 0
+# P1: reuse hashes only when device/inode/size/mtime/ctime/mode all match.
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+# P2: bounded raw file lists and concurrent transfers in one rclone process.
+transfer_group_size = 100
+transfer_workers = 4
+# P4: each worker has separate staging, subprocess state and uploads.
+batch_workers = 2
 dry_run = false
 rclone = "rclone"
 # Point to a rclone configuration; empty uses ~/.config/rclone/rclone.conf.
@@ -40,6 +52,18 @@ logic = "simple"
 # Pin expected mounted volumes (must be mounted and nonempty), if applicable.
 # source_mount = "/mnt/dados"
 # destination_mount = "/mnt/backup"
+# Block >50% removals when the previous selected index has at least 20 files.
+max_delete_percent = 50
+deletion_min_files = 20
+# Separate P6 settings. Levels 0..9; threads 1..64. Apply to newly built lots.
+compression_text_level = 3
+compression_text_threads = 2
+compression_video_level = 0
+compression_video_threads = 1
+compression_photo_level = 1
+compression_photo_threads = 1
+compression_other_level = 3
+compression_other_threads = 2
 
 [[jobs]]
 name = "documents-s3"
@@ -71,3 +95,13 @@ archive_format = "7z" # 7z or zip
 # No prices are hardcoded: cost depends on region, volume and API operations.
 # See https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
 storage_class = "GLACIER_IR"
+max_delete_percent = 50
+deletion_min_files = 20
+compression_text_level = 3
+compression_text_threads = 2
+compression_video_level = 0
+compression_video_threads = 1
+compression_photo_level = 1
+compression_photo_threads = 1
+compression_other_level = 3
+compression_other_threads = 2

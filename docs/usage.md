@@ -1,130 +1,90 @@
-# Ajustando e recuperando seus backups
+# Configuring and recovering backups
 
-O [README](../README.md) apresenta a primeira cópia. Este guia detalha os ajustes disponíveis e o caminho para recuperar arquivos. Cada tarefa tem sua própria origem, destino e modo de cópia; escolha nomes que ajudem a distinguir, por exemplo, o disco externo da nuvem.
+[Português do Brasil](usage.pt-BR.md) · [README](../README.md)
 
-## Ajustes pela linha de comando
+## Commands and exit codes
 
-Todos os parâmetros operacionais têm overrides CLI; opções omitidas herdam o TOML:
-
-```bash
-.venv/bin/python -m sambinha --job documents-s3 --max-bytes 102400 --max-files 10 --dry-run
-.venv/bin/python -m sambinha --job documents-local --deleted-days 30 --version-days 7
-.venv/bin/python -m sambinha --config /caminho/outro.toml --job documents-local --destination /mnt/backup
-.venv/bin/python -m sambinha --help
-```
-
-`--source`, `--destination`, `--type` e `--logic` exigem um único job selecionado. `--no-dry-run` sobrepõe simulação habilitada no TOML. Tipos: `local`, `s3`. Lógicas: `simple`, `batch`. Compactação: `7z` ou `zip`; `compressor` aceita `7z`, `7zz` ou outro executável compatível com a CLI do 7-Zip.
-
-Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2** configuração inválida, **130** interrupção. Jobs independentes continuam após falha de um job; o resultado global registra falha. Origens e dependências de todos os jobs são verificadas antes da primeira transferência.
-
-## Regras dos lotes
-
-1. A ordenação por diretório/caminho é determinística. Arquivos de vários diretórios são acumulados no mesmo lote. Um diretório pode ocupar mais de um lote quando os limites exigirem divisão.
-2. `max_bytes` limita a **soma dos tamanhos originais**, antes da compactação; cabeçalhos e dados incompressíveis podem tornar o arquivo compactado maior. `max_files` limita a quantidade de arquivos. Padrões: 1 GiB e 1000 arquivos.
-3. Lotes normais ficam no ancestral comum mais próximo dos arquivos, com nome `batch-<hash>.7z`. Os caminhos dentro deles são relativos à raiz da origem, preservando a árvore original.
-4. Lotes têm pelo menos dois arquivos quando o conjunto e os limites permitem. Um arquivo maior que o limite, uma origem com um único arquivo ou arquivos que não podem formar um par dentro dos limites são compactados individualmente. Um lote anterior com mais de dois arquivos pode ceder um arquivo para evitar sobra isolada.
-5. Arquivos individuais conservam o nome com a extensão substituída, em `<diretório>/.versions/<hash>/<nome>.7z`. Essa revisão evita colisões entre `nome.txt`/`nome.csv` e permite reter versões sem copiar objetos frios.
-6. Cada arquivo compactado tem `<nome>.7z.json` ao lado. O espelho em `<state_dir>/<job>/controls/` armazena apenas os controles, sem guardar os lotes compactados.
-7. Os lotes são criados em diretórios temporários e apagados inclusive em falhas. Snapshots, teste de integridade do 7-Zip e validação de caminhos/tamanhos do lote precedem o envio. O índice local só é atualizado após enviar os lotes, controles e arquivo de recuperação.
-8. Mudanças podem reorganizar lotes na ordenação. Lotes com chave idêntica são reutilizados sem consulta remota; o índice local deve ser preservado e corresponde a um destino administrado exclusivamente pelo job.
-
-## Retenção, recuperação e limites
-
-Na lógica simples, o destino apresenta os caminhos originais. Antes de substituir ou apagar um arquivo, a versão anterior é copiada para `.sambinha/history/version/<id>/...` ou `.sambinha/history/deleted/<id>/...`. Na lógica por lotes, arquivos compactados antigos permanecem no caminho original até expirar; o índice separa `active` e `retired`.
-
-A contagem começa quando uma execução bem-sucedida detecta a alteração/remoção. A limpeza ocorre durante execuções seguintes, inclusive no instante exato da expiração. Retenção zero permite apagar o histórico nessa execução. Um lote com arquivos editados e apagados usa o maior prazo aplicável. Falhas interrompem a operação afetada; preservam o último índice confirmado. Uploads interrompidos podem deixar objetos sem referência; não são apagados automaticamente para evitar perda de dados.
-
-Para recuperar `simple`, copie os arquivos atuais do destino, excluindo `.sambinha/`; consulte o histórico para versões antigas. Para recuperar `batch`:
-
-- Baixe `.sambinha/control.tar.gz` e extraia `state.json` e `controls/` para um diretório separado.
-- Consulte as chaves em `state.json.active` e baixe **somente os lotes ativos**; arquivos `retired` contêm versões anteriores.
-- Para classes com restore, solicite a restauração na AWS antes do download.
-- Extraia com `7z x arquivo.7z -o/pasta/restaurada`. Os caminhos internos já incluem a árvore a partir da raiz da origem. Compare SHA-256 e tamanho com os controles.
-- Para recuperar o estado local, reponha `state.json` e `controls/` em `<state_dir>/<job>/`, usando a mesma origem/destino/lógica da identidade no índice.
-
-`batch` confia no espelho local para evitar chamadas S3 de inventário. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. `simple` consulta checksums do destino e repara divergências. Destinos sem MD5 disponível falham explicitamente para impedir comparações apenas por tamanho. O rclone verifica transferências conforme as garantias do backend.
-
-Links simbólicos, arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Origens, destinos, estado e logs não podem se sobrepor; jobs não podem compartilhar destinos. `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
-
-
-## Atualizando para a versão 0.2.0
-
-Esta versão usa o comando `sambinha`, o arquivo `sambinha.toml` e a pasta de metadados `.sambinha`. Atualize os comandos de execução e os agendamentos que você tiver criado. A versão anterior continua disponível nas suas cópias já instaladas até que você a remova.
-
-Para preservar backups feitos por uma instalação anterior, use um novo destino e uma nova pasta de estado para o primeiro backup da versão 0.2.0. Mantenha o destino e o estado anteriores juntos para consultar ou restaurar esse histórico. O programa recusa reutilizar um estado de outro formato de metadados; ele não converte arquivos remotos automaticamente. Esta mudança não exige reenviar dados para testar: comece sempre com `--dry-run`.
-
-## Arquivos mais novos no destino
-
-Antes de modificar uma tarefa, a cópia simples compara as datas de modificação do inventário rclone com as da origem, com precisão de nanossegundos. Uma data mais recente no destino impede todas as alterações daquela tarefa, inclusive quando os bytes são iguais; o arquivo e sua data permanecem intactos. Datas iguais permitem comparar o conteúdo por checksum. Se o destino não fornecer uma data válida, a tarefa também falha antes de alterar os arquivos.
-
-Nos lotes, a comparação considera as datas originais dos arquivos no último índice confirmado. A data de upload dos lotes não é a data de edição dos documentos. Conflitos aparecem como `newer_destination` nos logs, e a execução termina com código 1 e um evento Cronitor `fail` com a descrição dos arquivos. A simulação registra o conflito e retorna erro, sem enviar notificações.
-
-Nas transferências simples, o comando `copyto` também recebe `--update`. Se o rclone pular um arquivo porque o destino foi atualizado durante a execução, o Sambinha confirma a data novamente e transforma esse conflito em erro, sem alterar o arquivo mais novo.
-
-## Exclusões por arquivo de regras
-
-Configure `exclude_files` por tarefa, ou use `--exclude-files CAMINHO`. Caminhos relativos partem da pasta do TOML e podem usar variáveis carregadas de secrets. Um arquivo ausente, ilegível ou com padrões inválidos faz a execução falhar antes do backup, com erro no Cronitor.
-
-```toml
-[[jobs]]
-name = "documentos"
-source = "~/Documentos"
-destination = "/mnt/backup/documentos"
-exclude_files = "excludes.txt"
-```
-
-```text
-# Conteúdo de excludes.txt
-*.tmp
-*.{bak,old}
-/cache/**
-```
-
-A seleção usa `rclone lsjson --exclude-from` tanto para a origem quanto para o destino simples. A mesma seleção alimenta a compactação por lotes, sem enviar arquivos excluídos. Não há uma segunda implementação dos padrões em Python. Os nomes do histórico são avaliados pelo próprio rclone em uma árvore temporária de arquivos vazios, sem baixar lotes remotos.
-
-Arquivos excluídos já existentes no destino simples são preservados. Históricos que contenham algum arquivo excluído também são preservados. Um lote ativo antigo com membros excluídos vai para `state.json.excluded`, mantendo seu arquivo e controle no destino e na cópia de recuperação; não é um lote atual da seleção filtrada. Isso evita apagar parte de um lote que não pode ser dividida sem restauração.
-
-Remover uma regra volta a incluir esses caminhos nas próximas execuções. Históricos já vencidos podem ser removidos ao voltar à seleção; seus prazos originais não são reiniciados. A simulação mostra somente arquivos selecionados e não altera estado ou destino. Sem `exclude_files`, o comportamento anterior permanece.
-
-As regras são copiadas para um arquivo temporário no início da execução, mantendo a mesma seleção na origem, no destino e no histórico. Editar o arquivo de regras enquanto o backup roda só muda a seleção da próxima execução.
-
-## Alerta antecipado de exclusões definitivas
-
-```toml
-[backup]
-deletion_alert_threshold = 1000
-```
-
-A opção equivalente na linha de comando é `--deletion-alert-threshold`. O limite é estrito: exatamente 1000 não dispara; mais de 1000 dispara. A contagem soma as tarefas da execução e conta os arquivos/versões dentro dos lotes, não apenas a quantidade de arquivos compactados. É possível configurar 0 para avisar sobre qualquer exclusão definitiva prevista.
-
-Cada histórico novo registra a data de criação, a retenção, os caminhos originais, o vencimento e o início do aviso. O período é de dois dias para retenções de dois ou mais dias, um dia para retenção de um dia e zero para retenção imediata. O programa precisa ser executado regularmente para avisar na janela: ele não envia eventos enquanto estiver parado e não adia exclusões para compensar uma execução perdida.
-
-Quando o limite é ultrapassado, os eventos `deletion_alert` e `deletion_candidate` listam os arquivos e as datas. `deletion_scheduled` registra o planejamento quando o histórico é criado; `expire` registra a remoção efetiva. Históricos protegidos por exclusões não entram na contagem. O Cronitor recebe `fail` com o resumo, mas o código de saída continua 0 e `end.success` continua verdadeiro se não houver falha real. Não é necessário confirmar a exclusão: ela ocorre no prazo que já estava configurado. O aviso pode repetir nas execuções da janela, até a limpeza terminar.
-
-Na cópia simples, um arquivo apagado pode sair da árvore atual antes disso, mas sua cópia permanece no histórico durante a retenção. O aviso trata da remoção definitiva dessa cópia. Em simulação, o planejamento aparece nos logs e nenhuma notificação é enviada.
-
-## Verificação dos discos montados
-
-A lógica corresponde a:
+Omitted CLI options inherit the TOML. `backup` is optional and remains the default action. `--source`, `--destination`, `--type` and `--logic` require one selected job. `--no-dry-run` overrides simulation enabled in the file.
 
 ```bash
-mountpoint -q "$ponto" &&
-[ -n "$(find "$ponto" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
+sambinha --job documents-s3 --max-bytes 102400 --max-files 10 --dry-run
+sambinha --job documents-local --deleted-days 30 --version-days 7
+sambinha --config /path/another.toml --job documents-local --destination /mnt/backup
+sambinha --help
 ```
 
-O programa usa `mountpoint -q` e verifica a primeira entrada do diretório em Python, sem percorrer seu conteúdo inteiro. Informe os pontos esperados por tarefa:
+Exit codes: **0** success, **1** operation/notification failure, **2** configuration error, **130** interruption. Independent jobs continue after a job failure. Global preflight checks sources and dependencies before any transfer. Types: `local`, `s3`; strategies: `simple`, `batch`; archive formats: `7z`, `zip`. `compressor` accepts `7z`, `7zz` or another compatible CLI executable.
 
-```toml
-[[jobs]]
-name = "discos"
-source = "/mnt/dados/documentos"
-destination = "/mnt/capsule/LLLD/linux/documentos"
-source_mount = "/mnt/dados"
-destination_mount = "/mnt/capsule/LLLD"
+## Batch rules
+
+1. Directories are visited in path order; files within each directory are sorted by nanosecond modification time, oldest first, with path as the tie breaker. New archives separate compression categories without disturbing this order. A directory can occupy several batches, and adjacent small directories can share one.
+2. `max_bytes` limits original, uncompressed sizes, default 1 GiB. Archive overhead can exceed that size. `max_files` defaults to 1000 and must be at least 2.
+3. Intact existing batches keep their original key, member order and compression settings when their limits and archive format remain compatible. Only affected members and new files are repacked. Intact batches do not lend files to fill a new batch.
+4. A new trailing singleton can borrow from a preceding new batch with more than two members, within the limits and the same compression category. Oversized files, impossible pairs and category boundaries can require singleton archives.
+5. Normal keys are `<common-ancestor>/batch-<hash>.7z`. Singleton keys are `<directory>/.versions/<hash>/<basename-with-new-extension>.7z`, avoiding collisions between matching stems and retaining immutable versions. Internal paths remain relative to the source root.
+6. Each archive has `<key>.json`. `<state_dir>/<job>/controls/` stores control files rather than archive bodies. New controls record compressed size and MD5 in addition to the original file metadata.
+7. Archive staging is temporary and cleaned after success or failure. Snapshots, 7-Zip tests and exact member path/size validation precede uploads. Concurrent workers have separate staging and subprocess reports.
+8. Archives and controls finish uploading before the recovery index and local state commit. Failed uploads preserve the previous committed index; interrupted attempts can leave immutable orphan objects. Preserve local state and dedicate the remote prefix exclusively to the job.
+
+## Retention and exclusion rules
+
+Simple backups preserve previous bytes before modifying a current file, at `.sambinha/history/version/<id>/...` or `.sambinha/history/deleted/<id>/...`. The retirement record is saved before the current file changes. Batch archives remain at their immutable keys until expiry, with current controls in `active` and historical records in `retired`.
+
+Retention starts when a successful execution detects edits/deletions. Cleanup happens on later runs, including at the exact deadline. Zero-day retention allows cleanup in that run. A mixed edited/deleted lot receives the longest applicable retention. Active reactivated archives cannot expire through a former retirement record. Cleanup publication failures are retried using `index_pending`.
+
+`exclude_files` uses native rclone syntax via `--exclude-from`. The rule file is frozen per execution. Paths are relative to the source root; anchored patterns, directories, Unicode and wildcard alternatives follow rclone's own matcher. Excluded files are neither transferred nor treated as deleted. Their history remains protected. A legacy batch containing both selected and excluded paths is retained in `excluded`, while current selected files are stored separately. Historical names are matched through temporary empty-file trees, including old file/directory replacements. Filter results are cached only within that execution.
+
+The advisory `deletion_alert_threshold` defaults to 1000. A strictly greater number of impending permanent deletions sends a Cronitor failure notification and logs all original paths, but does not stop backup, shift deadlines or change the successful exit code. Counts aggregate across jobs and count archived members. The warning window is two days, one day for one-day retention, and immediate for zero-day retention. Protected history is excluded. Run backups regularly to receive advance notice.
+
+## Mass removal protection
+
+`max_delete_percent = 50` and `deletion_min_files = 20` are per-job defaults. The guard compares the current selection with the previously confirmed selected inventory. Exclusions are removed from the baseline before computing the ratio. It blocks when the baseline reaches the minimum and the removed percentage is strictly above the limit, before history, uploads, replacement or retention cleanup. Initial backups have no baseline and are allowed. Exactly the threshold is allowed. Set the minimum to 1 to protect small sources too.
+
+```bash
+sambinha --job documents --dry-run
+sambinha --job documents --allow-mass-deletion
 ```
 
-O diretório copiado deve estar dentro do ponto informado. Subpastas podem estar vazias ou ser criadas no primeiro backup, desde que o volume esperado esteja montado e não vazio. Isso corresponde ao exemplo que verifica `/mnt/capsule/LLLD` antes de copiar para sua subpasta `linux`. Para descobrir o ponto de uma pasta existente, use `findmnt -n -o TARGET --target /caminho/da/pasta`.
+The bypass applies only to that invocation; review the source and logs before using it. A blocked job reports its removed paths and Cronitor receives an error. Other independent jobs can continue.
 
-As opções aceitam `~`, variáveis de secrets e caminhos relativos ao TOML. Também podem ser sobrepostas com `--source-mount` e `--destination-mount`; uma string vazia desativa aquela conferência na execução. Sem esses parâmetros, continuam as verificações normais de diretórios, mas não é possível detectar que um disco específico ficou desmontado. `destination_mount` não se aplica ao S3.
+## Disk and mount monitoring
 
-A montagem é validada antes de qualquer transferência e novamente antes de operações de cópia, preservação e exclusão. Uma falha retorna código 1, registra o ponto envolvido e envia Cronitor `fail` com a descrição; nada é escrito no diretório que ficaria no lugar de um volume desmontado. A simulação faz a mesma leitura de montagem, sem notificar. É necessário que o utilitário Linux `mountpoint` esteja instalado, sem exigir root para as verificações.
+Source disks, local destination disks and batch staging disks fail above 95% occupancy, including filesystem space unavailable to the current user. Exactly 95% is allowed. A not-yet-created destination uses its nearest existing ancestor for measurement. Checks run before backup and before destination changes; `disk_usage` events record the percentage and free bytes. For S3 only local source/staging disks have a measurable occupancy percentage. Restore also checks its output filesystem.
+
+Optional `source_mount` and local-only `destination_mount` require `mountpoint -q` and a nonempty expected volume. The configured directory must be inside that volume. Missing, empty, unreadable or lost mounts stop the backup and notify Cronitor. Subdirectories themselves may be empty.
+
+## Restore commands
+
+```bash
+sambinha restore --job documents --path dir/file.txt --output /mnt/recovered/file
+sambinha restore --job documents --path dir --path other.txt --output /mnt/recovered/selection
+sambinha restore --job documents --output /mnt/recovered/all
+sambinha restore --job documents --path dir --output /mnt/recovered/preview --dry-run
+```
+
+Select one job and a new or empty output directory separate from sources, destinations, state and logs. Selections use literal active-index paths, not glob patterns. Sizes and SHA-256/MD5 are validated in staging before any requested file is published. Restore creates files exclusively, rejects unsafe archives and symlinks, and restores ordinary mode bits and timestamps. It does not overwrite existing data. A later disk/write error may leave already published validated files and is reported as failure.
+
+Simple recovery needs the local index. Batch recovery can use the local index or download `.sambinha/control.tar.gz` and read only its bounded regular `state.json` member. It does not import arbitrary archive members into the state directory. Recovery works without the original source. S3 restoration downloads selected files or entire selected batches and may incur retrieval costs; GLACIER/DEEP_ARCHIVE need prior AWS restore. History recovery remains manual: inspect `retired` and the corresponding JSON controls or simple history paths. The command restores the current active index.
+
+## Integrity verification and scheduling
+
+```bash
+sambinha verify --job documents
+sambinha --verify-interval-days 7
+```
+
+Local simple checks read destination files. Local batch checks validate the archive checksum, 7-Zip integrity, member paths and recovered original bytes. S3 checks use only `rclone lsjson --stat --hash`, comparing metadata size and MD5 with the local index and checking JSON controls. They never download object bodies or recovery archives, including failure paths. MD5 may come from the ETag or rclone's multipart checksum metadata; a multipart ETag alone is not a whole-object MD5. Missing hashes, legacy archive checksums or a missing local index fail explicitly. This metadata check does not decompress archived members or authenticate an adversarially modified index.
+
+`verify_interval_days` is global; 0 disables automatic checks, 7 verifies after successful backups when due. The first enabled run checks immediately. Only success updates `last_verified`. Failure returns error and notifies Cronitor. The application does not install a separate scheduler; invoke backups daily through your existing timer. Manual `verify` checks immediately and does not modify the scheduled-success timestamp. Simulation reports planned verification without downloading or checking contents.
+
+## Summary and performance
+
+Each job emits a `summary` with total/new/modified/unchanged/removed files, reused/rebuilt batches, planned original bytes, actually transferred payload bytes, pending deletions, simulation status and success. Control/index overhead is excluded from payload bytes. Failed jobs can have partial transfers; the summary is an audit, not a distributed transaction. [Performance settings](performance.md) document P1–P6 and category profiles.
+
+## Compatibility and operational limits
+
+Existing 0.3.x state remains compatible; intact legacy batches stay intact. Such archives lack upload checksums and cannot receive a complete metadata integrity check until they are replaced after changes. The earlier 0.2.0 rename introduced `sambinha`, `sambinha.toml` and `.sambinha`; states from another metadata namespace are rejected. Keep an old destination and state together, and use a new destination/state to migrate an older namespace. Begin with simulation.
+
+Symlinks, special files and newline-bearing source filenames are rejected. `.sambinha` at the source root is reserved. Source, backup, state and log directories cannot overlap, and jobs cannot share overlapping destinations. Local POSIX ownership changes are not required; S3 has no native POSIX mode bits. Without filesystem snapshots, concurrent source writes can abort a backup. The fingerprint cache assumes trustworthy filesystem metadata and forces periodic content scans; disable it when full reads on every run are required.
+
+Batch reuse trusts the local mirror and exclusive remote prefix ownership. External object deletion/corruption is detected by explicit/scheduled verification, not by every unchanged backup. Simple backups compare remote checksums and repair divergence; unavailable remote checksums fail rather than falling back to size alone.

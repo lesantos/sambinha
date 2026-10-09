@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import unittest
+from unittest.mock import patch
 
 from sambinha.config import load
 from sambinha.engine import DAY
@@ -80,7 +81,9 @@ class FilteringTests(Sandbox):
         self.file('keep.txt', b'keep')
         excluded = self.file('skip.tmp', b'excluded')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
-        self.assertEqual(self.execute(), 0)
+        # Model an older mixed-profile lot, which must remain protected.
+        with patch('sambinha.engine.category', return_value='other'):
+            self.assertEqual(self.execute(), 0)
         old_keys = list(self.state()['active'])
         self.exclude('*.tmp\n', logic='batch')
         excluded.unlink()
