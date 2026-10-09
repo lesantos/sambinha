@@ -102,3 +102,29 @@ Cada histórico novo registra a data de criação, a retenção, os caminhos ori
 Quando o limite é ultrapassado, os eventos `deletion_alert` e `deletion_candidate` listam os arquivos e as datas. `deletion_scheduled` registra o planejamento quando o histórico é criado; `expire` registra a remoção efetiva. Históricos protegidos por exclusões não entram na contagem. O Cronitor recebe `fail` com o resumo, mas o código de saída continua 0 e `end.success` continua verdadeiro se não houver falha real. Não é necessário confirmar a exclusão: ela ocorre no prazo que já estava configurado. O aviso pode repetir nas execuções da janela, até a limpeza terminar.
 
 Na cópia simples, um arquivo apagado pode sair da árvore atual antes disso, mas sua cópia permanece no histórico durante a retenção. O aviso trata da remoção definitiva dessa cópia. Em simulação, o planejamento aparece nos logs e nenhuma notificação é enviada.
+
+## Verificação dos discos montados
+
+A lógica corresponde a:
+
+```bash
+mountpoint -q "$ponto" &&
+[ -n "$(find "$ponto" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
+```
+
+O programa usa `mountpoint -q` e verifica a primeira entrada do diretório em Python, sem percorrer seu conteúdo inteiro. Informe os pontos esperados por tarefa:
+
+```toml
+[[jobs]]
+name = "discos"
+source = "/mnt/dados/documentos"
+destination = "/mnt/capsule/LLLD/linux/documentos"
+source_mount = "/mnt/dados"
+destination_mount = "/mnt/capsule/LLLD"
+```
+
+O diretório copiado deve estar dentro do ponto informado. Subpastas podem estar vazias ou ser criadas no primeiro backup, desde que o volume esperado esteja montado e não vazio. Isso corresponde ao exemplo que verifica `/mnt/capsule/LLLD` antes de copiar para sua subpasta `linux`. Para descobrir o ponto de uma pasta existente, use `findmnt -n -o TARGET --target /caminho/da/pasta`.
+
+As opções aceitam `~`, variáveis de secrets e caminhos relativos ao TOML. Também podem ser sobrepostas com `--source-mount` e `--destination-mount`; uma string vazia desativa aquela conferência na execução. Sem esses parâmetros, continuam as verificações normais de diretórios, mas não é possível detectar que um disco específico ficou desmontado. `destination_mount` não se aplica ao S3.
+
+A montagem é validada antes de qualquer transferência e novamente antes de operações de cópia, preservação e exclusão. Uma falha retorna código 1, registra o ponto envolvido e envia Cronitor `fail` com a descrição; nada é escrito no diretório que ficaria no lugar de um volume desmontado. A simulação faz a mesma leitura de montagem, sem notificar. É necessário que o utilitário Linux `mountpoint` esteja instalado, sem exigir root para as verificações.

@@ -20,6 +20,7 @@ from .notify import notify
 from .process import Runner
 from .protection import protect_newer, timestamp_ns
 from .retention import DeletionForecast, retirement, alert_time, date
+from .mounts import check_mounts
 from .state import atomic_json, load_state, lock
 from .storage import Storage
 
@@ -86,6 +87,7 @@ class Context:
 
 def preserve_metadata(ctx, item):
     if ctx.job.type == "local" and not ctx.config.dry_run:
+        check_mounts(ctx.job, ctx.runner)
         target = Path(ctx.storage.path(item.path))
         shutil.copystat(ctx.job.source / item.path, target, follow_symlinks=False)
 
@@ -120,6 +122,7 @@ def simple(ctx: Context):
             if not item:
                 ctx.storage.delete(key)
     if ctx.job.type == "local" and not ctx.config.dry_run and not ctx.job.exclude_files:
+        check_mounts(ctx.job, ctx.runner)
         for directory, _, _ in os.walk(ctx.job.destination, topdown=False):
             path = Path(directory)
             relative = path.relative_to(ctx.job.destination)
@@ -144,6 +147,7 @@ def simple(ctx: Context):
     # rclone transfers bytes; local copystat additionally preserves permissions
     # and modification times, including empty directories (without root).
     if ctx.job.type == "local" and not ctx.config.dry_run:
+        check_mounts(ctx.job, ctx.runner)
         directories = ([ctx.job.source] + sorted(ctx.job.source / p for p in ctx.selected_dirs)
                        if ctx.selected_dirs is not None else
                        [ctx.job.source] + sorted(p for p in ctx.job.source.rglob("*") if p.is_dir()))
@@ -295,11 +299,13 @@ STRATEGIES = {"simple": simple, "batch": batch}
 
 
 def preflight(config, runner):
-    runner.require([config.rclone] + [j.compressor for j in config.jobs if j.logic == "batch"])
+    runner.require([config.rclone] + [j.compressor for j in config.jobs if j.logic == "batch"]
+                   + (["mountpoint"] if any(j.source_mount or j.destination_mount for j in config.jobs) else []))
     runner.run([config.rclone, "version"])
     if config.rclone_config and not Path(config.rclone_config).is_file():
         raise BackupError("Arquivo de configuração rclone não existe")
     for job in config.jobs:
+        check_mounts(job, runner)
         if job.exclude_files:
             try:
                 with job.exclude_files.open(encoding="utf-8") as stream:

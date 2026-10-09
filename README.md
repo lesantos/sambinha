@@ -119,6 +119,14 @@ Na tarefa (`[[jobs]]`), você pode definir `exclude_files = "excludes.txt"`. Ess
 
 Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino e históricos que contenham esses arquivos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. O [guia de uso](docs/usage.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
 
+## Confirme que os discos estão disponíveis
+
+Para um backup em discos montados, informe na tarefa `source_mount` e `destination_mount`: são os pontos onde os discos aparecem no Linux, não necessariamente as subpastas copiadas. Por exemplo, um destino `/mnt/capsule/LLLD/linux` usa `destination_mount = "/mnt/capsule/LLLD"`.
+
+O Sambinha aplica a mesma estratégia do seu comando `mounted_nonempty`: o ponto precisa passar em `mountpoint -q` e conter pelo menos uma entrada. Se ele estiver ausente, desmontado, vazio ou ilegível, a execução para antes de copiar e envia erro ao Cronitor. A conferência se repete antes das cópias e exclusões. Configure o ponto da origem e, para destinos locais, o do destino; o S3 tem somente a origem local.
+
+Para pastas comuns que não dependem de um disco montado específico, as opções podem ficar ausentes. O [guia de montagem](docs/usage.md#verificação-dos-discos-montados) mostra a configuração completa e como localizar o ponto correto.
+
 ## Saiba com antecedência o que será apagado
 
 Quando mais de 1000 arquivos ou versões do histórico estiverem próximos da exclusão definitiva, o Sambinha envia um evento de erro ao Cronitor e lista no relatório os caminhos originais, os objetos de backup e as datas de exclusão. Esse aviso não bloqueia o backup nem altera o prazo: a execução continua e retorna sucesso se não houver outro problema.

@@ -30,6 +30,9 @@ type = "local"
 logic = "simple"
 # Native rclone exclusion patterns; paths are relative to this TOML.
 # exclude_files = "./excludes.txt"
+# Pin expected mounted volumes (must be mounted and nonempty), if applicable.
+# source_mount = "/mnt/dados"
+# destination_mount = "/mnt/backup"
 
 [[jobs]]
 name = "documents-s3"

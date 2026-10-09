@@ -26,6 +26,8 @@ class Job:
     compressor: str = "7z"
     archive_format: str = "7z"
     exclude_files: Path | None = None
+    source_mount: Path | None = None
+    destination_mount: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,11 @@ def validate(config: Config) -> Config:
             raise ConfigError("archive_format deve ser 7z ou zip")
         if job.exclude_files is not None and not isinstance(job.exclude_files, Path):
             raise ConfigError("exclude_files deve indicar um caminho")
+        for name in ("source_mount", "destination_mount"):
+            if getattr(job, name) is not None and not isinstance(getattr(job, name), Path):
+                raise ConfigError(f"{name} deve indicar um caminho")
+        if job.type == "s3" and job.destination_mount is not None:
+            raise ConfigError("destination_mount é aplicável somente a destinos locais")
         if not isinstance(job.destination, str) or not job.destination:
             raise ConfigError("Destino vazio")
         for internal in (config.state_dir, config.log_dir):
@@ -170,6 +177,9 @@ def load(path: Path, overrides: dict | None = None) -> Config:
             raw["source"] = local_path(raw["source"], base, environment)
             exclude_file = raw.get("exclude_files")
             raw["exclude_files"] = local_path(exclude_file, base, environment) if exclude_file is not None and exclude_file != "" else None
+            for name in ("source_mount", "destination_mount"):
+                value = raw.get(name)
+                raw[name] = local_path(value, base, environment) if value is not None and value != "" else None
             if raw.get("type", "local") == "local":
                 raw["destination"] = str(local_path(raw["destination"], base, environment))
             else:

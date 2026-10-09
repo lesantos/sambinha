@@ -279,3 +279,11 @@ class S3IntegrationTests(Sandbox):
         self.assertIn('3 arquivos/versões', self.notifications[-1][3])
         self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
         self.assertEqual(self.state()['retired'], [])
+
+    def test_s3_source_mount_failure_does_not_upload_and_notifies(self):
+        self.file('file')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], source_mount=self.source),))
+        self.assertEqual(self.execute(), 1)
+        self.assertEqual(self.client.list_objects_v2(Bucket='sambinha-tests')['KeyCount'], 0)
+        self.assertEqual(self.notifications[-1][1], 'fail')
+        self.assertIn('Montagem de origem', self.notifications[-1][3])

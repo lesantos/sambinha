@@ -6,6 +6,7 @@ from .config import Config, Job
 from .errors import BackupError
 from .inventory import safe_relative
 from .protection import timestamp_ns
+from .mounts import check_mounts
 
 
 class Storage:
@@ -16,6 +17,8 @@ class Storage:
         return self.job.destination.rstrip("/") + "/" + safe_relative(key)
 
     def command(self, operation, *args, retry=False, standard=False, input=None):
+        if operation in {"copyto", "delete"}:
+            check_mounts(self.job, self.runner)
         flags = ["--retries", "1", "--low-level-retries", "1"]
         if self.config.rclone_config:
             flags += ["--config", self.config.rclone_config]
