@@ -100,7 +100,7 @@ secrets_file = "~/.config/sambinha/secrets.env"
 cronitor_url = "${CRONITOR_URL}"
 ```
 
-Crie esse arquivo fora da pasta do projeto. Ele pode conter o nome de um perfil AWS que você já configurou e a URL do Cronitor:
+Use [secrets.example.env](secrets.example.env) como modelo e crie o arquivo privado fora da pasta do projeto. Ele pode conter o nome de um perfil AWS que você já configurou e a URL do Cronitor:
 
 ```bash
 export AWS_PROFILE='sambinha'
@@ -159,4 +159,6 @@ O [relatório da versão atual](docs/test-results.md) registra os resultados obt
 
 ## Para continuar
 
-Depois do primeiro backup, o [guia de uso](docs/usage.md) ajuda a ajustar prazos, limites e várias tarefas. O [guia de S3](docs/s3.md) trata da nuvem e das credenciais. Para quem quiser contribuir com o código, a [arquitetura](docs/architecture.md) explica como o projeto está organizado, e as [notas da versão](CHANGELOG.md) registram as mudanças.
+Todas as opções públicas de configuração estão em [sambinha.example.toml](sambinha.example.toml), inclusive as opcionais comentadas; um teste confere essa lista com o código. Depois do primeiro backup, o [guia de uso](docs/usage.md) ajuda a ajustar prazos, limites e várias tarefas. O [guia de S3](docs/s3.md) trata da nuvem e das credenciais. Para quem quiser contribuir com o código, a [arquitetura](docs/architecture.md) explica como o projeto está organizado, e as [notas da versão](CHANGELOG.md) registram as mudanças.
+
+As orientações e os resultados da auditoria de credenciais estão em [SECURITY.md](SECURITY.md). A CI também verifica o histórico completo para detectar novas credenciais no código.

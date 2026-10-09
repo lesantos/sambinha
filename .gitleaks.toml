@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+# A full credential-bearing Cronitor URL must never enter repository history.
+# Documentation placeholders and variable references remain valid examples.
+[[rules]]
+id = "cronitor-telemetry-url"
+description = "Credential-bearing Cronitor telemetry URL"
+regex = '''(?i)(https://(?:[a-z]+\.)?cronitor\.(?:link|io)/p/[a-z0-9_-]{20,}/[a-z0-9_-]+)'''
+secretGroup = 1
+tags = ["cronitor", "credentials"]
