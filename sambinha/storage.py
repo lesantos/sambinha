@@ -5,6 +5,7 @@ from pathlib import Path
 from .config import Config, Job
 from .errors import BackupError
 from .inventory import safe_relative
+from .protection import timestamp_ns
 
 
 class Storage:
@@ -38,8 +39,9 @@ class Storage:
         except (ValueError, KeyError, TypeError) as exc:
             raise BackupError("Inventário rclone inválido") from exc
 
-    def put(self, source, key, *, standard=False):
-        self.command("copyto", source, self.path(key), "--checksum", "-v", "--use-json-log",
+    def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+        protection = ["--update"] if protected_mtime_ns is not None else []
+        self.command("copyto", source, self.path(key), "--checksum", "-v", "--use-json-log", *protection,
                      retry=True, standard=standard)
         report = getattr(self.runner, "last_stderr", None)
         if not isinstance(report, str):
@@ -52,6 +54,14 @@ class Storage:
                     return True
             except (ValueError, AttributeError):
                 continue
+        if protected_mtime_ns is not None:
+            try:
+                destination = json.loads(self.command("lsjson", self.path(key), "--stat"))
+                modified = timestamp_ns(destination.get("ModTime"))
+            except (ValueError, TypeError, AttributeError):
+                raise BackupError("Não foi possível confirmar a data do destino após a cópia") from None
+            if modified > protected_mtime_ns:
+                raise BackupError(f"Arquivo mais novo preservado no destino durante a cópia: {key}")
         return False
 
     def preserve(self, key, history_key):

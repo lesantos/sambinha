@@ -52,3 +52,11 @@ Links simbólicos, arquivos especiais e nomes com quebras de linha são rejeitad
 Esta versão usa o comando `sambinha`, o arquivo `sambinha.toml` e a pasta de metadados `.sambinha`. Atualize os comandos de execução e os agendamentos que você tiver criado. A versão anterior continua disponível nas suas cópias já instaladas até que você a remova.
 
 Para preservar backups feitos por uma instalação anterior, use um novo destino e uma nova pasta de estado para o primeiro backup da versão 0.2.0. Mantenha o destino e o estado anteriores juntos para consultar ou restaurar esse histórico. O programa recusa reutilizar um estado de outro formato de metadados; ele não converte arquivos remotos automaticamente. Esta mudança não exige reenviar dados para testar: comece sempre com `--dry-run`.
+
+## Arquivos mais novos no destino
+
+Antes de modificar uma tarefa, a cópia simples compara as datas de modificação do inventário rclone com as da origem, com precisão de nanossegundos. Uma data mais recente no destino impede todas as alterações daquela tarefa, inclusive quando os bytes são iguais; o arquivo e sua data permanecem intactos. Datas iguais permitem comparar o conteúdo por checksum. Se o destino não fornecer uma data válida, a tarefa também falha antes de alterar os arquivos.
+
+Nos lotes, a comparação considera as datas originais dos arquivos no último índice confirmado. A data de upload dos lotes não é a data de edição dos documentos. Conflitos aparecem como `newer_destination` nos logs, e a execução termina com código 1 e um evento Cronitor `fail` com a descrição dos arquivos. A simulação registra o conflito e retorna erro, sem enviar notificações.
+
+Nas transferências simples, o comando `copyto` também recebe `--update`. Se o rclone pular um arquivo porque o destino foi atualizado durante a execução, o Sambinha confirma a data novamente e transforma esse conflito em erro, sem alterar o arquivo mais novo.

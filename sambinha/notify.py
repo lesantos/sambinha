@@ -6,11 +6,13 @@ from urllib.request import urlopen
 from .errors import BackupError
 
 
-def notify(url, state, series, *, opener=urlopen, sleep=time.sleep):
+def notify(url, state, series, message="", *, opener=urlopen, sleep=time.sleep):
     if not url:
         return
     parts = urlsplit(url)
-    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in {"state", "series"}]
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in {"state", "series", "message"}]
+    if message:
+        query.append(("message", message[:2000]))
     target = urlunsplit(parts._replace(query=urlencode(query + [("state", state), ("series", series)])))
     for attempt in range(4):
         try:

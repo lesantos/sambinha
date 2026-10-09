@@ -5,6 +5,7 @@ strategies. Only the external rclone/S3 boundary is replaced; real HTTP tests
 exercise that boundary separately on machines allowing loopback networking.
 """
 import hashlib
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -42,7 +43,9 @@ class MotoRunner(Runner):
                     CopySource={'Bucket': src_bucket, 'Key': src_key}, StorageClass=storage_class)
             else:
                 payload = Path(source).read_bytes()
-                self.client.put_object(Bucket=bucket, Key=key, Body=payload, StorageClass=storage_class)
+                ns = Path(source).stat().st_mtime_ns
+                self.client.put_object(Bucket=bucket, Key=key, Body=payload, StorageClass=storage_class,
+                                       Metadata={'mtime': f'{ns // 1000000000}.{ns % 1000000000:09d}'})
             return ''
         if operation == 'delete':
             bucket, prefix = self.split(args[2])
@@ -55,7 +58,16 @@ class MotoRunner(Runner):
             items = []
             for page in self.client.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=prefix):
                 for item in page.get('Contents', []):
+                    metadata = self.client.head_object(Bucket=bucket, Key=item['Key']).get('Metadata', {})
+                    mtime = metadata.get('mtime')
+                    if mtime:
+                        seconds, _, fraction = mtime.partition('.')
+                        date = datetime.fromtimestamp(int(seconds), timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+                        modified = date + '.' + fraction.ljust(9, '0') + 'Z'
+                    else:
+                        modified = item['LastModified'].isoformat()
                     items.append({'Path': item['Key'].removeprefix(prefix), 'Size': item['Size'],
+                                  'ModTime': modified,
                                   'Hashes': {'md5': item['ETag'].strip('"')}})
             return json.dumps(items)
         raise AssertionError(f'Unexpected rclone operation: {operation}')

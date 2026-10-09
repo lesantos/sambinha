@@ -37,7 +37,8 @@ class S3HTTPTests(suite.S3IntegrationTests):
                 cls.server.kill()
                 cls.server.wait()
         cls.addClassCleanup(stop)
-        for _ in range(100):
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
             try:
                 with urlopen(cls.endpoint, timeout=1):
                     return

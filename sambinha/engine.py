@@ -17,6 +17,7 @@ from .inventory import scan, verify
 from .logging import RunLog
 from .notify import notify
 from .process import Runner
+from .protection import protect_newer, timestamp_ns
 from .state import atomic_json, load_state, lock
 from .storage import Storage
 
@@ -64,6 +65,8 @@ def preserve_metadata(ctx, item):
 def simple(ctx: Context):
     destination = ctx.storage.inventory()
     source = {f.path: f for f in ctx.files}
+    protect_newer(ctx.files, {key: timestamp_ns(item.get("ModTime"))
+                             for key, item in destination.items() if key in source}, ctx.event)
     # Before deleting or replacing a current file, preserve its previous bytes
     # and persist the retirement record. Interrupted retries cannot lose it.
     for key, remote in sorted(destination.items()):
@@ -104,7 +107,8 @@ def simple(ctx: Context):
         ctx.event("would_transfer" if ctx.config.dry_run else "transfer_start", path=item.path)
         if not ctx.config.dry_run:
             verify(ctx.job.source, [item])
-            transferred = ctx.storage.put(ctx.job.source / item.path, item.path)
+            transferred = ctx.storage.put(ctx.job.source / item.path, item.path,
+                                          protected_mtime_ns=item.mtime_ns)
             verify(ctx.job.source, [item])
             preserve_metadata(ctx, item)
             ctx.event("transferred" if transferred else "identical", path=item.path)
@@ -171,6 +175,11 @@ def upload_index(ctx, state):
 
 
 def batch(ctx: Context):
+    destination_times = {}
+    for control in ctx.state["active"].values():
+        for item in control["files"]:
+            destination_times[item["path"]] = max(destination_times.get(item["path"], -1), item["mtime_ns"])
+    protect_newer(ctx.files, destination_times, ctx.event)
     batches = plan(ctx.files, ctx.job.max_bytes, ctx.job.max_files, ctx.job.archive_format)
     next_state = copy.deepcopy(ctx.state)
     active = {b.key: b.control() for b in batches}
@@ -277,12 +286,16 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
     runner = runner or Runner(config.timeout, env=config.environment)
     log = RunLog(config.log_dir)
     failed = False
-    def telemetry(state):
+    errors = []
+    def telemetry(state, message=""):
         nonlocal failed
         if config.dry_run:
             return
         try:
-            notifier(config.cronitor_url, state, log.id)
+            if message:
+                notifier(config.cronitor_url, state, log.id, message[:2000])
+            else:
+                notifier(config.cronitor_url, state, log.id)
         except BackupError as exc:
             failed = True
             log.event("notification_error", error=str(exc))
@@ -298,12 +311,13 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
                     STRATEGIES[job.logic](context)
                 except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
                     failed = True
+                    errors.append(f"{job.name}: {exc}")
                     log.event("error", job=job.name, error=str(exc))
-            telemetry("fail" if failed else "complete")
+            telemetry("fail" if failed else "complete", "; ".join(errors))
     except (BackupError, OSError, ValueError) as exc:
         failed = True
         log.event("error", error=str(exc))
-        telemetry("fail")
+        telemetry("fail", str(exc))
     finally:
         log.event("end", success=not failed)
         log.close()

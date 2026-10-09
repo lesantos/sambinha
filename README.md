@@ -16,6 +16,8 @@ Você pode escolher entre duas maneiras de fazer a cópia. A **cópia simples** 
 
 As duas maneiras funcionam tanto com uma pasta local quanto com o S3. Também é possível proteger a mesma pasta de duas formas: por exemplo, manter uma cópia simples em um disco externo e uma cópia compactada na nuvem.
 
+Se um arquivo no destino tiver uma data de modificação mais recente que o arquivo da origem, o Sambinha preserva a cópia do destino e interrompe aquela tarefa com erro. O relatório lista os arquivos envolvidos, e o Cronitor recebe um evento de falha com a descrição. Outros backups independentes continuam. Nos lotes, a comparação usa as datas originais registradas no índice confirmado, não a data de envio do arquivo compactado.
+
 Por padrão, arquivos apagados na origem ficam no histórico por **10 dias**, e versões anteriores de arquivos editados ficam por **2 dias**. Esses prazos podem ser alterados. A remoção do histórico vencido acontece nas execuções seguintes; deixar o programa parado não faz a limpeza acontecer sozinha.
 
 Antes de começar, o Sambinha verifica se as ferramentas necessárias estão disponíveis. Durante o envio, tenta novamente até três vezes se uma operação falhar, esperando dois segundos entre as tentativas. Ao terminar, grava um relatório. Se você configurar o Cronitor, um serviço de acompanhamento, ele também pode receber um aviso de sucesso ou erro.

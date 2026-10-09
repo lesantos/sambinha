@@ -194,3 +194,28 @@ class S3IntegrationTests(Sandbox):
                                       state_dir=self.root / ("state-" + logic))
                 self.assertEqual(self.execute(), 0)
                 self.assert_complete()
+
+    def test_s3_newer_destination_is_preserved_and_notified(self):
+        source = self.file('file', b'old source')
+        self.assertEqual(self.execute(), 0)
+        ns = source.stat().st_mtime_ns + 1000000000
+        self.client.put_object(Bucket='sambinha-tests', Key='backup/file', Body=b'new destination',
+            Metadata={'mtime': f'{ns // 1000000000}.{ns % 1000000000:09d}'})
+        self.assertEqual(self.execute(), 1, self.output.getvalue())
+        result = self.client.get_object(Bucket='sambinha-tests', Key='backup/file')['Body'].read()
+        self.assertEqual(result, b'new destination')
+        self.assertEqual(self.notifications[-1][1], 'fail')
+        self.assertIn('file', self.notifications[-1][3])
+
+    def test_s3_batch_older_source_preserves_active_index(self):
+        source = self.file('file', b'confirmed')
+        self.file('other')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        before = self.state()
+        ns = source.stat().st_mtime_ns - 1000000000
+        source.write_bytes(b'old restored source')
+        os.utime(source, ns=(ns, ns))
+        self.assertEqual(self.execute(), 1)
+        self.assertEqual(self.state(), before)
+        self.assertEqual(self.notifications[-1][1], 'fail')

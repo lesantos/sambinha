@@ -121,6 +121,20 @@ class NotificationTests(unittest.TestCase):
                 query = parse_qs(urlsplit(opener.call_args.args[0]).query)
                 self.assertEqual(query, {'env': ['test'], 'state': [state], 'series': ['series']})
 
+    def test_cronitor_failure_message_is_encoded_and_bounded(self):
+        from urllib.parse import urlsplit, parse_qs
+        response = Mock(status=200)
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        opener = Mock(return_value=response)
+        message = "arquivo ação & outro: " + "x" * 2100
+        notify('https://cronitor.link/p/secret/key?message=old', 'fail', 'series',
+               message, opener=opener)
+        query = parse_qs(urlsplit(opener.call_args.args[0]).query)
+        self.assertEqual(query['message'], [message[:2000]])
+        self.assertEqual(query['state'], ['fail'])
+        self.assertEqual(query['series'], ['series'])
+
     def test_notification_retries_and_redacts_secret(self):
         opener, sleeper = Mock(side_effect=URLError('secret-url')), Mock()
         with self.assertRaises(BackupError) as context:

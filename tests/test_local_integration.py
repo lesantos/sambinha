@@ -86,6 +86,8 @@ class LocalIntegrationTests(Sandbox):
         self.file('file', b'original')
         self.assertEqual(self.execute(), 0)
         (self.destination / 'file').write_bytes(b'corrupt!')
+        ns = (self.source / 'file').stat().st_mtime_ns
+        os.utime(self.destination / 'file', ns=(ns, ns))
         self.assertEqual(self.execute(), 0)
         self.assert_complete()
 
@@ -318,6 +320,7 @@ class LocalIntegrationTests(Sandbox):
         old = self.state()
         timestamps = {p: (self.source / p).stat().st_mtime_ns for p in ('a', 'b')}
         (self.source / 'a').write_bytes(b'changed')
+        os.utime(self.source / 'a', ns=(timestamps['a'], timestamps['a']))
         self.assertEqual(self.execute(now=2000), 0)
         self.assertTrue(self.state()['retired'])
         (self.source / 'a').write_bytes(b'original')
