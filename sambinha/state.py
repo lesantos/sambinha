@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import math
 
 from .errors import BackupError
 from .inventory import safe_relative
@@ -41,8 +42,15 @@ def load_state(path: Path, identity: dict):
             safe_relative(key)
         for entry in data["retired"]:
             safe_relative(entry["key"])
-            if not isinstance(entry["expires"], (int, float)):
+            if type(entry["expires"]) not in (int, float) or not math.isfinite(entry["expires"]):
                 raise ValueError("expiração")
+            if "alert_at" in entry and (type(entry["alert_at"]) not in (int, float) or not math.isfinite(entry["alert_at"])):
+                raise ValueError("aviso")
+            if "files" in entry:
+                if not isinstance(entry["files"], list):
+                    raise ValueError("arquivos")
+                for name in entry["files"]:
+                    safe_relative(name)
             if "control" in entry:
                 safe_relative(entry["control"])
         return data

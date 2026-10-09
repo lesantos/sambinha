@@ -87,3 +87,18 @@ Arquivos excluídos já existentes no destino simples são preservados. Históri
 Remover uma regra volta a incluir esses caminhos nas próximas execuções. Históricos já vencidos podem ser removidos ao voltar à seleção; seus prazos originais não são reiniciados. A simulação mostra somente arquivos selecionados e não altera estado ou destino. Sem `exclude_files`, o comportamento anterior permanece.
 
 As regras são copiadas para um arquivo temporário no início da execução, mantendo a mesma seleção na origem, no destino e no histórico. Editar o arquivo de regras enquanto o backup roda só muda a seleção da próxima execução.
+
+## Alerta antecipado de exclusões definitivas
+
+```toml
+[backup]
+deletion_alert_threshold = 1000
+```
+
+A opção equivalente na linha de comando é `--deletion-alert-threshold`. O limite é estrito: exatamente 1000 não dispara; mais de 1000 dispara. A contagem soma as tarefas da execução e conta os arquivos/versões dentro dos lotes, não apenas a quantidade de arquivos compactados. É possível configurar 0 para avisar sobre qualquer exclusão definitiva prevista.
+
+Cada histórico novo registra a data de criação, a retenção, os caminhos originais, o vencimento e o início do aviso. O período é de dois dias para retenções de dois ou mais dias, um dia para retenção de um dia e zero para retenção imediata. O programa precisa ser executado regularmente para avisar na janela: ele não envia eventos enquanto estiver parado e não adia exclusões para compensar uma execução perdida.
+
+Quando o limite é ultrapassado, os eventos `deletion_alert` e `deletion_candidate` listam os arquivos e as datas. `deletion_scheduled` registra o planejamento quando o histórico é criado; `expire` registra a remoção efetiva. Históricos protegidos por exclusões não entram na contagem. O Cronitor recebe `fail` com o resumo, mas o código de saída continua 0 e `end.success` continua verdadeiro se não houver falha real. Não é necessário confirmar a exclusão: ela ocorre no prazo que já estava configurado. O aviso pode repetir nas execuções da janela, até a limpeza terminar.
+
+Na cópia simples, um arquivo apagado pode sair da árvore atual antes disso, mas sua cópia permanece no histórico durante a retenção. O aviso trata da remoção definitiva dessa cópia. Em simulação, o planejamento aparece nos logs e nenhuma notificação é enviada.

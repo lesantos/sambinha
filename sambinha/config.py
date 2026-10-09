@@ -42,6 +42,7 @@ class Config:
     timeout: int = 3600
     secrets_file: Path | None = None
     environment: dict[str, str] | None = field(default=None, repr=False, compare=False)
+    deletion_alert_threshold: int = 1000
 
 
 def local_path(value, base, environment=None):
@@ -58,7 +59,7 @@ def overlap(a: Path, b: Path) -> bool:
 def validate(config: Config) -> Config:
     if not config.jobs:
         raise ConfigError("Configure pelo menos um [[jobs]]")
-    for name in ("deleted_days", "version_days", "timeout"):
+    for name in ("deleted_days", "version_days", "timeout", "deletion_alert_threshold"):
         value = getattr(config, name)
         if type(value) is not int or value < (1 if name == "timeout" else 0):
             raise ConfigError(f"{name}: inteiro fora do intervalo permitido")

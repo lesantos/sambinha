@@ -4,6 +4,9 @@ state_dir = "./state"
 log_dir = "./logs"
 deleted_days = 10
 version_days = 2
+# Soft Cronitor alert for more than this many impending permanent deletions.
+# Does not stop backups or change deadlines; run daily for advance notice.
+deletion_alert_threshold = 1000
 dry_run = false
 rclone = "rclone"
 # Point to a rclone configuration; empty uses ~/.config/rclone/rclone.conf.

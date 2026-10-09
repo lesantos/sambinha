@@ -119,6 +119,12 @@ Na tarefa (`[[jobs]]`), você pode definir `exclude_files = "excludes.txt"`. Ess
 
 Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino e históricos que contenham esses arquivos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. O [guia de uso](docs/usage.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
 
+## Saiba com antecedência o que será apagado
+
+Quando mais de 1000 arquivos ou versões do histórico estiverem próximos da exclusão definitiva, o Sambinha envia um evento de erro ao Cronitor e lista no relatório os caminhos originais, os objetos de backup e as datas de exclusão. Esse aviso não bloqueia o backup nem altera o prazo: a execução continua e retorna sucesso se não houver outro problema.
+
+O aviso começa dois dias antes do vencimento. Para retenção de um dia, começa um dia antes; para retenção zero, só pode ocorrer na própria execução. Configure `deletion_alert_threshold` em `[backup]` para mudar o limite. Arquivos excluídos pelas regras de seleção ficam fora desse alerta. Execute o programa diariamente para receber o aviso na janela prevista; se ficar parado até o vencimento, o aviso será emitido na próxima execução e a limpeza seguirá o prazo original.
+
 ## Como recuperar um arquivo
 
 Na cópia simples, os arquivos atuais estão no destino com a mesma organização da origem. Você pode copiá-los de volta como faria com arquivos de qualquer outra pasta. Dentro do destino, a pasta oculta `.sambinha` guarda o histórico e os registros do programa; ela não faz parte dos seus documentos atuais.

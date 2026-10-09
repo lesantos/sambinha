@@ -18,7 +18,7 @@ def parser():
     for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
                  "state_dir", "log_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files"):
         result.add_argument("--" + name.replace("_", "-"), default=None)
-    for name in ("deleted_days", "version_days", "max_bytes", "max_files", "timeout"):
+    for name in ("deleted_days", "version_days", "max_bytes", "max_files", "timeout", "deletion_alert_threshold"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=None)
     return result
 

@@ -249,3 +249,33 @@ class S3IntegrationTests(Sandbox):
         actual = restore_batches(self.state(), download, download / '.sambinha/selected')
         self.assertEqual(actual, {'keep.txt': b'keep'})
         self.assertTrue(all((download / key).exists() for key in old_keys))
+
+    def test_s3_deletion_warning_continues_backup_and_expiration(self):
+        for name in ('a', 'b', 'c'):
+            self.file(name)
+        self.config = replace(self.config, deletion_alert_threshold=2)
+        self.assertEqual(self.execute(now=1000), 0)
+        for name in ('a', 'b', 'c'):
+            (self.source / name).unlink()
+        self.assertEqual(self.execute(now=2000), 0)
+        self.assertEqual(self.execute(now=2000 + 8 * DAY), 0)
+        self.assertEqual(self.notifications[-1][1], 'fail')
+        self.assertEqual(len(self.state()['retired']), 3)
+        self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
+        self.assertEqual(self.state()['retired'], [])
+        self.assertEqual(self.notifications[-1][1], 'fail')
+
+    def test_s3_batch_warning_counts_archived_members_and_keeps_deadline(self):
+        for name in ('a', 'b', 'c'):
+            self.file(name)
+        self.use_batch()
+        self.config = replace(self.config, deletion_alert_threshold=2)
+        self.assertEqual(self.execute(now=1000), 0)
+        for name in ('a', 'b', 'c'):
+            (self.source / name).unlink()
+        self.assertEqual(self.execute(now=2000), 0)
+        self.assertEqual(self.execute(now=2000 + 8 * DAY), 0)
+        self.assertEqual(self.notifications[-1][1], 'fail')
+        self.assertIn('3 arquivos/versões', self.notifications[-1][3])
+        self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
+        self.assertEqual(self.state()['retired'], [])

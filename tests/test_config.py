@@ -43,7 +43,7 @@ class ConfigurationTests(Sandbox):
     def test_invalid_global_values(self):
         for values in ({"deleted_days": -1}, {"version_days": True}, {"timeout": 0},
                        {"dry_run": "yes"}, {"cronitor_url": "http://example.com"},
-                       {"rclone": ""}, {"rclone_config": 123}, {"secrets_file": "wrong-type"}):
+                       {"rclone": ""}, {"rclone_config": 123}, {"secrets_file": "wrong-type"}, {"deletion_alert_threshold": -1}, {"deletion_alert_threshold": True}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, **values))
 

@@ -19,6 +19,7 @@ from .logging import RunLog
 from .notify import notify
 from .process import Runner
 from .protection import protect_newer, timestamp_ns
+from .retention import DeletionForecast, retirement, alert_time, date
 from .state import atomic_json, load_state, lock
 from .storage import Storage
 
@@ -26,11 +27,12 @@ DAY = 86400
 
 
 class Context:
-    def __init__(self, config, job, runner, log, files, now, selected_dirs=None):
+    def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None):
         self.config, self.job, self.runner, self.log = config, job, runner, log
         self.files, self.now = files, now
         self.selection = Selection(job.exclude_files, config, runner)
         self.selected_dirs = selected_dirs
+        self.forecast = forecast
         self.storage = Storage(job, config, runner)
         self.directory = config.state_dir / job.name
         self.state_path = self.directory / "state.json"
@@ -44,7 +46,23 @@ class Context:
     def save(self):
         atomic_json(self.state_path, self.state)
 
+    def forecast_deletions(self):
+        if self.forecast is None:
+            return
+        paths = {entry["key"]: retired_paths(entry, self.directory) for entry in self.state["retired"]}
+        included = self.selection.include_paths(p for members in paths.values() for p in members)
+        candidates = [(entry, paths[entry["key"]]) for entry in self.state["retired"]
+                      if alert_time(entry, self.config.deleted_days, self.config.version_days) <= self.now
+                      and all(p in included for p in paths[entry["key"]])]
+        self.forecast.add(self.job.name, candidates)
+
+    def scheduled(self, entry):
+        self.event("deletion_scheduled", path=entry["key"], files=entry["files"],
+                   reason=entry["reason"], deletion_at=date(entry["expires"]),
+                   alert_from=date(entry["alert_at"]))
+
     def expire(self):
+        self.forecast_deletions()
         paths = {entry["key"]: retired_paths(entry, self.directory) for entry in self.state["retired"]}
         included = self.selection.include_paths(p for members in paths.values() for p in members)
         remaining = []
@@ -56,7 +74,8 @@ class Context:
             if entry["expires"] > self.now:
                 remaining.append(entry)
                 continue
-            self.event("would_expire" if self.config.dry_run else "expire", path=entry["key"])
+            self.event("would_expire" if self.config.dry_run else "expire", path=entry["key"],
+                       files=paths[entry["key"]], deletion_at=date(entry["expires"]))
             if not self.config.dry_run:
                 self.storage.delete(entry["key"])
                 if entry.get("control"):
@@ -94,8 +113,9 @@ def simple(ctx: Context):
         ctx.event("would_preserve" if ctx.config.dry_run else "preserve", path=key, reason=reason)
         if not ctx.config.dry_run:
             ctx.storage.preserve(key, history)
-            ctx.state["retired"].append({"key": history, "reason": reason,
-                                         "expires": ctx.now + days * DAY})
+            entry = retirement(history, [key], reason, ctx.now, days)
+            ctx.state["retired"].append(entry)
+            ctx.scheduled(entry)
             ctx.save()
             if not item:
                 ctx.storage.delete(key)
@@ -214,8 +234,10 @@ def batch(ctx: Context):
         changed = any(f["path"] in current_files and current_files[f["path"]] != f for f in control["files"])
         days = max(ctx.config.deleted_days if deleted else 0,
                    ctx.config.version_days if changed else 0)
-        next_state["retired"].append({"key": key, "control": key + ".json",
-            "reason": "deleted" if deleted else "version", "expires": ctx.now + days * DAY})
+        entry = retirement(key, [f["path"] for f in control["files"]],
+                           "deleted" if deleted else "version", ctx.now, days, key + ".json")
+        next_state["retired"].append(entry)
+        ctx.scheduled(entry)
         ctx.event("would_retire" if ctx.config.dry_run else "retired", path=key, days=days)
     # Reactivated lots must never be deleted by their former retirement record.
     next_state["retired"] = [r for r in next_state["retired"] if r["key"] not in active]
@@ -329,28 +351,42 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
         except BackupError as exc:
             failed = True
             log.event("notification_error", error=str(exc))
+    forecast = DeletionForecast(config.deletion_alert_threshold, log,
+                                lambda message: telemetry("fail", message))
     log.event("start", dry_run=config.dry_run, sources=[str(j.source) for j in config.jobs])
     try:
         with nullcontext() if config.dry_run else lock(config.state_dir):
             telemetry("run")
             with frozen_rules(config) as effective:
                 inventories = preflight(effective, runner)
+                contexts = []
                 for job in effective.jobs:
                     log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
                     try:
                         files, selected_dirs = inventories[job.name]
-                        context = Context(effective, job, runner, log, files, clock(), selected_dirs)
-                        STRATEGIES[job.logic](context)
+                        context = Context(effective, job, runner, log, files, clock(), selected_dirs, forecast)
+                        context.forecast_deletions()
+                        contexts.append(context)
                     except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
                         failed = True
                         errors.append(f"{job.name}: {exc}")
                         log.event("error", job=job.name, error=str(exc))
-            telemetry("fail" if failed else "complete", "; ".join(errors))
+                for context in contexts:
+                    try:
+                        STRATEGIES[context.job.logic](context)
+                    except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
+                        failed = True
+                        errors.append(f"{context.job.name}: {exc}")
+                        log.event("error", job=context.job.name, error=str(exc))
+            if failed:
+                telemetry("fail", "; ".join(errors + ([forecast.message] if forecast.sent else [])))
+            elif not forecast.sent:
+                telemetry("complete")
     except (BackupError, OSError, ValueError) as exc:
         failed = True
         log.event("error", error=str(exc))
         telemetry("fail", str(exc))
     finally:
-        log.event("end", success=not failed)
+        log.event("end", success=not failed, deletion_alert=forecast.sent)
         log.close()
     return 1 if failed else 0
