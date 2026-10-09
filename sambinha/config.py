@@ -25,6 +25,7 @@ class Job:
     max_files: int = 1000
     compressor: str = "7z"
     archive_format: str = "7z"
+    exclude_files: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,8 @@ def validate(config: Config) -> Config:
             raise ConfigError("compressor deve indicar um executável compatível com 7-Zip")
         if job.archive_format not in {"7z", "zip"}:
             raise ConfigError("archive_format deve ser 7z ou zip")
+        if job.exclude_files is not None and not isinstance(job.exclude_files, Path):
+            raise ConfigError("exclude_files deve indicar um caminho")
         if not isinstance(job.destination, str) or not job.destination:
             raise ConfigError("Destino vazio")
         for internal in (config.state_dir, config.log_dir):
@@ -164,6 +167,8 @@ def load(path: Path, overrides: dict | None = None) -> Config:
                 continue
             raw.update({k: v for k, v in overrides.items() if k in job_keys})
             raw["source"] = local_path(raw["source"], base, environment)
+            exclude_file = raw.get("exclude_files")
+            raw["exclude_files"] = local_path(exclude_file, base, environment) if exclude_file is not None and exclude_file != "" else None
             if raw.get("type", "local") == "local":
                 raw["destination"] = str(local_path(raw["destination"], base, environment))
             else:

@@ -60,3 +60,30 @@ Antes de modificar uma tarefa, a cópia simples compara as datas de modificaçã
 Nos lotes, a comparação considera as datas originais dos arquivos no último índice confirmado. A data de upload dos lotes não é a data de edição dos documentos. Conflitos aparecem como `newer_destination` nos logs, e a execução termina com código 1 e um evento Cronitor `fail` com a descrição dos arquivos. A simulação registra o conflito e retorna erro, sem enviar notificações.
 
 Nas transferências simples, o comando `copyto` também recebe `--update`. Se o rclone pular um arquivo porque o destino foi atualizado durante a execução, o Sambinha confirma a data novamente e transforma esse conflito em erro, sem alterar o arquivo mais novo.
+
+## Exclusões por arquivo de regras
+
+Configure `exclude_files` por tarefa, ou use `--exclude-files CAMINHO`. Caminhos relativos partem da pasta do TOML e podem usar variáveis carregadas de secrets. Um arquivo ausente, ilegível ou com padrões inválidos faz a execução falhar antes do backup, com erro no Cronitor.
+
+```toml
+[[jobs]]
+name = "documentos"
+source = "~/Documentos"
+destination = "/mnt/backup/documentos"
+exclude_files = "excludes.txt"
+```
+
+```text
+# Conteúdo de excludes.txt
+*.tmp
+*.{bak,old}
+/cache/**
+```
+
+A seleção usa `rclone lsjson --exclude-from` tanto para a origem quanto para o destino simples. A mesma seleção alimenta a compactação por lotes, sem enviar arquivos excluídos. Não há uma segunda implementação dos padrões em Python. Os nomes do histórico são avaliados pelo próprio rclone em uma árvore temporária de arquivos vazios, sem baixar lotes remotos.
+
+Arquivos excluídos já existentes no destino simples são preservados. Históricos que contenham algum arquivo excluído também são preservados. Um lote ativo antigo com membros excluídos vai para `state.json.excluded`, mantendo seu arquivo e controle no destino e na cópia de recuperação; não é um lote atual da seleção filtrada. Isso evita apagar parte de um lote que não pode ser dividida sem restauração.
+
+Remover uma regra volta a incluir esses caminhos nas próximas execuções. Históricos já vencidos podem ser removidos ao voltar à seleção; seus prazos originais não são reiniciados. A simulação mostra somente arquivos selecionados e não altera estado ou destino. Sem `exclude_files`, o comportamento anterior permanece.
+
+As regras são copiadas para um arquivo temporário no início da execução, mantendo a mesma seleção na origem, no destino e no histórico. Editar o arquivo de regras enquanto o backup roda só muda a seleção da próxima execução.

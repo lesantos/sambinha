@@ -113,6 +113,12 @@ Depois disso, execute o comando de backup normalmente. O Sambinha lê o arquivo 
 
 O arquivo é lido como dados, sem executar comandos. Você pode usar aspas, comentários e a palavra opcional `export`. Os valores nele são literais; para referenciar uma variável na configuração, use `${NOME}` no TOML, como no exemplo do Cronitor. Caminhos relativos de `secrets_file` partem da pasta do TOML. A opção `--secrets-file CAMINHO` permite escolher outro arquivo naquela execução.
 
+## Escolha o que fica fora do backup
+
+Na tarefa (`[[jobs]]`), você pode definir `exclude_files = "excludes.txt"`. Esse arquivo usa os padrões do próprio rclone, um por linha: por exemplo, `*.tmp` ignora arquivos temporários, e `/cache/**` ignora a pasta `cache` na raiz da origem. Comentários e linhas vazias são aceitos.
+
+Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino e históricos que contenham esses arquivos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. O [guia de uso](docs/usage.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
+
 ## Como recuperar um arquivo
 
 Na cópia simples, os arquivos atuais estão no destino com a mesma organização da origem. Você pode copiá-los de volta como faria com arquivos de qualquer outra pasta. Dentro do destino, a pasta oculta `.sambinha` guarda o histórico e os registros do programa; ela não faz parte dos seus documentos atuais.

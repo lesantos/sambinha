@@ -31,7 +31,8 @@ class Storage:
         if self.job.type == "local" and not Path(self.job.destination).exists():
             return {}
         # Unknown/missing S3 bucket errors are fatal, never interpreted as empty.
-        raw = self.command("lsjson", self.job.destination, "--recursive", "--files-only", "--hash")
+        filters = ["--exclude-from", str(self.job.exclude_files)] if self.job.exclude_files else []
+        raw = self.command("lsjson", self.job.destination, "--recursive", "--files-only", "--hash", *filters)
         try:
             items = json.loads(raw)
             return {safe_relative(i["Path"]): i for i in items

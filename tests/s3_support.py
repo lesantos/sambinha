@@ -28,6 +28,8 @@ class MotoRunner(Runner):
             return super().run(args, **kwargs)
         self.commands.append(list(args))
         operation = args[1]
+        if operation == 'lsjson' and ':' not in args[2]:
+            return super().run(args, **kwargs)
         if operation == 'version':
             return 'rclone simulated S3 transport via Moto'
         if operation == 'config':
@@ -69,5 +71,10 @@ class MotoRunner(Runner):
                     items.append({'Path': item['Key'].removeprefix(prefix), 'Size': item['Size'],
                                   'ModTime': modified,
                                   'Hashes': {'md5': item['ETag'].strip('"')}})
+            if '--exclude-from' in args:
+                from sambinha.filtering import Selection
+                from sambinha.config import Config
+                selected = Selection(Path(args[args.index('--exclude-from') + 1]), Config(jobs=()), self).include_paths(i['Path'] for i in items)
+                items = [i for i in items if i['Path'] in selected]
             return json.dumps(items)
         raise AssertionError(f'Unexpected rclone operation: {operation}')

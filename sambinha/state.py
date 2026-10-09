@@ -35,6 +35,10 @@ def load_state(path: Path, identity: dict):
             raise ValueError("estrutura")
         for key in data["active"]:
             safe_relative(key)
+        if not isinstance(data.get("excluded", {}), dict):
+            raise ValueError("lotes excluídos")
+        for key in data.get("excluded", {}):
+            safe_relative(key)
         for entry in data["retired"]:
             safe_relative(entry["key"])
             if not isinstance(entry["expires"], (int, float)):

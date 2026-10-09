@@ -50,7 +50,7 @@ def fingerprint(root: Path, relative: str) -> File:
                 before.st_mtime_ns, stat.S_IMODE(before.st_mode))
 
 
-def scan(root: Path) -> list[File]:
+def scan(root: Path, included_files=None, included_dirs=None) -> list[File]:
     if not root.is_dir() or root.is_symlink():
         raise BackupError(f"Origem não é diretório regular: {root}")
     result = []
@@ -60,10 +60,16 @@ def scan(root: Path) -> list[File]:
         for name in dirs:
             if (Path(directory) / name).is_symlink():
                 raise BackupError("Links simbólicos não são aceitos; origem permanece intacta")
+        if included_dirs is not None:
+            dirs[:] = [name for name in dirs if (Path(directory) / name).relative_to(root).as_posix() in included_dirs]
         for name in files:
             relative = (Path(directory) / name).relative_to(root).as_posix()
+            if (Path(directory) / name).is_symlink():
+                raise BackupError("Links simbólicos não são aceitos; origem permanece intacta")
             if relative.split("/")[0] == ".sambinha":
                 raise BackupError(".sambinha é reservado para metadados")
+            if included_files is not None and relative not in included_files:
+                continue
             result.append(fingerprint(root, relative))
     return sorted(result, key=lambda f: f.path)
 

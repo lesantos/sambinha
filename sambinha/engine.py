@@ -13,6 +13,7 @@ import uuid
 from .batches import plan
 from .config import Config, Job
 from .errors import BackupError
+from .filtering import Selection, retired_paths, frozen_rules
 from .inventory import scan, verify
 from .logging import RunLog
 from .notify import notify
@@ -25,9 +26,11 @@ DAY = 86400
 
 
 class Context:
-    def __init__(self, config, job, runner, log, files, now):
+    def __init__(self, config, job, runner, log, files, now, selected_dirs=None):
         self.config, self.job, self.runner, self.log = config, job, runner, log
         self.files, self.now = files, now
+        self.selection = Selection(job.exclude_files, config, runner)
+        self.selected_dirs = selected_dirs
         self.storage = Storage(job, config, runner)
         self.directory = config.state_dir / job.name
         self.state_path = self.directory / "state.json"
@@ -42,8 +45,14 @@ class Context:
         atomic_json(self.state_path, self.state)
 
     def expire(self):
+        paths = {entry["key"]: retired_paths(entry, self.directory) for entry in self.state["retired"]}
+        included = self.selection.include_paths(p for members in paths.values() for p in members)
         remaining = []
         for entry in self.state["retired"]:
+            if any(p not in included for p in paths[entry["key"]]):
+                self.event("excluded_history", path=entry["key"], files=paths[entry["key"]])
+                remaining.append(entry)
+                continue
             if entry["expires"] > self.now:
                 remaining.append(entry)
                 continue
@@ -90,7 +99,7 @@ def simple(ctx: Context):
             ctx.save()
             if not item:
                 ctx.storage.delete(key)
-    if ctx.job.type == "local" and not ctx.config.dry_run:
+    if ctx.job.type == "local" and not ctx.config.dry_run and not ctx.job.exclude_files:
         for directory, _, _ in os.walk(ctx.job.destination, topdown=False):
             path = Path(directory)
             relative = path.relative_to(ctx.job.destination)
@@ -115,7 +124,9 @@ def simple(ctx: Context):
     # rclone transfers bytes; local copystat additionally preserves permissions
     # and modification times, including empty directories (without root).
     if ctx.job.type == "local" and not ctx.config.dry_run:
-        directories = [ctx.job.source] + sorted(p for p in ctx.job.source.rglob("*") if p.is_dir())
+        directories = ([ctx.job.source] + sorted(ctx.job.source / p for p in ctx.selected_dirs)
+                       if ctx.selected_dirs is not None else
+                       [ctx.job.source] + sorted(p for p in ctx.job.source.rglob("*") if p.is_dir()))
         for directory in reversed(directories):
             relative = directory.relative_to(ctx.job.source)
             target = Path(ctx.job.destination) / relative
@@ -175,15 +186,24 @@ def upload_index(ctx, state):
 
 
 def batch(ctx: Context):
+    confirmed = {**ctx.state.get("excluded", {}), **ctx.state["active"]}
     destination_times = {}
-    for control in ctx.state["active"].values():
+    for control in confirmed.values():
         for item in control["files"]:
             destination_times[item["path"]] = max(destination_times.get(item["path"], -1), item["mtime_ns"])
     protect_newer(ctx.files, destination_times, ctx.event)
     batches = plan(ctx.files, ctx.job.max_bytes, ctx.job.max_files, ctx.job.archive_format)
     next_state = copy.deepcopy(ctx.state)
     active = {b.key: b.control() for b in batches}
-    old = ctx.state["active"]
+    old = {}
+    selected = ctx.selection.include_paths(f["path"] for c in confirmed.values() for f in c["files"])
+    next_state["excluded"] = {}
+    for key, control in confirmed.items():
+        if any(f["path"] not in selected for f in control["files"]):
+            next_state["excluded"][key] = control
+            ctx.event("excluded_batch", archive=key, files=[f["path"] for f in control["files"]])
+        else:
+            old[key] = control
     current_files = {f.path: f.metadata() for f in ctx.files}
     # Content-addressed archive keys allow old lots to remain in place, avoiding
     # server-side copies/restores of GLACIER and DEEP_ARCHIVE objects.
@@ -258,6 +278,12 @@ def preflight(config, runner):
     if config.rclone_config and not Path(config.rclone_config).is_file():
         raise BackupError("Arquivo de configuração rclone não existe")
     for job in config.jobs:
+        if job.exclude_files:
+            try:
+                with job.exclude_files.open(encoding="utf-8") as stream:
+                    stream.read()
+            except (OSError, UnicodeError):
+                raise BackupError(f"Arquivo exclude_files ausente ou ilegível: {job.name}") from None
         if job.type == "local":
             target = Path(job.destination)
             if target.exists() and not target.is_dir():
@@ -279,7 +305,11 @@ def preflight(config, runner):
                                      remotes.get(remote, {}).get("type", ""))
             if backend != "s3":
                 raise BackupError(f"Remote {remote} precisa ser do tipo s3")
-    return {job.name: scan(job.source) for job in config.jobs}
+    inventories = {}
+    for job in config.jobs:
+        selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
+        inventories[job.name] = (scan(job.source, selected_files, selected_dirs), selected_dirs)
+    return inventories
 
 
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int:
@@ -303,16 +333,18 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time) -> int
     try:
         with nullcontext() if config.dry_run else lock(config.state_dir):
             telemetry("run")
-            inventories = preflight(config, runner)
-            for job in config.jobs:
-                log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
-                try:
-                    context = Context(config, job, runner, log, inventories[job.name], clock())
-                    STRATEGIES[job.logic](context)
-                except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
-                    failed = True
-                    errors.append(f"{job.name}: {exc}")
-                    log.event("error", job=job.name, error=str(exc))
+            with frozen_rules(config) as effective:
+                inventories = preflight(effective, runner)
+                for job in effective.jobs:
+                    log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
+                    try:
+                        files, selected_dirs = inventories[job.name]
+                        context = Context(effective, job, runner, log, files, clock(), selected_dirs)
+                        STRATEGIES[job.logic](context)
+                    except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
+                        failed = True
+                        errors.append(f"{job.name}: {exc}")
+                        log.event("error", job=job.name, error=str(exc))
             telemetry("fail" if failed else "complete", "; ".join(errors))
     except (BackupError, OSError, ValueError) as exc:
         failed = True

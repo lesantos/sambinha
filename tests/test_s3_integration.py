@@ -219,3 +219,33 @@ class S3IntegrationTests(Sandbox):
         self.assertEqual(self.execute(), 1)
         self.assertEqual(self.state(), before)
         self.assertEqual(self.notifications[-1][1], 'fail')
+
+    def test_s3_excluded_files_are_not_uploaded_or_removed(self):
+        self.file('keep.txt', b'keep')
+        excluded = self.file('skip.tmp', b'old')
+        self.assertEqual(self.execute(), 0)
+        rules = self.root / 'exclude.txt'
+        rules.write_text('*.tmp\n')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], exclude_files=rules),))
+        excluded.unlink()
+        self.file('new.tmp', b'not uploaded')
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assertEqual(self.client.get_object(Bucket='sambinha-tests', Key='backup/skip.tmp')['Body'].read(), b'old')
+        objects = self.client.list_objects_v2(Bucket='sambinha-tests', Prefix='backup/new.tmp')
+        self.assertEqual(objects['KeyCount'], 0)
+
+    def test_s3_batch_exclusions_protect_mixed_lot(self):
+        self.file('keep.txt', b'keep')
+        self.file('skip.tmp', b'old')
+        self.use_batch()
+        self.assertEqual(self.execute(), 0)
+        old_keys = list(self.state()['active'])
+        rules = self.root / 'exclude.txt'
+        rules.write_text('*.tmp\n')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], exclude_files=rules),))
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assertEqual(set(self.state()['excluded']), set(old_keys))
+        download = self.download()
+        actual = restore_batches(self.state(), download, download / '.sambinha/selected')
+        self.assertEqual(actual, {'keep.txt': b'keep'})
+        self.assertTrue(all((download / key).exists() for key in old_keys))

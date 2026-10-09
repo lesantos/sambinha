@@ -25,6 +25,8 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
+# Native rclone exclusion patterns; paths are relative to this TOML.
+# exclude_files = "./excludes.txt"
 
 [[jobs]]
 name = "documents-s3"
