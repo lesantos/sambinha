@@ -1,6 +1,6 @@
 # Novidades do Sambinha
 
-## Próxima versão
+## 0.3.0
 
 `source_mount` e `destination_mount` permitem verificar volumes montados e não vazios antes de copiar ou excluir. Problemas de montagem interrompem o backup e enviam erro ao Cronitor.
 
@@ -13,6 +13,8 @@ Arquivos mais novos no destino são preservados. A tarefa falha antes de alterar
 O parâmetro opcional `secrets_file` permite carregar credenciais de um arquivo `.env` antes de iniciar o backup. Variáveis já definidas no terminal têm prioridade. Arquivos ausentes ou inválidos interrompem a execução antes de qualquer backup, com mensagens sem valores privados. A opção `--secrets-file` permite substituir ou desativar essa leitura em uma execução.
 
 A leitura usa a biblioteca python-dotenv, instalada junto com o aplicativo, e mantém as variáveis isoladas na configuração e nos subprocessos. Configurações anteriores, sem `secrets_file`, continuam funcionando.
+
+Os exemplos mostram todas as opções públicas de configuração, inclusive as opcionais e o caminho do arquivo de credenciais. A CI também confere o histórico completo do Git com Gitleaks para evitar a publicação de segredos.
 
 ## 0.2.0
 
