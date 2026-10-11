@@ -22,7 +22,8 @@ class Sandbox(unittest.TestCase):
         self.source.mkdir()
         self.destination = self.root / "destination"
         self.config = Config(jobs=(Job("test", self.source, str(self.destination)),),
-                             state_dir=self.root / "state", log_dir=self.root / "logs")
+                             state_dir=self.root / "state", log_dir=self.root / "logs",
+                             verification_mode="hash")
         self.notifications = []
 
     def file(self, path, content=b"test", mode=0o640):

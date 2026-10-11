@@ -8,9 +8,13 @@ version_days = 2
 # Aviso consultivo do Cronitor acima desta quantidade de exclusões definitivas previstas.
 # Não interrompe o backup nem muda prazos; execute diariamente para receber aviso prévio.
 deletion_alert_threshold = 1000
-# Verificação só por metadados no S3; localmente lê o conteúdo do backup.
+# Verificação no S3 não baixa corpos; checks locais seguem verification_mode.
 # 0 desativa a agenda; use 7 para verificar semanalmente durante os backups.
 verify_interval_days = 0
+# Padrão: tamanho em bytes e data de modificação em nanossegundos, sem ler conteúdo.
+# Use "hash" para conferir SHA-256/MD5; também aceita --verification-mode hash.
+verification_mode = "simple"
+# As opções de cache/leitura completa abaixo só se aplicam aos hashes no modo hash.
 # P1: reutiliza hashes apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7

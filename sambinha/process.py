@@ -5,6 +5,8 @@ import re
 import subprocess
 import time
 from configparser import ConfigParser, Error as ConfigParserError
+from contextlib import nullcontext
+from pathlib import Path
 
 from .errors import BackupError
 
@@ -23,6 +25,7 @@ class Runner:
         self.last_stderr = None
         self.env = env
         self.secrets = tuple(value for value in secrets if value)
+        self.progress = None
 
     def require(self, programs):
         search_path = self.env.get("PATH", os.defpath) if self.env is not None else None
@@ -65,8 +68,17 @@ class Runner:
         # One original attempt plus at most three retries, two seconds apart.
         for attempt in range(4 if retry else 1):
             try:
-                result = subprocess.run(args, cwd=cwd, input=input, capture_output=True,
-                                        text=True, timeout=self.timeout, check=False, env=self.env)
+                stages = {"lsjson": "Lendo destino", "lsf": "Lendo diretórios", "copy": "Copiando arquivos",
+                          "copyto": "Copiando arquivo", "delete": "Aplicando retenção",
+                          "a": "Comprimindo lote", "t": "Conferindo lote", "x": "Extraindo lote"}
+                stage = stages.get(args[1]) if len(args) > 1 else None
+                directory = cwd or (args[2] if len(args) > 2 else ".")
+                if stage == "Copiando arquivo":
+                    directory = Path(directory).parent
+                task = self.progress.task(stage, directory) if self.progress and stage else nullcontext()
+                with task:
+                    result = subprocess.run(args, cwd=cwd, input=input, capture_output=True,
+                                            text=True, timeout=self.timeout, check=False, env=self.env)
                 if result.returncode == 0:
                     self.last_stderr = result.stderr
                     return result.stdout

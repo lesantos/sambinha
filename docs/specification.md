@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.6.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.6.1**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -166,7 +166,16 @@ Acceptance: every maintained guide must have a matching language companion with 
 - The selected new functionalities are 1 (restore), 2 (verification), 3 (removal protection) and 5 (summary). Proposed functionality 4, client-side encryption before upload, was not selected and is outside this change set. This does not disable existing backend/configuration encryption support.
 - Updating these requirements consolidates the delivered scope; it does not itself change application code/version or rewrite published release artifacts.
 
-## 14. Requested release milestones
+## 14. Metadata verification and terminal progress — 0.6.1
+
+- Add `[backup].verification_mode = "simple"|"hash"` and `--verification-mode`. Default to `"simple"`, including omitted settings in existing configurations.
+- Simple mode compares size in bytes and nanosecond modification time. Creating its inventory must not read file contents or request destination hashes. Changes preserving both attributes may intentionally go undetected.
+- Hash mode retains SHA-256/MD5, validated cache reuse, periodic full scans and errors for missing required destination hashes. Switching from simple must calculate missing hashes; it must not reuse stale/absent hashes. Switching modes may rebuild batches whose indexed metadata changes.
+- Keep archive/control checksums and the newer-destination, retention, removal, source-race and path protections. Recovery checks sizes and recorded hashes when available; simple copy verification follows the selected size/time or hash mode. S3 verification never downloads bodies.
+- Interactive execution shows stage, directory and estimated percentage only on terminal stderr. Inventory counters use files/bytes; discovery and opaque subprocesses may estimate. Do not add progress to JSON logs or stdout, and disable it when stderr is not a terminal.
+- Update both READMEs and examples, test mode precision/switching, metadata-only reads and terminal/log separation, rerun all tests, and publish version 0.6.1 to GitHub only after successful checks.
+
+## 15. Requested release milestones
 
 | Milestone | Requested scope |
 | --- | --- |
@@ -175,5 +184,6 @@ Acceptance: every maintained guide must have a matching language companion with 
 | 0.4.1 | Critical security improvements. The earlier proposed target 0.3.2 was superseded by this later version instruction. |
 | 0.5.0 | All performance improvements P1–P6, with separate text/video/photo/other compression settings. |
 | 0.6.0 | English-default documentation with Brazilian Portuguese companions. The published 0.6.0 release contains the accumulated changes above. |
+| 0.6.1 | Default size/mtime verification with optional hash mode; terminal-only progress, bilingual documentation and full test rerun. |
 
 These milestones record the requested scope and version decisions; they do not imply that every intermediate version was separately published. Operational detail is in the [usage guide](usage.md), [performance guide](performance.md), [S3 guide](s3.md), [security notes](../SECURITY.md) and [README](../README.md).

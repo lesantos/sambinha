@@ -6,7 +6,7 @@ P1–P6 foram implementadas na ordem solicitada. O ganho depende de quantidade d
 
 | Prioridade | Melhoria | Configuração e comportamento |
 | --- | --- | --- |
-| P1 | Cache de fingerprints | `fingerprint_cache = true`; reaproveita apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa. `--no-fingerprint-cache` desativa. |
+| P1 | Cache de fingerprints | Em `verification_mode = "hash"`, `fingerprint_cache = true` reaproveita apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa; `--no-fingerprint-cache` desativa. O padrão `"simple"` usa tamanho/mtime e não calcula hashes do inventário. |
 | P2 | Transferência simples agrupada | `transfer_group_size = 100`; listas literais usam um rclone por grupo e `transfer_workers = 4`. Histórico é confirmado antes; validações de origem e destino mais novo permanecem. |
 | P3 | Inventário compartilhado | Mesma origem e conteúdo das regras congeladas compartilham uma leitura por execução, inclusive entre destinos diferentes. Seleções/prazos completos diferentes continuam separados. |
 | P4 | Lotes concorrentes | `batch_workers = 2`; staging separado por worker. A thread principal só confirma o índice depois de todos os uploads. |
@@ -26,6 +26,7 @@ A classificação ignora maiúsculas nas extensões e reconhece nomes comuns de 
 
 ```toml
 [backup]
+verification_mode = "simple" # Padrão; use "hash" para comparar o conteúdo.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_group_size = 100
@@ -51,6 +52,8 @@ A ordem por data dentro de cada diretório é preservada. Mudar categoria inicia
 
 Concorrência aumenta espaço temporário, CPU e memória. Cada worker usa originais e arquivo compactado; dois podem precisar aproximadamente do dobro do staging de um. Checks de disco falham acima de 95%. Meça tempo total e tamanho enviado antes de aumentar workers/threads; mais concorrência pode prejudicar um disco lento compartilhado.
 
-O cache usa metadados do filesystem; não é prova criptográfica de conteúdo intacto. Leituras completas periódicas detectam divergências que o cache pode não perceber. Arquivos alterados são validados antes/depois dos envios, e a origem de lotes é conferida antes do commit. Verificação S3 usa só metadados, independentemente desses ajustes.
+O inventário simples padrão consulta tamanho e data de modificação em nanossegundos, sem abrir o conteúdo. Não detecta edições que preservem ambos. O cache de hashes usa metadados do filesystem; não é prova criptográfica de conteúdo intacto. Leituras completas periódicas detectam divergências que o cache pode não perceber. As opções de cache/leitura completa só se aplicam ao modo hash. Arquivos alterados são validados antes/depois dos envios conforme o modo escolhido, e a origem de lotes é conferida antes do commit. Verificação S3 nunca baixa corpos de objetos. Lotes e controles mantêm checksums nos dois modos.
+
+O progresso interativo exibe etapa, diretório e percentual estimado no stderr, sem entrar nos logs JSON ou stdout. O inventário usa quantidade de arquivos ou bytes; a descoberta de diretórios usa a fila conhecida. Subprocessos opacos estimam pelo tempo decorrido e ficam abaixo de 100% até terminar. Redirecionar stderr ou executar sem terminal desativa o progresso. Veja os [modos de verificação](../README.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
 
 Referências: [detecção de mudanças do restic](https://restic.readthedocs.io/en/stable/040_backup.html), [concorrência do rclone](https://rclone.org/docs/).

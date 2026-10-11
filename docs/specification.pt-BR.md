@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.6.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.6.1**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -166,7 +166,16 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 - As funcionalidades novas escolhidas são 1 (restauração), 2 (verificação), 3 (proteção de remoções) e 5 (resumo). A proposta 4, criptografia do conteúdo antes do envio, não foi selecionada e fica fora destas alterações. Isso não desativa suporte existente à criptografia de backend/configuração.
 - Atualizar estes requisitos consolida o escopo entregue; não altera por si só código/versão do aplicativo nem reescreve artefatos de releases publicadas.
 
-## 14. Marcos de release solicitados
+## 14. Verificação por metadados e progresso no terminal — 0.6.1
+
+- Adicionar `[backup].verification_mode = "simple"|"hash"` e `--verification-mode`. O padrão é `"simple"`, inclusive em configurações existentes sem a opção.
+- O modo simples compara tamanho em bytes e data de modificação em nanossegundos. Criar o inventário não deve ler conteúdo nem solicitar hashes do destino. Alterações que preservem ambos os atributos podem passar despercebidas.
+- O modo hash mantém SHA-256/MD5, cache validado, leituras completas periódicas e erros para hashes necessários ausentes. Trocar de simples para hash exige calcular os hashes ausentes, sem reaproveitar hashes antigos ou vazios. Trocar modos pode reconstruir lotes cujos metadados indexados mudem.
+- Manter checksums de lotes/controles e proteções de destino mais novo, retenção, remoções, alterações concorrentes e caminhos. Recuperação confere tamanhos e hashes registrados quando presentes; verificação de cópias segue o modo escolhido. Verificação S3 nunca baixa corpos de objetos.
+- Execução interativa exibe etapa, diretório e percentual estimado apenas no stderr do terminal. Inventários usam arquivos/bytes; descoberta e subprocessos opacos podem estimar. Progresso não entra nos logs JSON nem stdout e fica desativado sem terminal.
+- Atualizar ambos os READMEs e exemplos; testar precisão/troca de modos, ausência de leitura de conteúdo e separação entre progresso/logs; repetir todos os testes e publicar 0.6.1 no GitHub após sucesso.
+
+## 15. Marcos de release solicitados
 
 | Marco | Escopo solicitado |
 | --- | --- |
@@ -175,5 +184,6 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 | 0.4.1 | Melhorias críticas de segurança. A proposta inicial 0.3.2 foi substituída por esta instrução posterior de versão. |
 | 0.5.0 | Todas as melhorias P1–P6, com compactação separada para texto/vídeo/foto/outros. |
 | 0.6.0 | Documentação em inglês por padrão com versões pt-BR. A release publicada 0.6.0 contém as alterações acumuladas acima. |
+| 0.6.1 | Tamanho/mtime por padrão com hash opcional; progresso exclusivo do terminal, documentação bilíngue e repetição da suíte completa. |
 
 Os marcos registram escopo e decisões de versão; não significam que toda versão intermediária foi publicada separadamente. Os detalhes operacionais estão no [guia de uso](usage.pt-BR.md), [guia de performance](performance.pt-BR.md), [guia de S3](s3.pt-BR.md), [segurança](../SECURITY.pt-BR.md) e [README](../README.pt-BR.md).

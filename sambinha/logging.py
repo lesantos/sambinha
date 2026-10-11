@@ -9,9 +9,10 @@ from .state import private_directory
 
 
 class RunLog:
-    def __init__(self, directory: Path, redact=None):
+    def __init__(self, directory: Path, redact=None, progress=None):
         private_directory(directory)
         self.redact = redact or (lambda value: value)
+        self.progress = progress
         self.id = uuid.uuid4().hex
         self.path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{self.id}.jsonl"
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -32,6 +33,8 @@ class RunLog:
         line = json.dumps(record, ensure_ascii=False)
         self.stream.write(line + "\n")
         self.stream.flush()
+        if self.progress:
+            self.progress.clear()
         print(line)
 
     def close(self):

@@ -37,7 +37,9 @@ class Storage:
             return {}
         # Unknown/missing S3 bucket errors are fatal, never interpreted as empty.
         filters = ["--exclude-from", str(self.job.exclude_files)] if self.job.exclude_files else []
-        raw = self.command("lsjson", self.job.destination, "--recursive", "--files-only", "--hash", *filters)
+        hashes = ["--hash"] if self.config.verification_mode == "hash" else []
+        raw = self.command("lsjson", self.job.destination, "--recursive", "--files-only", *hashes,
+                           "--exclude", "/.sambinha/**", *filters)
         try:
             items = json.loads(raw)
             if not isinstance(items, list) or any(not isinstance(i, dict)
@@ -51,7 +53,8 @@ class Storage:
 
     def put(self, source, key, *, standard=False, protected_mtime_ns=None):
         protection = ["--update"] if protected_mtime_ns is not None else []
-        self.command("copyto", source, self.path(key), "--checksum", "-v", "--use-json-log", *protection,
+        comparison = self.comparison_flags() if protected_mtime_ns is not None else ["--checksum"]
+        self.command("copyto", source, self.path(key), *comparison, "-v", "--use-json-log", *protection,
                      retry=True, standard=standard)
         report = getattr(self.runner, "last_stderr", None)
         if not isinstance(report, str):
@@ -75,7 +78,12 @@ class Storage:
         return False
 
     def preserve(self, key, history_key):
-        self.command("copyto", self.path(key), self.path(history_key), "--checksum", retry=True)
+        self.command("copyto", self.path(key), self.path(history_key), *self.comparison_flags(), retry=True)
+
+    def comparison_flags(self):
+        if self.config.verification_mode == "simple":
+            return ["--ignore-checksum", "--modify-window", "1ns"]
+        return ["--checksum"]
 
     def get(self, key, target):
         """Download an exact object to an application-owned staging directory."""
@@ -83,10 +91,10 @@ class Storage:
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.command("copyto", self.path(key), target, "--checksum", retry=True, standard=True)
 
-    def stat(self, key):
+    def stat(self, key, *, hashes=True):
         # S3's hash comes from object metadata/ETag; never download the body.
         try:
-            item = json.loads(self.command("lsjson", self.path(key), "--stat", "--hash"))
+            item = json.loads(self.command("lsjson", self.path(key), "--stat", *(["--hash"] if hashes else [])))
             if (not isinstance(item, dict) or type(item.get("Size")) is not int or item["Size"] < 0
                     or not isinstance(item.get("Hashes", {}), dict)):
                 raise ValueError("metadados")
@@ -97,7 +105,7 @@ class Storage:
     def put_many(self, root, files):
         """One rclone process per bounded group, after histories are durable."""
         self.command("copy", root, self.job.destination, "--files-from-raw", "-",
-                     "--checksum", "--update", "--transfers", str(self.config.transfer_workers),
+                     *self.comparison_flags(), "--update", "--transfers", str(self.config.transfer_workers),
                      "-v", "--use-json-log", retry=True,
                      input="".join(safe_relative(f.path) + "\n" for f in files))
         copied = set()
@@ -111,7 +119,7 @@ class Storage:
                 continue
         for item in files:
             if item.path not in copied:
-                modified = timestamp_ns(self.stat(item.path).get("ModTime"))
+                modified = timestamp_ns(self.stat(item.path, hashes=self.config.verification_mode == "hash").get("ModTime"))
                 if modified > item.mtime_ns:
                     raise BackupError(f"Arquivo mais novo preservado no destino durante a cópia: {item.path}")
         return copied

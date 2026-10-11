@@ -23,6 +23,8 @@ def parser():
     result.add_argument("--allow-mass-deletion", action="store_true", help="Autorizar remoções em massa nesta execução")
     result.add_argument("--max-delete-percent", type=float, default=None)
     result.add_argument("--fingerprint-cache", action=argparse.BooleanOptionalAction, default=None)
+    result.add_argument("--verification-mode", choices=("simple", "hash"), default=None,
+                        help="Comparar tamanho/data de alteração (simple) ou conteúdo (hash)")
     for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
                  "state_dir", "log_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
                  "source_mount", "destination_mount"):

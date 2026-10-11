@@ -86,6 +86,25 @@ class S3IntegrationTests(Sandbox):
             head = self.client.head_object(Bucket='sambinha-tests', Key='backup/' + path)
             self.assertEqual(head.get('StorageClass'), 'GLACIER_IR')
 
+    def test_metadata_mode_roundtrip_reuse_and_timestamp_change(self):
+        self.fixture()
+        self.config = replace(self.config, verification_mode='simple')
+        with patch('sambinha.inventory.fingerprint', side_effect=AssertionError('source hash read')):
+            self.assertEqual(self.execute(), 0, self.output.getvalue())
+            self.assertEqual(self.execute(now=1001), 0, self.output.getvalue())
+            self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
+            path = self.source / 'root.txt'
+            stamp = path.stat().st_mtime_ns
+            path.write_bytes(b'edit')
+            os.utime(path, ns=(stamp + 1, stamp + 1))
+            self.assertEqual(self.execute(now=1002), 0, self.output.getvalue())
+        self.assert_complete()
+        self.assertEqual(self.state()['active']['root.txt']['sha256'], '')
+        from sambinha.recovery import verify_job
+        from unittest.mock import Mock
+        with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
+            verify_job(self.config, self.config.jobs[0], self.runner, Mock(), self.state())
+
     def test_batch_full_roundtrip_and_controls_in_standard(self):
         self.fixture()
         self.use_batch()

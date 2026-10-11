@@ -19,11 +19,13 @@ A trava cobre toda a execução. Preflight verifica todos os diretórios antes d
 
 `retention` grava prazos e caminhos originais e agrega previsões de todas as tarefas. O alerta Cronitor é consultivo: muda a telemetria e os logs, mas não o prazo, a limpeza ou o código de sucesso. Falhas reais continuam retornando erro. `mounts` aplica a estratégia de ponto montado e não vazio aos volumes configurados, antes do backup e das operações que alteram o destino.
 
-## Extensões de 0.4.0 a 0.6.0
+## Extensões de 0.4.0 a 0.6.1
 
-`recovery` implementa restauração seletiva do índice ativo, validação de caminhos/membros de lotes, conferência dos bytes em staging e criação exclusiva na saída. A recuperação de tar lê apenas o membro regular `state.json`, sem extração arbitrária. Verificação local lê conteúdo; S3 só consulta metadados de objetos e compara tamanho/MD5, sem downloads. Checksums antigos ausentes causam erro explícito.
+`recovery` implementa restauração seletiva do índice ativo, validação de caminhos/membros de lotes, conferência de tamanhos e hashes registrados em staging e criação exclusiva na saída. A recuperação de tar lê apenas o membro regular `state.json`, sem extração arbitrária. Cópias usam tamanho/data por padrão ou conteúdo/MD5 no modo hash. S3 só consulta metadados, sem downloads. Lotes e controles mantêm checksums nos dois modos; checksums antigos necessários ausentes causam erro explícito.
 
-`disks` recusa ocupação local acima de 95%. `profiles` define níveis e threads separados para textos, vídeos, fotos e outros. `inventory` reaproveita fingerprints validados por assinatura de metadados, com leituras completas periódicas. Origem e seleção equivalentes compartilham inventário na execução. `filtering` reaproveita seleções imutáveis só naquela execução.
+`disks` recusa ocupação local acima de 95%. `profiles` define níveis e threads separados para textos, vídeos, fotos e outros. `inventory` usa tamanho/mtime sem ler conteúdo no modo simples padrão; no modo hash, reaproveita fingerprints validados por assinatura de metadados com leituras completas periódicas. Origem e seleção equivalentes compartilham inventário na execução. `filtering` reaproveita seleções imutáveis só naquela execução.
+
+`progress` exibe etapa/diretório/percentual com limitação de frequência só no stderr interativo. Inventários usam arquivos ou bytes; descoberta usa estimativa da fila de diretórios, e subprocessos usam estimativa limitada por tempo decorrido até terminar. `logging` limpa a linha transitória antes de imprimir JSON; progresso não tem evento de auditoria. Registros simples possuem os dois hashes vazios; trocar para hash exige reler o conteúdo.
 
 Transferências simples usam grupos limitados, após gravar histórico, com validação da origem e proteção `--update`. Workers de lotes têm staging e relatórios de subprocesso independentes. A thread principal confirma o índice apenas após todos os uploads. A proteção de remoções atua antes da estratégia; `summary` apresenta resultado e bytes por tarefa.
 

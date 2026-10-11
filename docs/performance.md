@@ -6,7 +6,7 @@ P1–P6 are implemented in the requested order. These settings improve different
 
 | Priority | Improvement | Setting and behavior |
 | --- | --- | --- |
-| P1 | Fingerprint cache | `fingerprint_cache = true`; reuse only if device, inode, size, mtime, ctime and mode match. `fingerprint_full_scan_days = 7` forces full reads periodically. `--no-fingerprint-cache` disables reuse. |
+| P1 | Fingerprint cache | In `verification_mode = "hash"`, `fingerprint_cache = true` reuses hashes only if device, inode, size, mtime, ctime and mode match. `fingerprint_full_scan_days = 7` forces full reads periodically; `--no-fingerprint-cache` disables reuse. Default `"simple"` uses only size/mtime and never hashes the inventory. |
 | P2 | Bulk simple transfers | `transfer_group_size = 100`; raw literal file lists use one rclone process per group with `transfer_workers = 4`. Durable history is saved first; source validation and newer-destination protection remain. |
 | P3 | Shared inventories | Equivalent source and frozen exclusion content share one scan per execution, including when backing up to different destinations. Different selections or full-scan requirements remain independent. |
 | P4 | Batch concurrency | `batch_workers = 2`; each worker compresses and uploads in private staging. The main thread publishes the index only after every new batch finishes successfully. |
@@ -26,6 +26,7 @@ Classification uses case-insensitive extensions and known extensionless document
 
 ```toml
 [backup]
+verification_mode = "simple" # Default; use "hash" for content comparisons.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_group_size = 100
@@ -51,6 +52,8 @@ Keep the oldest-first order within a directory. A category boundary starts a new
 
 Concurrency increases temporary space, CPU and memory use. A batch worker stages original bytes and an archive; two workers can need roughly twice the staging space of one. Disk checks fail above 95% occupancy. Measure total backup time and uploaded size before raising worker/thread counts; increasing CPU concurrency can hurt a slow shared disk.
 
-The cache is an optimization based on filesystem metadata, not a cryptographic proof of unchanged contents. Periodic full scans detect divergence that metadata reuse might miss. Modified files are still validated before and after transfers, and batch source consistency is checked before commit. S3 integrity checks use metadata only, independently of these performance settings.
+The default simple inventory reads size and nanosecond modification time without opening file contents. It cannot detect content edits that preserve both. The hash cache is an optimization based on filesystem metadata, not a cryptographic proof of unchanged contents; periodic full scans detect divergence that reuse might miss. Full-scan/cache switches only apply to hash mode. Modified files are validated before and after transfers in the selected mode, and batch source consistency is checked before commit. S3 integrity checks never download object bodies. Archives and their controls retain checksums in both modes.
+
+Interactive terminal progress shows stage, directory and estimated percentage on stderr, never in JSON logs or stdout. Inventory completion uses file counts or bytes; directory discovery uses its known queue. Opaque subprocess operations estimate from elapsed time and stay below 100% until completion. Redirected/nonterminal stderr disables progress. See [verification modes](../README.md#choose-simple-or-hash-verification).
 
 References: [restic change detection](https://restic.readthedocs.io/en/stable/040_backup.html), [rclone concurrency](https://rclone.org/docs/).

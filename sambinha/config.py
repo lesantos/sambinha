@@ -57,6 +57,7 @@ class Config:
     deletion_alert_threshold: int = 1000
     verify_interval_days: int = 0
     fingerprint_cache: bool = True
+    verification_mode: str = "simple"
     fingerprint_full_scan_days: int = 7
     transfer_group_size: int = 100
     transfer_workers: int = 4
@@ -85,6 +86,8 @@ def validate(config: Config) -> Config:
         raise ConfigError("dry_run deve ser booleano")
     if type(config.fingerprint_cache) is not bool:
         raise ConfigError("fingerprint_cache deve ser booleano")
+    if not isinstance(config.verification_mode, str) or config.verification_mode not in {"simple", "hash"}:
+        raise ConfigError("verification_mode deve ser simple ou hash")
     for name in ("fingerprint_full_scan_days", "transfer_group_size", "transfer_workers", "batch_workers"):
         if type(getattr(config, name)) is not int or getattr(config, name) < 1:
             raise ConfigError(f"{name} deve ser um inteiro positivo")

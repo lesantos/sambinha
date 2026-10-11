@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.6.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.6.1**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -59,6 +59,7 @@ state_dir = "./state"
 log_dir = "./logs"
 deleted_days = 10
 version_days = 2
+verification_mode = "simple" # Padrão: tamanho em bytes e data de modificação.
 
 [[jobs]]
 name = "meus-documentos"
@@ -168,9 +169,31 @@ Todas as opções públicas de configuração estão em [sambinha.example.toml](
 
 As orientações e os resultados da auditoria de credenciais estão em [SECURITY.md](SECURITY.pt-BR.md). A CI também verifica o histórico completo para detectar novas credenciais no código.
 
-## Novidades de 0.4.0 a 0.6.0
+## Escolha a verificação simples ou por hash
 
-A versão atual é **0.6.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+**`verification_mode = "simple"` é o padrão na versão 0.6.1**, inclusive em configurações existentes que omitam a opção. Compara tamanho em bytes e timestamp de modificação (`mtime`, com precisão de nanossegundos). O inventário consulta os metadados sem ler o conteúdo dos arquivos, e a listagem do destino não calcula hashes. O conteúdo ainda precisa ser lido para copiar ou compactar os arquivos.
+
+Para comparar o conteúdo por SHA-256 e MD5, configure:
+
+```toml
+[backup]
+verification_mode = "hash"
+```
+
+Também é possível escolher o modo para uma execução:
+
+```bash
+.venv/bin/sambinha --config sambinha.toml --verification-mode simple
+.venv/bin/sambinha --config sambinha.toml --verification-mode hash
+```
+
+O modo simples não detecta uma edição que preserve simultaneamente tamanho e data de modificação. O modo hash lê o conteúdo no primeiro inventário e periodicamente depois. Trocar de simples para hash calcula hashes novos; trocar o modo em backups por lotes pode reconstruir os arquivos compactados porque os metadados do índice mudam. Para verificar por hash um índice que ainda não os possui, faça primeiro um backup no modo hash. `logic = "simple"`/`"batch"` escolhe a estratégia de armazenamento, independentemente de `verification_mode`. Lotes e controles de recuperação mantêm checksums nos dois modos.
+
+Durante a execução interativa, o terminal exibe etapa, diretório e percentual estimado no stderr. O inventário usa quantidade de arquivos no modo simples e bytes no modo hash; a descoberta de diretórios estima o progresso pela fila conhecida. Operações opacas do rclone/7-Zip usam uma estimativa por tempo decorrido, limitada a 95% até terminarem. O percentual reinicia a cada etapa ou operação. O progresso não entra nos logs JSON nem no stdout e fica desativado quando stderr é redirecionado ou não é um terminal.
+
+## Novidades de 0.4.0 a 0.6.1
+
+A versão atual é **0.6.1**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -180,7 +203,7 @@ A versão atual é **0.6.0**. A documentação padrão é em inglês; este arqui
 .venv/bin/sambinha restore --job documents --output /mnt/recovery/all
 ```
 
-`--path` aceita repetição e usa caminhos literais do índice ativo. A pasta de saída deve ser nova ou vazia, separada de origens, backups, estado e logs. A restauração verifica tamanho, SHA-256 e MD5 em uma área temporária antes de publicar os arquivos, preserva datas e permissões comuns e não sobrescreve dados existentes nem aplica bits privilegiados. Não precisa dos arquivos originais. Para lotes, pode recuperar o índice perdido a partir de `.sambinha/control.tar.gz`; a cópia simples exige o índice local. Histórico de versões anteriores continua sendo recuperado manualmente pelo guia.
+`--path` aceita repetição e usa caminhos literais do índice ativo. A pasta de saída deve ser nova ou vazia, separada de origens, backups, estado e logs. A restauração verifica tamanho em uma área temporária antes de publicar os arquivos; confere SHA-256 e MD5 quando registrados no índice. Lotes também passam pela verificação de checksum e integridade do 7-Zip. Preserva datas e permissões comuns e não sobrescreve dados existentes nem aplica bits privilegiados. Não precisa dos arquivos originais. Para lotes, pode recuperar o índice perdido a partir de `.sambinha/control.tar.gz`; a cópia simples exige o índice local. Histórico de versões anteriores continua sendo recuperado manualmente pelo guia.
 
 Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperação; selecionar um membro de lote baixa o lote inteiro. GLACIER/DEEP_ARCHIVE exigem uma restauração prévia pela AWS.
 
@@ -190,7 +213,7 @@ Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperaç�
 .venv/bin/sambinha verify --job documents
 ```
 
-Localmente, a verificação lê o conteúdo do backup e testa/extrai os lotes para conferir os arquivos originais. No S3, faz **somente consultas de metadados**, comparando tamanho e MD5 dos objetos e controles JSON com o índice local. **Nunca baixa corpos de objetos nem o índice de recuperação**, inclusive nas falhas. Consultas podem ter cobrança de API; essa verificação não testa a extração dos membros de lotes.
+Localmente, cópias usam tamanho/data no modo simples e leitura do conteúdo no modo hash. Lotes são testados e extraídos para conferir os arquivos originais, incluindo hashes quando registrados. No S3, faz **somente consultas de metadados**: cópias usam tamanho/data no modo simples e tamanho/MD5 no modo hash; lotes e controles JSON sempre usam tamanho/MD5. **Nunca baixa corpos de objetos nem o índice de recuperação**, inclusive nas falhas. Consultas podem ter cobrança de API; essa verificação não testa a extração dos membros de lotes.
 
 Novos lotes registram tamanho compactado e checksum de envio. Lotes antigos sem esses campos, índice local ausente ou hash remoto indisponível causam erro explícito, sem download alternativo ou reconstrução automática de lotes intactos. Preserve os metadados de checksum do rclone para uploads multipart.
 
@@ -231,6 +254,6 @@ compression_other_level = 3
 compression_other_threads = 2
 ```
 
-Cache exige dispositivo, inode, tamanho, datas de modificação/alteração em nanossegundos e permissões iguais. A leitura completa ocorre a cada sete dias por padrão; `--no-fingerprint-cache` desativa o reaproveitamento. Arquivos alterados continuam validados antes/depois dos envios. Novos lotes separam categorias sem mudar a ordem por data dentro do diretório. Isso pode criar lotes individuais em categorias intercaladas. Lotes antigos intactos mantêm sua configuração; novos ajustes valem na criação/recriação. Nível 0 não compacta; 1–9 aumentam o esforço. Threads vão de 1 a 64 por arquivo compactado, dependendo do suporte do algoritmo.
+No **modo hash**, o cache exige dispositivo, inode, tamanho, datas de modificação/alteração em nanossegundos e permissões iguais. A leitura completa ocorre a cada sete dias por padrão; `--no-fingerprint-cache` desativa o reaproveitamento. No **modo simples**, essas opções não ativam hashes: as conferências usam tamanho e data de modificação. Arquivos alterados continuam validados antes/depois dos envios conforme o modo escolhido. Novos lotes separam categorias sem mudar a ordem por data dentro do diretório. Isso pode criar lotes individuais em categorias intercaladas. Lotes antigos intactos mantêm sua configuração; novos ajustes valem na criação/recriação. Nível 0 não compacta; 1–9 aumentam o esforço. Threads vão de 1 a 64 por arquivo compactado, dependendo do suporte do algoritmo.
 
 Metadados e logs têm permissões privadas. O índice é validado antes da retenção e restauração; caminhos inseguros, links e conflitos entre dados ativos e histórico são rejeitados. Credenciais conhecidas são ocultadas em erros, logs e telemetria. Consulte [segurança](SECURITY.pt-BR.md).

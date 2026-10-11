@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.6.0**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.6.1**.
 
 ## How it protects your files
 
@@ -46,6 +46,7 @@ log_dir = "./logs"
 deleted_days = 10
 version_days = 2
 verify_interval_days = 7
+verification_mode = "simple" # Default: size in bytes and modification time.
 
 [[jobs]]
 name = "documents"
@@ -64,6 +65,28 @@ Keep the destination outside the source. Use a destination managed exclusively b
 
 Simulation writes a report and reads inventories, but creates no backup state or archives, transfers or deletes no backup objects, and sends no Cronitor notifications. Each job ends with a `summary` record containing new, modified, unchanged and removed files, batches reused/rebuilt, planned original bytes, transferred payload bytes, pending history entries and success. Compression can make transferred bytes differ from planned bytes. Empty source directories are preserved by local simple backups.
 
+## Choose simple or hash verification
+
+**`verification_mode = "simple"` is the default in 0.6.1**, including when the option is omitted from an existing configuration. It compares size in bytes and the modification timestamp (`mtime`, with nanosecond precision). The source inventory uses filesystem metadata without reading file contents, and destination listings do not calculate hashes. File contents are still read when copying or compressing them.
+
+To compare contents using SHA-256 and MD5, configure:
+
+```toml
+[backup]
+verification_mode = "hash"
+```
+
+Or select a mode for one invocation:
+
+```bash
+.venv/bin/sambinha --config sambinha.toml --verification-mode simple
+.venv/bin/sambinha --config sambinha.toml --verification-mode hash
+```
+
+The simple mode intentionally cannot detect a content edit that preserves both size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching from simple to hash computes fresh hashes; switching batch modes can rebuild archives because their indexed metadata changes. Hash verification of an index without hashes requires a hash-mode backup first. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
+
+During interactive execution, stderr displays the current stage, directory and estimated percentage. File inventory percentages use file counts in simple mode and bytes in hash mode; directory discovery estimates use the known directory queue. Opaque rclone/7-Zip operations use an elapsed-time estimate capped at 95% until completion. Percentages restart for each stage or operation. Progress never enters JSON audit logs or stdout and is disabled when stderr is redirected or not a terminal.
+
 ## Restore a file, folder or complete backup
 
 ```bash
@@ -72,7 +95,7 @@ Simulation writes a report and reads inventories, but creates no backup state or
 .venv/bin/sambinha restore --job documents --output /mnt/recovery/all
 ```
 
-`--path` can be repeated. Paths refer to the active index and preserve their original directory tree. The output must be new or empty and separate from sources, backups, state and logs. Selected files are staged and their sizes, SHA-256 and MD5 verified before publication; restore does not overwrite existing files or restore privileged permission bits. Source files need not still exist.
+`--path` can be repeated. Paths refer to the active index and preserve their original directory tree. The output must be new or empty and separate from sources, backups, state and logs. Selected files are staged and their sizes checked before publication; recorded SHA-256 and MD5 are checked when present in the index. Archives also undergo checksum and 7-Zip integrity checks. Restore does not overwrite existing files or restore privileged permission bits. Source files need not still exist.
 
 Restoration from S3 **downloads the selected objects** and can incur retrieval charges. Selecting one file in a batch downloads its entire archive. Glacier/Deep Archive objects must first be made available through AWS restore. Batch restoration can recover a missing local index from `.sambinha/control.tar.gz`; simple restoration needs its local index. Historical revisions remain accessible through the controls and history paths described in the [usage guide](docs/usage.md).
 
@@ -82,7 +105,7 @@ Restoration from S3 **downloads the selected objects** and can incur retrieval c
 .venv/bin/sambinha verify --job documents
 ```
 
-Local verification reads the backup contents and, for batches, tests/extracts archives and checks the indexed original files. S3 verification uses **only metadata requests**, comparing object size and MD5 against the local index. Batch archives and their JSON controls are checked. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This verifies recorded object checksums, not extraction of archived members.
+Local copy verification compares size and modification time in simple mode, or reads contents in hash mode. Batch verification tests/extracts archives and checks the indexed original files, including recorded hashes when present. S3 verification uses **only metadata requests**: copy jobs compare size/time in simple mode and size/MD5 in hash mode; batch archives and JSON controls always use size/MD5. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This does not test extraction of archived S3 members.
 
 New batches record their compressed size and checksum at upload. Old batches lacking these fields, missing local indexes or unavailable remote hashes cause an explicit verification error, with no download fallback. Intact legacy archives are preserved rather than automatically rewritten. Keep rclone's S3 checksum metadata enabled for multipart uploads; see the [S3 guide](docs/s3.md).
 
@@ -115,7 +138,7 @@ compression_other_level = 3
 compression_other_threads = 2
 ```
 
-Cache reuse requires unchanged device, inode, size, nanosecond modification/change times and permissions. A full content scan runs every seven days by default; `--no-fingerprint-cache` forces hashing for each run. Transfer and archive validation still protect changed data. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](docs/performance.md).
+In **hash mode**, cache reuse requires unchanged device, inode, size, nanosecond modification/change times and permissions. A full content scan runs every seven days by default; `--no-fingerprint-cache` forces hashing for each run. In **simple mode**, both settings leave content hashing disabled; checks compare size and modification time. Transfer and archive validation follow the selected mode. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](docs/performance.md).
 
 ## S3, credentials, exclusions and notifications
 

@@ -12,11 +12,13 @@ import tempfile
 from .config import overlap
 from .disks import check_disk, check_disks
 from .errors import BackupError
-from .inventory import fingerprint, safe_relative, scan
+from .inventory import fingerprint, metadata as file_metadata, safe_relative, scan
 from .logging import RunLog
 from .process import Runner
 from .state import atomic_json, load_state, lock, private_directory
 from .storage import Storage
+from .progress import Progress
+from .protection import timestamp_ns
 
 
 def identity(job):
@@ -55,9 +57,13 @@ def matches(path, selectors):
     return not selectors or any(path == p or path.startswith(p + "/") for p in selectors)
 
 
-def check_content(root, metadata):
-    actual = fingerprint(root, metadata["path"])
-    if any(getattr(actual, key) != metadata[key] for key in ("size", "sha256", "md5")):
+def check_content(root, metadata, *, mode=None, check_mtime=False):
+    mode = mode or ("hash" if metadata["sha256"] and metadata["md5"] else "simple")
+    if mode == "hash" and not (metadata["sha256"] and metadata["md5"]):
+        raise BackupError("Índice sem hashes; execute um backup com verification_mode=hash antes de verificar por hash")
+    actual = fingerprint(root, metadata["path"]) if mode == "hash" else file_metadata(root, metadata["path"])
+    keys = ("size", "sha256", "md5") if mode == "hash" else (("size", "mtime_ns") if check_mtime else ("size",))
+    if any(getattr(actual, key) != metadata[key] for key in keys):
         raise BackupError(f"Integridade divergente: {metadata['path']}")
 
 
@@ -91,7 +97,7 @@ def unpack(storage, runner, key, control, work):
     extracted.mkdir(mode=0o700)
     check_disk(extracted, "temporários de recuperação")
     runner.run([storage.job.compressor, "x", "-y", "-spd", "-o" + str(extracted), str(archive)])
-    actual = scan(extracted)
+    actual = scan(extracted, mode="simple")
     if {f.path for f in actual} != set(members):
         raise BackupError("Conteúdo extraído diferente do índice")
     for metadata in control["files"]:
@@ -99,14 +105,27 @@ def unpack(storage, runner, key, control, work):
     return extracted
 
 
-def verify_job(config, job, runner, log, state=None):
+def verify_job(config, job, runner, log, state=None, *, progress=None):
     storage = Storage(job, config, runner)
     with tempfile.TemporaryDirectory(prefix="sambinha-verify-") as directory:
         work = Path(directory)
         state = state if state is not None else read_index(config, job, storage, work,
                                                          metadata_only=job.type == "s3")
         files = indexed_files(state, job.logic)
+        if progress:
+            progress.update("Verificando backup", job.destination, 0, len(files))
         if job.type == "s3":
+            if job.logic == "simple" and config.verification_mode == "simple":
+                for index, (key, item) in enumerate(state["active"].items()):
+                    remote = storage.stat(key, hashes=False)
+                    if remote["Size"] != item["size"] or timestamp_ns(remote.get("ModTime")) != item["mtime_ns"]:
+                        raise BackupError(f"Integridade divergente no S3: {key}")
+                    if progress:
+                        progress.update("Verificando backup", job.destination, index + 1, len(files))
+                    log.event("verified_object", job=job.name, path=key, mode="s3_metadata")
+                result = {"files": len(files), "bytes": sum(f["size"] for f in files.values()), "mode": "s3_metadata"}
+                log.event("verification_complete", job=job.name, **result)
+                return result
             expected = ([(key, item["size"], item["md5"]) for key, item in state["active"].items()]
                         if job.logic == "simple" else [])
             if job.logic == "batch":
@@ -126,15 +145,19 @@ def verify_job(config, job, runner, log, state=None):
                     raise BackupError(f"Integridade divergente no S3: {key}")
                 log.event("verified_object", job=job.name, path=key, mode="s3_metadata")
         elif job.logic == "simple":
-            for metadata in files.values():
-                check_content(Path(job.destination), metadata)
+            for index, metadata in enumerate(files.values()):
+                check_content(Path(job.destination), metadata, mode=config.verification_mode, check_mtime=True)
+                if progress:
+                    progress.update("Verificando backup", (Path(job.destination) / metadata["path"]).parent,
+                                    index + 1, len(files))
         else:
             for index, (key, control) in enumerate(state["active"].items()):
                 lot = work / str(index)
                 lot.mkdir(mode=0o700)
                 unpack(storage, runner, key, control, lot)
         result = {"files": len(files), "bytes": sum(f["size"] for f in files.values()),
-                  "mode": "s3_metadata" if job.type == "s3" else "contents"}
+                  "mode": "s3_metadata" if job.type == "s3" else
+                          ("simple" if job.logic == "simple" and config.verification_mode == "simple" else "contents")}
         log.event("verification_complete", job=job.name, **result)
         return result
 
@@ -211,7 +234,10 @@ def restore_job(config, job, runner, log, output, selectors=()):
 def recover(config, action, *, output=None, selectors=(), runner=None, notifier=None):
     runner = runner or Runner(config.timeout, env=config.environment)
     redactor = Runner(env=config.environment, secrets=(config.cronitor_url,)).safe_error
-    log = RunLog(config.log_dir, redact=redactor)
+    progress = Progress(redact=redactor)
+    if isinstance(runner, Runner):
+        runner.progress = progress
+    log = RunLog(config.log_dir, redact=redactor, progress=progress)
     failed = False
     log.event("start", action=action, dry_run=config.dry_run)
     try:
@@ -229,7 +255,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                     elif config.dry_run:
                         log.event("would_verify", job=job.name, mode="s3_metadata" if job.type == "s3" else "contents")
                     else:
-                        verify_job(config, job, runner, log)
+                        verify_job(config, job, runner, log, progress=progress)
                 except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
                     failed = True
                     log.event("error", job=job.name, error=str(exc))
@@ -239,6 +265,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
         failed = True
         log.event("error", error=str(exc))
     finally:
+        progress.close()
         log.event("end", action=action, success=not failed)
         log.close()
     return int(failed)

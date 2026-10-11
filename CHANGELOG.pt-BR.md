@@ -3,6 +3,10 @@
 [English](CHANGELOG.md)
 
 
+## 0.6.1 — 2026-10-11
+
+O padrão passa a ser `verification_mode = "simple"`: inventário e comparação por tamanho em bytes e data de modificação em nanossegundos, sem ler o conteúdo para calcular hashes. Use `"hash"` no TOML ou `--verification-mode hash` para SHA-256/MD5 com cache e leituras completas periódicas. Trocar para hash recalcula hashes ausentes; lotes e controles mantêm checksums. Progresso interativo exibe etapa, diretório e percentual estimado no stderr, sem entrar nos logs JSON. Backups interrompidos deixam de registrar término bem-sucedido. Novos testes cobrem modos, precisão de metadados, recuperação e separação entre terminal e logs; documentação e exemplos bilíngues atualizados.
+
 ## 0.6.0
 
 Documentação padrão em inglês com versões em português do Brasil de README, changelog, segurança, guias e exemplos públicos comentados. Links recíprocos e testes de equivalência dos exemplos. Versão final 0.6.0.

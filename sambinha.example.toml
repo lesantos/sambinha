@@ -8,10 +8,14 @@ version_days = 2
 # Soft Cronitor alert for more than this many impending permanent deletions.
 # Does not stop backups or change deadlines; run daily for advance notice.
 deletion_alert_threshold = 1000
-# Metadata-only verification in S3; local verification reads backup contents.
+# S3 verification never downloads bodies; local checks follow verification_mode.
 # 0 disables scheduled verification; set 7 for a weekly check during backups.
 verify_interval_days = 0
-# P1: reuse hashes only when device/inode/size/mtime/ctime/mode all match.
+# Default: compare size in bytes and nanosecond modification time without reading contents.
+# Use "hash" for SHA-256/MD5 content checks; also accepts --verification-mode hash.
+verification_mode = "simple"
+# P1: in hash mode, reuse hashes only when device/inode/size/mtime/ctime/mode all match.
+# These options never enable content hashing in simple mode.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 # P2: bounded raw file lists and concurrent transfers in one rclone process.

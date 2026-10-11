@@ -29,6 +29,8 @@ def validate_file(item):
             or type(item["mode"]) is not int or not 0 <= item["mode"] <= 0o7777):
         raise ValueError("atributos de arquivo")
     for name, length in (("sha256", 64), ("md5", 32)):
+        if item["sha256"] == item["md5"] == "":
+            continue  # Metadata-only inventories deliberately have no hashes.
         if not isinstance(item[name], str) or not re.fullmatch(f"[0-9a-f]{{{length}}}", item[name]):
             raise ValueError("checksum")
 
