@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.6.1**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.6.2**.
 
 ## How it protects your files
 
@@ -85,7 +85,7 @@ Or select a mode for one invocation:
 
 The simple mode intentionally cannot detect a content edit that preserves both size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching from simple to hash computes fresh hashes; switching batch modes can rebuild archives because their indexed metadata changes. Hash verification of an index without hashes requires a hash-mode backup first. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
 
-During interactive execution, stderr displays the current stage, directory and estimated percentage. File inventory percentages use file counts in simple mode and bytes in hash mode; directory discovery estimates use the known directory queue. Opaque rclone/7-Zip operations use an elapsed-time estimate capped at 95% until completion. Percentages restart for each stage or operation. Progress never enters JSON audit logs or stdout and is disabled when stderr is redirected or not a terminal.
+During interactive execution, stderr displays the current stage, working subdirectory and one estimated percentage for the entire backup. The estimate reserves 20% for preflight/inventories, 75% for jobs weighted by source bytes, and 5% for finalization. File/byte counters, directory queues and bounded elapsed-time estimates advance within those ranges. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
 
 ## Restore a file, folder or complete backup
 
@@ -154,7 +154,41 @@ cronitor_url = "${CRONITOR_URL}"
 
 Protect the file with `chmod 600`. [secrets.example.env](secrets.example.env) contains placeholders only. The file is parsed as data, never executed; inherited environment values take precedence. `--secrets-file ""` disables loading for one run. Missing or malformed files fail without exposing their values. Notifications are optional; with no Cronitor URL, they are disabled. Never commit a credential-bearing URL or real AWS keys.
 
-Set `exclude_files` on a job to use rclone's native exclude-from patterns. Excluded files are not uploaded or considered removed. Existing history and mixed legacy archives containing excluded paths remain protected; mixed archives are tracked separately in `state.excluded`. Changing the filter file during a run affects the next run. [Filtering and retention details](docs/usage.md).
+## Exclude files and directories
+
+Create a UTF-8 text file beside your `sambinha.toml`, for example `excludes.txt`, and set `exclude_files` inside each job that should use it:
+
+```toml
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
+exclude_files = "./excludes.txt"
+```
+
+Put one rclone exclusion pattern per line in `excludes.txt`:
+
+```text
+# Temporary files and logs at any depth
+*.tmp
+*.log
+
+# Directories at the source root, including all their contents
+/cache/**
+/node_modules/**
+```
+
+The **file location** is relative to `sambinha.toml`, not the terminal's working directory. The **patterns** are relative to the job's source. For a source `/mnt/dados`, `/cache/**` matches `/mnt/dados/cache/`, not the system directory `/cache/`; it does not match a nested `projects/cache/`. `*.tmp` and `*.log` match files in any subdirectory. Blank lines and lines beginning with `#` are ignored. Rules use rclone syntax, rather than Git's ignore-file syntax.
+
+The shipped TOML examples already set `exclude_files = "./excludes.example.txt"`. That template has no active exclusions; uncomment the patterns you want or copy it to `excludes.txt` and update the job's path. A [Brazilian Portuguese template](excludes.example.pt-BR.txt) is also provided.
+
+Run a simulation to check the selected file count and planned work before the backup:
+
+```bash
+.venv/bin/sambinha --config sambinha.toml --dry-run
+```
+
+Excluded files are not uploaded or considered removed. Files already in the backup are **not deleted merely because they become excluded**; their history also stays protected while the exclusion applies. Mixed legacy archives containing excluded paths are retained separately in `state.excluded`. Each job can use a different rule file. Missing, unreadable or invalid UTF-8 rule files stop the backup. Changes made to the file during a run apply on the next invocation. [Filtering and retention details](docs/usage.md).
 
 ## Tests and documentation
 

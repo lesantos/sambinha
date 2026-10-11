@@ -1,0 +1,12 @@
+# Português do Brasil. English: excludes.example.txt
+# Um padrão de exclusão do rclone por linha, relativo à origem da tarefa.
+# Este modelo não tem exclusões ativas. Remova # para ativar um padrão.
+# Comentários e linhas vazias são ignorados. A sintaxe não é a do Git.
+
+# Temporários e logs em qualquer subdiretório:
+# *.tmp
+# *.log
+
+# Pastas na raiz da origem, incluindo todo o conteúdo:
+# /cache/**
+# /node_modules/**

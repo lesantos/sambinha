@@ -1,0 +1,12 @@
+# English. Brazilian Portuguese: excludes.example.pt-BR.txt
+# One rclone exclusion pattern per line, relative to the job's source.
+# No exclusions are active in this template. Remove # to enable a pattern.
+# Blank lines and comments are ignored. This is not Git ignore syntax.
+
+# Temporary files and logs at any depth:
+# *.tmp
+# *.log
+
+# Directories at the source root, including all their contents:
+# /cache/**
+# /node_modules/**

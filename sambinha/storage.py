@@ -17,7 +17,7 @@ class Storage:
     def path(self, key):
         return self.job.destination.rstrip("/") + "/" + safe_relative(key)
 
-    def command(self, operation, *args, retry=False, standard=False, input=None):
+    def command(self, operation, *args, retry=False, standard=False, input=None, progress_directory=None):
         if operation in {"copyto", "copy", "delete"}:
             check_mounts(self.job, self.runner)
             check_disks(self.job)
@@ -30,7 +30,9 @@ class Storage:
             # and DEEP_ARCHIVE need restore and bill at least 90/180 days.
             # STANDARD costs more per GB, without archival restore constraints.
             flags += ["--s3-storage-class", "STANDARD" if standard else self.job.storage_class]
-        return self.runner.run([self.config.rclone, operation, *map(str, args), *flags], retry=retry, input=input)
+        progress = {"progress_directory": progress_directory} if progress_directory is not None else {}
+        return self.runner.run([self.config.rclone, operation, *map(str, args), *flags],
+                               retry=retry, input=input, **progress)
 
     def inventory(self):
         if self.job.type == "local" and not Path(self.job.destination).exists():
@@ -107,7 +109,8 @@ class Storage:
         self.command("copy", root, self.job.destination, "--files-from-raw", "-",
                      *self.comparison_flags(), "--update", "--transfers", str(self.config.transfer_workers),
                      "-v", "--use-json-log", retry=True,
-                     input="".join(safe_relative(f.path) + "\n" for f in files))
+                     input="".join(safe_relative(f.path) + "\n" for f in files),
+                     progress_directory=str(Path(root) / Path(files[0].path).parent))
         copied = set()
         report = getattr(self.runner, "last_stderr", "")
         for line in report.splitlines() if isinstance(report, str) else ():

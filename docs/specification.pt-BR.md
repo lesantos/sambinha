@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.6.1**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.6.2**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -175,7 +175,14 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 - Execução interativa exibe etapa, diretório e percentual estimado apenas no stderr do terminal. Inventários usam arquivos/bytes; descoberta e subprocessos opacos podem estimar. Progresso não entra nos logs JSON nem stdout e fica desativado sem terminal.
 - Atualizar ambos os READMEs e exemplos; testar precisão/troca de modos, ausência de leitura de conteúdo e separação entre progresso/logs; repetir todos os testes e publicar 0.6.1 no GitHub após sucesso.
 
-## 15. Marcos de release solicitados
+## 15. Progresso global, terminal conciso e exclusões — 0.6.2
+
+- Estimar o backup inteiro combinando preflight, tarefas ponderadas por bytes e lotes concorrentes. Não reiniciar nem voltar o percentual entre etapas/diretórios/tarefas. Só a conclusão bem-sucedida pode exibir 100%.
+- Mostrar o subdiretório em trabalho na leitura e nas cópias. Grupos de cópia ficam no mesmo diretório. Omitir eventos por arquivo do terminal interativo, mantendo a auditoria JSON completa.
+- Documentar arquivo de exclusões e padrões nativos nos dois READMEs. Incluir o caminho nos exemplos TOML e modelos UTF-8 sem exclusões ativas. Configurar `~/sambinha/sambinha.toml` para `./excludes.txt`, criando o arquivo inicialmente sem regras ativas.
+- Testar progresso global crescente, conclusão concorrente fora de ordem, múltiplas tarefas, subdiretórios e separação terminal/auditoria. Repetir todos os testes e publicar a release 0.6.2 com fonte/wheel.
+
+## 16. Marcos de release solicitados
 
 | Marco | Escopo solicitado |
 | --- | --- |
@@ -185,5 +192,6 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 | 0.5.0 | Todas as melhorias P1–P6, com compactação separada para texto/vídeo/foto/outros. |
 | 0.6.0 | Documentação em inglês por padrão com versões pt-BR. A release publicada 0.6.0 contém as alterações acumuladas acima. |
 | 0.6.1 | Tamanho/mtime por padrão com hash opcional; progresso exclusivo do terminal, documentação bilíngue e repetição da suíte completa. |
+| 0.6.2 | Percentual global do backup, terminal conciso com subdiretórios, exclusões documentadas/configuradas e artefatos da release. |
 
 Os marcos registram escopo e decisões de versão; não significam que toda versão intermediária foi publicada separadamente. Os detalhes operacionais estão no [guia de uso](usage.pt-BR.md), [guia de performance](performance.pt-BR.md), [guia de S3](s3.pt-BR.md), [segurança](../SECURITY.pt-BR.md) e [README](../README.pt-BR.md).

@@ -3,12 +3,15 @@ from dataclasses import replace
 import io
 import json
 import threading
+import re
 from unittest.mock import Mock, patch
 
 from sambinha.engine import run
 from sambinha.inventory import scan
 from sambinha.progress import Progress
-from tests.helpers import Sandbox
+from sambinha.process import Runner
+from tests.helpers import Sandbox, REAL_TOOLS, contents
+import unittest
 
 
 class Terminal(io.StringIO):
@@ -23,13 +26,18 @@ class ProgressTests(Sandbox):
         progress = Progress(terminal, clock=clock)
         progress.update('Inventário simples', '/dados/pasta', 1, 4)
         first = terminal.getvalue()
-        self.assertIn('Inventário simples | /dados/pasta |  25.0% estimado', first)
+        self.assertIn('Inventário simples | /dados/pasta |  25.0% do backup (estimado)', first)
         progress.update('Inventário simples', '/dados/outra', 2, 4)
-        self.assertEqual(terminal.getvalue(), first)
+        self.assertIn('/dados/outra', terminal.getvalue())
+        second = terminal.getvalue()
+        progress.update('Inventário simples', '/dados/outra', 2, 4)
+        self.assertEqual(terminal.getvalue(), second)
         clock.return_value = 0.3
         progress.update('Inventário simples', '/dados/outra', 3, 4)
         progress.update('Inventário simples', '/dados/outra', 4, 4)
-        self.assertIn('100.0% estimado', terminal.getvalue())
+        self.assertNotIn('100.0%', terminal.getvalue())
+        progress.finish()
+        self.assertIn('100.0% do backup', terminal.getvalue())
         progress.close()
         self.assertFalse(progress.visible)
 
@@ -50,6 +58,7 @@ class ProgressTests(Sandbox):
         for mode, stage in (('simple', 'Inventário simples'), ('hash', 'Calculando hashes')):
             with self.subTest(mode=mode):
                 progress = Mock()
+                progress.scope.side_effect = lambda *args: progress
                 scan(self.source, mode=mode, progress=progress)
                 calls = progress.update.call_args_list
                 self.assertTrue(any(c.args[0] == 'Listando origem' for c in calls))
@@ -79,13 +88,13 @@ class ProgressTests(Sandbox):
         progress = Progress(terminal)
         with progress.task('Copiando', '/dados'):
             pass
-        self.assertIn('100.0% estimado', terminal.getvalue())
+        self.assertIn('99.9% do backup', terminal.getvalue())
         terminal.truncate(0)
         terminal.seek(0)
         with self.assertRaises(RuntimeError):
             with progress.task('Comprimindo', '/dados'):
                 raise RuntimeError('failed')
-        self.assertNotIn('100.0% estimado', terminal.getvalue())
+        self.assertNotIn('100.0%', terminal.getvalue())
         self.assertFalse(progress.visible)
 
     def test_interrupted_backup_does_not_log_a_successful_end(self):
@@ -101,7 +110,7 @@ class ProgressTests(Sandbox):
         class ReportingTerminal(Terminal):
             def write(self, value):
                 result = super().write(value)
-                if '95.0% estimado' in value:
+                if '95.0% do backup' in value:
                     updated.set()
                 return result
         terminal = ReportingTerminal()
@@ -110,5 +119,102 @@ class ProgressTests(Sandbox):
         with progress.task('Lendo destino', '/dados'):
             clock.return_value = 1000
             self.assertTrue(updated.wait(timeout=3))
-            self.assertNotIn('100.0% estimado', terminal.getvalue())
-        self.assertIn('100.0% estimado', terminal.getvalue())
+            self.assertNotIn('100.0%', terminal.getvalue())
+        self.assertIn('99.9% do backup', terminal.getvalue())
+
+    def test_overall_progress_never_restarts_between_scopes_and_retries(self):
+        terminal = Terminal()
+        progress = Progress(terminal)
+        first = progress.scope(0, 0.2)
+        first.update('Inventário', '/dados/dir-a', 1, 1)
+        copying = progress.scope(0.2, 0.9)
+        copying.update('Copiando', '/dados/dir-b', 1, 2)
+        copying.update('Copiando', '/dados/dir-c', 0, 2)
+        with copying.scope(0, 0.5).task('Repetindo cópia', '/dados/dir-c'):
+            pass
+        copying.update('Copiando', '/dados/dir-c', 2, 2)
+        self.assertNotIn('100.0%', terminal.getvalue())
+        progress.finish()
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        self.assertEqual(values, sorted(values))
+        self.assertEqual(values[-1], 100)
+        self.assertIn(55, values)
+
+    def test_parallel_workers_contribute_by_bytes_even_when_last_worker_finishes_first(self):
+        terminal = Terminal()
+        progress = Progress(terminal)
+        first, last = progress.scope(0.2, 0.8).parallel([9, 1])
+        last.update('Lote', '/dados/last', 1, 1)
+        self.assertAlmostEqual(progress.percent, 26)
+        first.update('Lote', '/dados/first', 1, 2)
+        self.assertAlmostEqual(progress.percent, 53)
+        first.update('Lote', '/dados/first', 1, 1)
+        self.assertAlmostEqual(progress.percent, 80)
+
+    def test_terminal_hides_per_file_events_but_complete_audit_and_subdirectory_remain(self):
+        self.file('nested/subdir/unique-file-name')
+        terminal = Terminal()
+        stdout = io.StringIO()
+        with patch('sys.stderr', terminal), redirect_stdout(stdout):
+            result = run(replace(self.config, dry_run=True, verification_mode='simple'),
+                         runner=Mock(), clock=lambda: 1000)
+        self.assertEqual(result, 0)
+        self.assertNotIn('unique-file-name', stdout.getvalue())
+        self.assertNotIn('unique-file-name', terminal.getvalue())
+        self.assertIn(str(self.source / 'nested/subdir'), terminal.getvalue())
+        records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
+        self.assertTrue(any(r.get('path') == 'nested/subdir/unique-file-name' for r in records))
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        self.assertEqual(values, sorted(values))
+        self.assertEqual(values[-1], 100)
+        self.assertEqual(sum(p == 100 for p in values), 1)
+
+    def test_failure_never_displays_complete_percentage(self):
+        terminal = Terminal()
+        with patch('sys.stderr', terminal), redirect_stdout(io.StringIO()), \
+             patch('sambinha.engine.preflight', side_effect=RuntimeError('failure')), \
+             self.assertRaises(RuntimeError):
+            run(self.config, runner=Mock())
+        self.assertNotIn('100.0%', terminal.getvalue())
+
+
+@unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
+class OverallProgressIntegrationTests(Sandbox):
+    def test_bulk_copies_display_the_actual_subdirectory_and_keep_file_details_in_audit(self):
+        for name in ('nested/subdir/file-a', 'nested/subdir/file-b', 'other/file-c', 'other/file-d'):
+            self.file(name)
+        terminal, stdout = Terminal(), io.StringIO()
+        directories = []
+        original = Runner.run
+        def record(runner, args, **kwargs):
+            if len(args) > 1 and args[1] == 'copy':
+                directories.append(kwargs.get('progress_directory'))
+            return original(runner, args, **kwargs)
+        with patch('sys.stderr', terminal), redirect_stdout(stdout), patch.object(Runner, 'run', record):
+            result = run(replace(self.config, verification_mode='simple'), clock=lambda: 1000)
+        self.assertEqual(result, 0, stdout.getvalue())
+        self.assertEqual(directories, [str(self.source / 'nested/subdir'), str(self.source / 'other')])
+        self.assertEqual(contents(self.source), contents(self.destination))
+        self.assertIn('Copiando arquivos | ' + str(self.source / 'nested/subdir'), terminal.getvalue())
+        for name in ('file-a', 'file-b', 'file-c', 'file-d'):
+            self.assertNotIn(name, terminal.getvalue() + stdout.getvalue())
+        records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
+        self.assertEqual(sum(r['event'] == 'transferred' for r in records), 4)
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        self.assertEqual(values, sorted(values))
+        self.assertEqual(sum(p == 100 for p in values), 1)
+
+    def test_multiple_jobs_share_one_overall_percentage_until_all_are_done(self):
+        self.file('subdir/file')
+        first = self.config.jobs[0]
+        second = replace(first, name='second', destination=str(self.root / 'second'))
+        config = replace(self.config, jobs=(first, second), verification_mode='simple')
+        terminal, stdout = Terminal(), io.StringIO()
+        with patch('sys.stderr', terminal), redirect_stdout(stdout):
+            result = run(config, clock=lambda: 1000)
+        self.assertEqual(result, 0, stdout.getvalue())
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        self.assertEqual(values, sorted(values))
+        self.assertIn(57.5, values)
+        self.assertEqual(sum(p == 100 for p in values), 1)
+        self.assertEqual(contents(self.destination), contents(self.root / 'second'))

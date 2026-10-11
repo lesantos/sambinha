@@ -265,7 +265,9 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
         failed = True
         log.event("error", error=str(exc))
     finally:
-        progress.close()
         log.event("end", action=action, success=not failed)
+        if not failed:
+            progress.finish()
+        progress.close()
         log.close()
     return int(failed)

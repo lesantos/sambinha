@@ -1,6 +1,7 @@
 include README.md README.pt-BR.md CHANGELOG.md CHANGELOG.pt-BR.md
 include SECURITY.md SECURITY.pt-BR.md LICENSE LICENSE.pt-BR
 include sambinha.example*.toml rclone.example*.conf secrets.example*.env
+include excludes.example*.txt
 include requirements-test.txt
 include .gitleaks.toml
 graft docs

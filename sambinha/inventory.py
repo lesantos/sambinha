@@ -77,6 +77,9 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
         raise BackupError(f"Origem não é diretório regular: {root}")
     result, candidates = [], []
     visited, pending = 0, 1
+    directory = root
+    listing = progress.scope(0, 0.25) if progress else None
+    inventory = progress.scope(0.25, 1) if progress else None
     def fail(error):
         raise error
     for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
@@ -88,7 +91,7 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
         visited += 1
         pending += len(dirs) - 1
         if progress:
-            progress.update("Listando origem", directory, visited, visited + pending + 1)
+            listing.update("Listando origem", directory, visited, visited + pending + 1)
         for name in files:
             relative = (Path(directory) / name).relative_to(root).as_posix()
             if (Path(directory) / name).is_symlink():
@@ -102,14 +105,14 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
                 raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
             candidates.append((relative, before))
     if progress:
-        progress.update("Listando origem", root, 1, 1)
+        listing.update("Listando origem", directory, 1, 1)
     stage = "Inventário simples" if mode == "simple" else "Calculando hashes"
     total = len(candidates) if mode == "simple" else sum(max(1, info.st_size) for _, info in candidates)
     completed = 0
     for relative, before in candidates:
         directory = (root / relative).parent
         if progress:
-            progress.update(stage, directory, completed, total)
+            inventory.update(stage, directory, completed, total)
         if mode == "simple":
             item = metadata(root, relative)
         else:
@@ -123,7 +126,7 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
                 def advance(size):
                     nonlocal read
                     read += size
-                    progress.update(stage, directory, completed + read, total)
+                    inventory.update(stage, directory, completed + read, total)
                 item = fingerprint(root, relative, progress=advance)
             else:
                 item = fingerprint(root, relative)
@@ -135,9 +138,9 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
             cache_out[relative] = {"signature": signature(after), "file": item.metadata()}
         completed += 1 if mode == "simple" else max(1, item.size)
         if progress:
-            progress.update(stage, directory, completed, total)
+            inventory.update(stage, directory, completed, total)
     if progress:
-        progress.update(stage, root, 1, 1)
+        inventory.update(stage, directory, 1, 1)
     return sorted(result, key=lambda f: f.path)
 
 
@@ -149,4 +152,4 @@ def verify(root: Path, files: list[File], *, mode="hash", progress=None):
         if (not same_metadata(actual, item) if mode == "simple" else actual != item):
             raise BackupError(f"Origem alterada durante backup: {item.path}; execute novamente")
     if progress:
-        progress.update("Conferindo origem", root, 1, 1)
+        progress.update("Conferindo origem", (root / files[-1].path).parent if files else root, 1, 1)

@@ -3,6 +3,10 @@
 [English](CHANGELOG.md)
 
 
+## 0.6.2 — 2026-10-11
+
+O terminal interativo omite eventos por arquivo e mostra o subdiretório em trabalho. O progresso estima o backup inteiro com etapas/tarefas ponderadas e lotes concorrentes, sem voltar ou reiniciar entre diretórios/etapas; só a conclusão bem-sucedida exibe 100%. Logs JSON mantêm todos os detalhes por arquivo. Cópias agrupadas ficam no mesmo diretório. Ambos os READMEs explicam localização do arquivo de exclusões, padrões nativos do rclone, simulação e proteção dos arquivos já copiados que passam a ser excluídos. Configurações públicas incluem o caminho do arquivo e modelos bilíngues sem exclusões ativas.
+
 ## 0.6.1 — 2026-10-11
 
 O padrão passa a ser `verification_mode = "simple"`: inventário e comparação por tamanho em bytes e data de modificação em nanossegundos, sem ler o conteúdo para calcular hashes. Use `"hash"` no TOML ou `--verification-mode hash` para SHA-256/MD5 com cache e leituras completas periódicas. Trocar para hash recalcula hashes ausentes; lotes e controles mantêm checksums. Progresso interativo exibe etapa, diretório e percentual estimado no stderr, sem entrar nos logs JSON. Backups interrompidos deixam de registrar término bem-sucedido. Novos testes cobrem modos, precisão de metadados, recuperação e separação entre terminal e logs; documentação e exemplos bilíngues atualizados.

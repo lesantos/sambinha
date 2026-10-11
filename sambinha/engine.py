@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import time
 import uuid
+from itertools import groupby
 
 from .batches import plan
 from .config import Config, Job
@@ -29,6 +30,11 @@ from .storage import Storage
 from .progress import Progress
 
 DAY = 86400
+
+
+def show_progress(runner, progress):
+    if isinstance(runner, Runner):
+        runner.progress = progress
 
 
 class Context:
@@ -136,7 +142,12 @@ def preserve_metadata(ctx, item):
 
 
 def simple(ctx: Context):
+    reading = ctx.progress.scope(0, 0.1) if ctx.progress else None
+    show_progress(ctx.runner, reading)
     destination = ctx.storage.inventory()
+    if reading:
+        reading.update("Lendo destino", ctx.job.destination, 1, 1)
+    comparing = ctx.progress.scope(0.1, 0.25) if ctx.progress else None
     source = {f.path: f for f in ctx.files}
     def identical(item, remote):
         if item is None or not remote:
@@ -153,13 +164,16 @@ def simple(ctx: Context):
     # Before deleting or replacing a current file, preserve its previous bytes
     # and persist the retirement record. Interrupted retries cannot lose it.
     for index, (key, remote) in enumerate(sorted(destination.items())):
-        if ctx.progress:
-            ctx.progress.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent,
-                                index, len(destination))
+        operation = comparing.scope(index / len(destination), (index + 1) / len(destination)) if comparing else None
+        show_progress(ctx.runner, operation)
+        if operation:
+            operation.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent)
         item = source.get(key)
         if identical(item, remote):
             ctx.event("identical", path=key)
             preserve_metadata(ctx, item)
+            if operation:
+                operation.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent, 1, 1)
             continue
         reason = "version" if item else "deleted"
         days = ctx.config.version_days if item else ctx.config.deleted_days
@@ -173,11 +187,14 @@ def simple(ctx: Context):
             ctx.save()
             if not item:
                 ctx.storage.delete(key)
+        if operation:
+            operation.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent, 1, 1)
+    cleanup = ctx.progress.scope(0.25, 0.27) if ctx.progress else None
     if ctx.job.type == "local" and not ctx.config.dry_run and not ctx.job.exclude_files:
         check_mounts(ctx.job, ctx.runner)
         for directory, _, _ in os.walk(ctx.job.destination, topdown=False):
-            if ctx.progress:
-                ctx.progress.update("Conferindo diretórios do destino", directory)
+            if cleanup:
+                cleanup.update("Conferindo diretórios do destino", directory)
             path = Path(directory)
             relative = path.relative_to(ctx.job.destination)
             if ".sambinha" not in relative.parts and not (ctx.job.source / relative).is_dir():
@@ -193,16 +210,32 @@ def simple(ctx: Context):
         ctx.event("would_transfer" if ctx.config.dry_run else "transfer_start", path=item.path)
         if not ctx.config.dry_run:
             pending.append(item)
-    for start in range(0, len(pending), ctx.config.transfer_group_size):
-        group = pending[start:start + ctx.config.transfer_group_size]
-        verify(ctx.job.source, group, mode=ctx.config.verification_mode, progress=ctx.progress)
+    # Keep each copy group inside one directory so its progress names the
+    # directory actually being copied rather than the entire source root.
+    groups = []
+    ordered = sorted(pending, key=lambda item: (str(Path(item.path).parent), item.path))
+    for _, members in groupby(ordered, key=lambda item: Path(item.path).parent):
+        members = list(members)
+        for start in range(0, len(members), ctx.config.transfer_group_size):
+            groups.append(members[start:start + ctx.config.transfer_group_size])
+    weights = [sum(max(1, item.size) for item in group) for group in groups]
+    total, completed = sum(weights), 0
+    transfers = ctx.progress.scope(0.27, 0.85) if ctx.progress else None
+    for group, weight in zip(groups, weights):
+        operation = transfers.scope(completed / total, (completed + weight) / total) if transfers else None
+        before = operation.scope(0, 0.1) if operation else None
+        copying = operation.scope(0.1, 0.9) if operation else None
+        after = operation.scope(0.9, 1) if operation else None
+        verify(ctx.job.source, group, mode=ctx.config.verification_mode, progress=before)
+        show_progress(ctx.runner, copying)
         if len(group) == 1:
             item = group[0]
             copied = {item.path} if ctx.storage.put(ctx.job.source / item.path, item.path,
                                                    protected_mtime_ns=item.mtime_ns) else set()
         else:
             copied = ctx.storage.put_many(ctx.job.source, group)
-        verify(ctx.job.source, group, mode=ctx.config.verification_mode, progress=ctx.progress)
+        verify(ctx.job.source, group, mode=ctx.config.verification_mode, progress=after)
+        completed += weight
         for item in group:
             preserve_metadata(ctx, item)
             ctx.event("transferred" if item.path in copied else "identical", path=item.path,
@@ -211,18 +244,21 @@ def simple(ctx: Context):
     # and modification times, including empty directories (without root).
     if ctx.job.type == "local" and not ctx.config.dry_run:
         check_mounts(ctx.job, ctx.runner)
-        with ctx.progress.task("Listando diretórios", ctx.job.source) if ctx.progress else nullcontext():
+        listing = ctx.progress.scope(0.85, 0.87) if ctx.progress else None
+        metadata = ctx.progress.scope(0.87, 0.95) if ctx.progress else None
+        with listing.task("Listando diretórios", ctx.job.source) if listing else nullcontext():
             directories = ([ctx.job.source] + sorted(ctx.job.source / p for p in ctx.selected_dirs)
                            if ctx.selected_dirs is not None else
                            [ctx.job.source] + sorted(p for p in ctx.job.source.rglob("*") if p.is_dir()))
         for index, directory in enumerate(reversed(directories)):
-            if ctx.progress:
-                ctx.progress.update("Preservando metadados", directory, index + 1, len(directories))
+            if metadata:
+                metadata.update("Preservando metadados", directory, index + 1, len(directories))
             relative = directory.relative_to(ctx.job.source)
             target = Path(ctx.job.destination) / relative
             target.mkdir(parents=True, exist_ok=True)
             shutil.copystat(directory, target, follow_symlinks=False)
     ctx.state["active"] = {f.path: f.metadata() for f in ctx.files}
+    show_progress(ctx.runner, ctx.progress.scope(0.95, 1) if ctx.progress else None)
     ctx.expire()
     if not ctx.config.dry_run:
         ctx.save()
@@ -231,22 +267,28 @@ def simple(ctx: Context):
 def compress(ctx, batch, work: Path):
     snapshot = work / "snapshot"
     snapshot.mkdir()
+    preparing = ctx.progress.scope(0, 0.2) if ctx.progress else None
     for index, item in enumerate(batch.files):
-        if ctx.progress:
-            ctx.progress.update("Preparando lote", (ctx.job.source / item.path).parent, index, len(batch.files))
+        if preparing:
+            preparing.update("Preparando lote", (ctx.job.source / item.path).parent, index, len(batch.files))
         source, target = ctx.job.source / item.path, snapshot / item.path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target, follow_symlinks=False)
-    verify(snapshot, list(batch.files), mode=ctx.config.verification_mode, progress=ctx.progress)
-    verify(ctx.job.source, list(batch.files), mode=ctx.config.verification_mode, progress=ctx.progress)
+    verify(snapshot, list(batch.files), mode=ctx.config.verification_mode,
+           progress=ctx.progress.scope(0.2, 0.25) if ctx.progress else None)
+    verify(ctx.job.source, list(batch.files), mode=ctx.config.verification_mode,
+           progress=ctx.progress.scope(0.25, 0.3) if ctx.progress else None)
     archive = work / ("archive." + ctx.job.archive_format)
     listing = work / "files.txt"
     listing.write_text("".join(f"./{f.path}\n" for f in batch.files), encoding="utf-8")
     # @listfile and -spd prevent option/wildcard interpretation of filenames.
     kind, level, threads = settings(ctx.job, batch.files)
+    directory = (ctx.job.source / batch.files[0].path).parent
+    show_progress(ctx.runner, ctx.progress.scope(0.3, 0.6) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,
                     "-scsUTF-8", "-spd", "-spf", f"-mx={level}", f"-mmt={threads}",
-                    str(archive), "@" + str(listing)], cwd=snapshot)
+                    str(archive), "@" + str(listing)], cwd=snapshot, progress_directory=directory)
+    show_progress(ctx.runner, ctx.progress.scope(0.6, 0.7) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "t", str(archive)])
     listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])
     members = {}
@@ -283,6 +325,8 @@ def upload_batch(ctx, item):
     # Each worker owns its runner's last_stderr and its temporary archive.
     worker = copy.copy(ctx)
     worker.runner = copy.copy(ctx.runner)
+    worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
+    show_progress(worker.runner, worker.progress)
     worker.storage = Storage(ctx.job, ctx.config, worker.runner)
     with tempfile.TemporaryDirectory(prefix="sambinha-batch-") as temp:
         check_disks(ctx.job)
@@ -292,10 +336,12 @@ def upload_batch(ctx, item):
         control.update(archive_size=compressed.size, archive_md5=compressed.md5)
         control_path = Path(temp) / "control.json"
         atomic_json(control_path, control)
+        show_progress(worker.runner, worker.progress.scope(0.7, 0.95) if worker.progress else None)
         transferred = worker.storage.put(archive, item.key)
         events = [("transferred" if transferred else "identical", {
             "path": item.key, "files": [f.path for f in item.files],
             "bytes": compressed.size if transferred else 0})]
+        show_progress(worker.runner, worker.progress.scope(0.95, 1) if worker.progress else None)
         transferred = worker.storage.put(control_path, item.key + ".json", standard=True)
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
         atomic_json(ctx.directory / "controls" / (item.key + ".json"), control)
@@ -359,6 +405,9 @@ def batch(ctx: Context):
             continue
         pending.append(item)
     if pending:
+        scopes = (ctx.progress.scope(0.1, 0.85).parallel(
+            [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
+        ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes)}
         with ThreadPoolExecutor(max_workers=ctx.config.batch_workers) as pool:
             futures = [(item, pool.submit(upload_batch, ctx, item)) for item in pending]
             for item, future in futures:
@@ -375,7 +424,9 @@ def batch(ctx: Context):
         ctx.expire()
         ctx.event("would_transfer", path=".sambinha/control.tar.gz")
         return
-    verify(ctx.job.source, ctx.files, mode=ctx.config.verification_mode, progress=ctx.progress)
+    verify(ctx.job.source, ctx.files, mode=ctx.config.verification_mode,
+           progress=ctx.progress.scope(0.85, 0.9) if ctx.progress else None)
+    show_progress(ctx.runner, ctx.progress.scope(0.9, 1) if ctx.progress else None)
     # Publish the recovery index before the local commit. If upload fails, the
     # previous local state stays authoritative; uploads can safely be repeated.
     upload_index(ctx, next_state)
@@ -404,9 +455,11 @@ def preflight(config, runner, now=None, *, progress=None):
     runner.run([config.rclone, "version"])
     if config.rclone_config and not Path(config.rclone_config).is_file():
         raise BackupError("Arquivo de configuração rclone não existe")
-    for job in config.jobs:
-        if progress:
-            progress.update("Verificando discos", job.source)
+    for index, job in enumerate(config.jobs):
+        checking = progress.scope(0.2 * index / len(config.jobs), 0.2 * (index + 1) / len(config.jobs)) if progress else None
+        show_progress(runner, checking)
+        if checking:
+            checking.update("Verificando discos", job.source)
         check_mounts(job, runner)
         check_disks(job)
         if job.exclude_files:
@@ -424,8 +477,8 @@ def preflight(config, runner, now=None, *, progress=None):
                 for directory, dirs, files in os.walk(target):
                     visited += 1
                     pending += len(dirs) - 1
-                    if progress:
-                        progress.update("Listando destino", directory, visited, visited + pending + 1)
+                    if checking:
+                        checking.update("Listando destino", directory, visited, visited + pending + 1)
                     for name in dirs + files:
                         if (Path(directory) / name).is_symlink():
                             raise BackupError("Destino contém link simbólico; operação interrompida")
@@ -445,7 +498,10 @@ def preflight(config, runner, now=None, *, progress=None):
             if backend != "s3":
                 raise BackupError(f"Remote {remote} precisa ser do tipo s3")
     inventories, shared = {}, {}
-    for job in config.jobs:
+    for index, job in enumerate(config.jobs):
+        reading = progress.scope(0.2 + 0.8 * index / len(config.jobs),
+                                 0.2 + 0.8 * (index + 1) / len(config.jobs)) if progress else None
+        show_progress(runner, reading.scope(0, 0.1) if reading else None)
         try:
             from .recovery import identity
             previous = load_state(config.state_dir / job.name / "state.json", identity(job))
@@ -463,10 +519,13 @@ def preflight(config, runner, now=None, *, progress=None):
             fingerprints = {}
             files = scan(job.source, selected_files, selected_dirs,
                          cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
-                         mode=config.verification_mode, progress=progress)
+                         mode=config.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
             shared[cache_key] = (files, selected_dirs, fingerprints,
                                  now if force else previous["last_full_scan"])
         inventories[job.name] = shared[cache_key]
+        if reading:
+            files = inventories[job.name][0]
+            reading.update("Inventário concluído", (job.source / files[-1].path).parent if files else job.source, 1, 1)
     return inventories
 
 
@@ -499,7 +558,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
         with nullcontext() if config.dry_run else lock(config.state_dir):
             telemetry("run")
             with frozen_rules(config) as effective:
-                inventories = preflight(effective, runner, clock(), progress=progress)
+                inventories = preflight(effective, runner, clock(), progress=progress.scope(0, 0.2))
                 contexts = []
                 for job in effective.jobs:
                     log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
@@ -517,7 +576,12 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                         failed = True
                         errors.append(f"{job.name}: {exc}")
                         log.event("error", job=job.name, error=str(exc))
-                for context in contexts:
+                weights = [sum(max(1, f.size) for f in context.files) or 1 for context in contexts]
+                total, completed = sum(weights), 0
+                for context, weight in zip(contexts, weights):
+                    job_progress = progress.scope(0.2 + 0.75 * completed / total,
+                                                  0.2 + 0.75 * (completed + weight) / total)
+                    context.progress = job_progress.scope(0, 0.9)
                     success = False
                     try:
                         check_disks(context.job, context.event)
@@ -531,7 +595,9 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                                 context.event("would_verify", mode="s3_metadata" if context.job.type == "s3" else "contents")
                             else:
                                 from .recovery import verify_job
-                                verify_job(config, context.job, runner, log, context.state, progress=progress)
+                                checking = job_progress.scope(0.9, 1)
+                                show_progress(runner, checking)
+                                verify_job(config, context.job, runner, log, context.state, progress=checking)
                                 verified = copy.deepcopy(context.state)
                                 verified["last_verified"] = context.now
                                 if context.job.logic == "batch":
@@ -545,6 +611,9 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                         log.event("error", job=context.job.name, error=str(exc))
                     finally:
                         context.summary(success)
+                        if success:
+                            job_progress.update("Concluindo tarefa", progress.directory, 1, 1)
+                        completed += weight
             if failed:
                 telemetry("fail", "; ".join(errors + ([forecast.message] if forecast.sent else [])))
             elif not forecast.sent:
@@ -556,8 +625,13 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
         failed = True
         log.event("error", error=str(exc))
         telemetry("fail", str(exc))
+    except BaseException:
+        failed = True
+        raise
     finally:
-        progress.close()
         log.event("end", success=not failed, deletion_alert=forecast.sent)
+        if not failed:
+            progress.finish()
+        progress.close()
         log.close()
     return 1 if failed else 0

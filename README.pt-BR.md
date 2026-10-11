@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.6.1**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.6.2**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -121,9 +121,39 @@ O arquivo é lido como dados, sem executar comandos. Você pode usar aspas, come
 
 ## Escolha o que fica fora do backup
 
-Na tarefa (`[[jobs]]`), você pode definir `exclude_files = "excludes.txt"`. Esse arquivo usa os padrões do próprio rclone, um por linha: por exemplo, `*.tmp` ignora arquivos temporários, e `/cache/**` ignora a pasta `cache` na raiz da origem. Comentários e linhas vazias são aceitos.
+Crie um arquivo de texto UTF-8 ao lado do seu `sambinha.toml`, por exemplo `excludes.txt`. Dentro de cada tarefa (`[[jobs]]`) que deve usar essas regras, configure:
 
-Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino e históricos que contenham esses arquivos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. O [guia de uso](docs/usage.pt-BR.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
+```toml
+[[jobs]]
+name = "dados-local"
+source = "/mnt/dados"
+destination = "~/sambinha/Backups/dados"
+exclude_files = "./excludes.txt"
+```
+
+No `excludes.txt`, coloque um padrão de exclusão do rclone por linha:
+
+```text
+# Temporários e logs em qualquer subdiretório
+*.tmp
+*.log
+
+# Pastas na raiz da origem, incluindo todo o conteúdo
+/cache/**
+/node_modules/**
+```
+
+A **localização do arquivo** é relativa ao `sambinha.toml`, não à pasta atual do terminal. Já os **padrões** são relativos à origem da tarefa. Para a origem `/mnt/dados`, `/cache/**` corresponde a `/mnt/dados/cache/`, e não à pasta `/cache/` do sistema; também não corresponde a `projects/cache/`. `*.tmp` e `*.log` correspondem a arquivos em qualquer subdiretório. Linhas vazias e linhas iniciadas com `#` são ignoradas. A sintaxe é a do rclone, não a de um `.gitignore`.
+
+Os exemplos TOML já configuram `exclude_files = "./excludes.example.txt"`. Esse modelo não tem exclusões ativas: descomente os padrões desejados ou copie o arquivo para `excludes.txt` e ajuste o caminho na tarefa. Há também um [modelo em português](excludes.example.pt-BR.txt).
+
+Confira a quantidade de arquivos selecionados e o trabalho previsto com uma simulação:
+
+```bash
+.venv/bin/sambinha --config sambinha.toml --dry-run
+```
+
+Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino **não são apagadas só por passarem a ser excluídas**; seus históricos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. Cada tarefa pode usar um arquivo de regras diferente. Arquivo ausente, ilegível ou com UTF-8 inválido interrompe o backup. Alterações no arquivo durante uma execução só valem na próxima. O [guia de uso](docs/usage.pt-BR.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
 
 ## Confirme que os discos estão disponíveis
 
@@ -189,11 +219,11 @@ Também é possível escolher o modo para uma execução:
 
 O modo simples não detecta uma edição que preserve simultaneamente tamanho e data de modificação. O modo hash lê o conteúdo no primeiro inventário e periodicamente depois. Trocar de simples para hash calcula hashes novos; trocar o modo em backups por lotes pode reconstruir os arquivos compactados porque os metadados do índice mudam. Para verificar por hash um índice que ainda não os possui, faça primeiro um backup no modo hash. `logic = "simple"`/`"batch"` escolhe a estratégia de armazenamento, independentemente de `verification_mode`. Lotes e controles de recuperação mantêm checksums nos dois modos.
 
-Durante a execução interativa, o terminal exibe etapa, diretório e percentual estimado no stderr. O inventário usa quantidade de arquivos no modo simples e bytes no modo hash; a descoberta de diretórios estima o progresso pela fila conhecida. Operações opacas do rclone/7-Zip usam uma estimativa por tempo decorrido, limitada a 95% até terminarem. O percentual reinicia a cada etapa ou operação. O progresso não entra nos logs JSON nem no stdout e fica desativado quando stderr é redirecionado ou não é um terminal.
+Durante a execução interativa, o stderr exibe etapa, subdiretório em trabalho e um percentual estimado para o backup inteiro. A estimativa reserva 20% para verificações/inventários, 75% para tarefas ponderadas pelos bytes da origem e 5% para finalização. Contadores de arquivos/bytes, filas de diretórios e estimativas limitadas por tempo decorrido avançam dentro dessas faixas. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
-## Novidades de 0.4.0 a 0.6.1
+## Novidades de 0.4.0 a 0.6.2
 
-A versão atual é **0.6.1**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.6.2**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

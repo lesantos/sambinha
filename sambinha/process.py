@@ -64,7 +64,7 @@ class Runner:
         message = re.sub(r"(https://cronitor\.link/p/)[^\s?]+", r"\1[REDACTED]", message)
         return message
 
-    def run(self, args, *, cwd=None, retry=False, input=None):
+    def run(self, args, *, cwd=None, retry=False, input=None, progress_directory=None):
         # One original attempt plus at most three retries, two seconds apart.
         for attempt in range(4 if retry else 1):
             try:
@@ -73,8 +73,9 @@ class Runner:
                           "a": "Comprimindo lote", "t": "Conferindo lote", "x": "Extraindo lote"}
                 stage = stages.get(args[1]) if len(args) > 1 else None
                 directory = cwd or (args[2] if len(args) > 2 else ".")
-                if stage == "Copiando arquivo":
+                if stage in {"Copiando arquivo", "Conferindo lote"} or (stage == "Lendo destino" and "--stat" in args):
                     directory = Path(directory).parent
+                directory = progress_directory or directory
                 task = self.progress.task(stage, directory) if self.progress and stage else nullcontext()
                 with task:
                     result = subprocess.run(args, cwd=cwd, input=input, capture_output=True,

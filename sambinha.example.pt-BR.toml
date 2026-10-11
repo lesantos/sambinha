@@ -52,7 +52,7 @@ logic = "simple"
 # Configuração S3; não afeta destinos locais.
 # storage_class = "GLACIER_IR"
 # Padrões nativos de exclusão do rclone; caminhos são relativos a este TOML.
-# exclude_files = "./excludes.txt"
+exclude_files = "./excludes.example.txt"
 # Fixe os volumes esperados (montados e não vazios), quando aplicável.
 # source_mount = "/mnt/dados"
 # destination_mount = "/mnt/backup"
@@ -78,7 +78,7 @@ destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
 # Padrões nativos de exclusão, opcionais também nesta tarefa.
-# exclude_files = "./excludes.txt"
+exclude_files = "./excludes.example.txt"
 # Volume montado esperado na origem, quando aplicável.
 # source_mount = "/mnt/dados"
 # S3 não tem montagem local de destino; deixe vazio ou omita.

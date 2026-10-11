@@ -1,11 +1,15 @@
-"""One UTF-8 JSON-lines audit log per invocation, also printed to stdout."""
+"""Complete JSON-lines audits; interactive terminals only show run-level events."""
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import uuid
 import os
+import sys
 
 from .state import private_directory
+
+CONSOLE_EVENTS = {"start", "directory", "summary", "error", "end", "notification_error",
+                  "deletion_alert", "mass_deletion_blocked"}
 
 
 class RunLog:
@@ -13,6 +17,7 @@ class RunLog:
         private_directory(directory)
         self.redact = redact or (lambda value: value)
         self.progress = progress
+        self.interactive = sys.stdout.isatty() or bool(progress and progress.enabled)
         self.id = uuid.uuid4().hex
         self.path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{self.id}.jsonl"
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -33,6 +38,8 @@ class RunLog:
         line = json.dumps(record, ensure_ascii=False)
         self.stream.write(line + "\n")
         self.stream.flush()
+        if self.interactive and event not in CONSOLE_EVENTS:
+            return
         if self.progress:
             self.progress.clear()
         print(line)

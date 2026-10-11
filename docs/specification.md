@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.6.1**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.6.2**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -175,7 +175,14 @@ Acceptance: every maintained guide must have a matching language companion with 
 - Interactive execution shows stage, directory and estimated percentage only on terminal stderr. Inventory counters use files/bytes; discovery and opaque subprocesses may estimate. Do not add progress to JSON logs or stdout, and disable it when stderr is not a terminal.
 - Update both READMEs and examples, test mode precision/switching, metadata-only reads and terminal/log separation, rerun all tests, and publish version 0.6.1 to GitHub only after successful checks.
 
-## 15. Requested release milestones
+## 15. Overall progress, quiet terminal and exclusions — 0.6.2
+
+- Estimate completion for the entire backup, combining preflight, byte-weighted jobs and concurrent batches. Do not restart or decrease percentages when stages/directories/jobs change. Only successful completion may show 100%.
+- Show the actual working subdirectory during scanning and copies. Keep bulk copy groups within a directory. Omit per-file events from the interactive terminal while retaining the complete JSON audit.
+- Document exclusion-file setup and native patterns in both READMEs. Include a path in both public TOML examples and ship matching UTF-8 templates without active exclusions. Configure the user's `~/sambinha/sambinha.toml` to use `./excludes.txt`, creating the initially inactive file.
+- Test monotonic global progress, out-of-order concurrent completions, multiple jobs, subdirectory display and terminal/audit separation. Rerun all tests and publish the 0.6.2 release with source/wheel artifacts.
+
+## 16. Requested release milestones
 
 | Milestone | Requested scope |
 | --- | --- |
@@ -185,5 +192,6 @@ Acceptance: every maintained guide must have a matching language companion with 
 | 0.5.0 | All performance improvements P1–P6, with separate text/video/photo/other compression settings. |
 | 0.6.0 | English-default documentation with Brazilian Portuguese companions. The published 0.6.0 release contains the accumulated changes above. |
 | 0.6.1 | Default size/mtime verification with optional hash mode; terminal-only progress, bilingual documentation and full test rerun. |
+| 0.6.2 | Overall backup percentage, quiet terminal with working subdirectories, documented/configured exclusion files and release artifacts. |
 
 These milestones record the requested scope and version decisions; they do not imply that every intermediate version was separately published. Operational detail is in the [usage guide](usage.md), [performance guide](performance.md), [S3 guide](s3.md), [security notes](../SECURITY.md) and [README](../README.md).
