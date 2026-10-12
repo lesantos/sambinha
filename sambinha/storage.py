@@ -4,7 +4,8 @@ from pathlib import Path
 
 from .config import Config, Job
 from .errors import BackupError
-from .inventory import safe_relative
+from .inventory import safe_relative, path_has_symlink
+from .filtering import SKIP_LINK_FLAGS
 from .protection import timestamp_ns
 from .mounts import check_mounts
 from .disks import check_disks
@@ -15,13 +16,15 @@ class Storage:
         self.job, self.config, self.runner = job, config, runner
 
     def path(self, key):
+        if self.job.type == "local" and path_has_symlink(self.job.destination, key):
+            raise BackupError(f"Caminho do destino mudou para link simbólico: {key}")
         return self.job.destination.rstrip("/") + "/" + safe_relative(key)
 
     def command(self, operation, *args, retry=False, standard=False, input=None, progress_directory=None):
         if operation in {"copyto", "copy", "delete"}:
             check_mounts(self.job, self.runner)
             check_disks(self.job)
-        flags = ["--retries", "1", "--low-level-retries", "1"]
+        flags = ["--retries", "1", "--low-level-retries", "1", *SKIP_LINK_FLAGS]
         if self.config.rclone_config:
             flags += ["--config", self.config.rclone_config]
         if self.job.type == "s3":
@@ -48,8 +51,10 @@ class Storage:
                     or type(i.get("Size")) is not int or i["Size"] < 0
                     or not isinstance(i.get("Hashes", {}), dict) for i in items):
                 raise ValueError("metadados")
+            cache = {}
             return {safe_relative(i["Path"]): i for i in items
-                    if not i["Path"].startswith(".sambinha/")}
+                    if not i["Path"].startswith(".sambinha/") and
+                    (self.job.type != "local" or not path_has_symlink(self.job.destination, i["Path"], cache))}
         except (ValueError, KeyError, TypeError) as exc:
             raise BackupError("Inventário rclone inválido") from exc
 
@@ -106,6 +111,8 @@ class Storage:
 
     def put_many(self, root, files):
         """One rclone process per bounded group, after histories are durable."""
+        for item in files:
+            self.path(item.path)
         self.command("copy", root, self.job.destination, "--files-from-raw", "-",
                      *self.comparison_flags(), "--update", "--transfers", str(self.config.transfer_workers),
                      "-v", "--use-json-log", retry=True,
@@ -130,5 +137,6 @@ class Storage:
     def delete(self, key):
         # An exact raw file list avoids glob interpretation and makes cleanup
         # idempotent if the object was deleted before a crash/state commit.
+        self.path(key)
         self.command("delete", self.job.destination, "--files-from-raw", "-",
                      retry=True, input=safe_relative(key) + "\n")

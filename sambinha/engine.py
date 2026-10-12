@@ -14,9 +14,9 @@ from itertools import groupby
 
 from .batches import plan
 from .config import Config, Job
-from .errors import BackupError
+from .errors import BackupError, JobError, job_errors
 from .filtering import Selection, retired_paths, frozen_rules
-from .inventory import fingerprint, scan, verify
+from .inventory import fingerprint, scan, verify, path_has_symlink
 from .logging import RunLog
 from .notify import notify
 from .process import Runner, credential_values
@@ -40,8 +40,13 @@ def show_progress(runner, progress):
 class Context:
     def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None, progress=None):
         self.config, self.job, self.runner, self.log = config, job, runner, log
+        if job.type == "local":
+            cache = {}
+            files = [f for f in files if not path_has_symlink(job.destination, f.path, cache)]
         self.files, self.now = files, now
-        self.selection = Selection(job.exclude_files, config, runner)
+        self.selection = Selection(job.exclude_files, config, runner,
+                                   ignored_roots=(job.source, Path(job.destination)) if job.type == "local"
+                                   else (job.source,))
         self.selected_dirs = selected_dirs
         self.forecast = forecast
         self.progress = progress
@@ -145,6 +150,8 @@ def simple(ctx: Context):
     reading = ctx.progress.scope(0, 0.1) if ctx.progress else None
     show_progress(ctx.runner, reading)
     destination = ctx.storage.inventory()
+    included = ctx.selection.include_paths(destination)
+    destination = {p: item for p, item in destination.items() if p in included}
     if reading:
         reading.update("Lendo destino", ctx.job.destination, 1, 1)
     comparing = ctx.progress.scope(0.1, 0.25) if ctx.progress else None
@@ -247,13 +254,19 @@ def simple(ctx: Context):
         listing = ctx.progress.scope(0.85, 0.87) if ctx.progress else None
         metadata = ctx.progress.scope(0.87, 0.95) if ctx.progress else None
         with listing.task("Listando diretórios", ctx.job.source) if listing else nullcontext():
-            directories = ([ctx.job.source] + sorted(ctx.job.source / p for p in ctx.selected_dirs)
-                           if ctx.selected_dirs is not None else
-                           [ctx.job.source] + sorted(p for p in ctx.job.source.rglob("*") if p.is_dir()))
+            directories = []
+            for directory, dirs, _ in os.walk(ctx.job.source, followlinks=False):
+                dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()
+                           and (ctx.selected_dirs is None or
+                                (Path(directory) / name).relative_to(ctx.job.source).as_posix() in ctx.selected_dirs)]
+                directories.append(Path(directory))
+            directories.sort()
         for index, directory in enumerate(reversed(directories)):
             if metadata:
                 metadata.update("Preservando metadados", directory, index + 1, len(directories))
             relative = directory.relative_to(ctx.job.source)
+            if directory.is_symlink() or (relative.parts and path_has_symlink(ctx.job.destination, relative.as_posix())):
+                continue
             target = Path(ctx.job.destination) / relative
             target.mkdir(parents=True, exist_ok=True)
             shutil.copystat(directory, target, follow_symlinks=False)
@@ -448,84 +461,84 @@ def batch(ctx: Context):
 STRATEGIES = {"simple": simple, "batch": batch}
 
 
-def preflight(config, runner, now=None, *, progress=None):
+def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
     now = time.time() if now is None else now
-    runner.require([config.rclone] + [j.compressor for j in config.jobs if j.logic == "batch"]
-                   + (["mountpoint"] if any(j.source_mount or j.destination_mount for j in config.jobs) else []))
+    runner.require([config.rclone])
     runner.run([config.rclone, "version"])
     if config.rclone_config and not Path(config.rclone_config).is_file():
         raise BackupError("Arquivo de configuração rclone não existe")
+    checked = set()
     for index, job in enumerate(config.jobs):
-        checking = progress.scope(0.2 * index / len(config.jobs), 0.2 * (index + 1) / len(config.jobs)) if progress else None
-        show_progress(runner, checking)
-        if checking:
-            checking.update("Verificando discos", job.source)
-        check_mounts(job, runner)
-        check_disks(job)
-        if job.exclude_files:
-            try:
-                with job.exclude_files.open(encoding="utf-8") as stream:
-                    stream.read()
-            except (OSError, UnicodeError):
-                raise BackupError(f"Arquivo exclude_files ausente ou ilegível: {job.name}") from None
-        if job.type == "local":
-            target = Path(job.destination)
-            if target.exists() and not target.is_dir():
-                raise BackupError("Destino local não é um diretório")
-            if target.exists():
-                visited, pending = 0, 1
-                for directory, dirs, files in os.walk(target):
-                    visited += 1
-                    pending += len(dirs) - 1
+        with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
+            runner.require(([job.compressor] if job.logic == "batch" else [])
+                           + (["mountpoint"] if job.source_mount or job.destination_mount else []))
+            checking = progress.scope(0.2 * index / len(config.jobs), 0.2 * (index + 1) / len(config.jobs)) if progress else None
+            show_progress(runner, checking)
+            if checking:
+                checking.update("Verificando discos", job.source)
+            check_mounts(job, runner)
+            check_disks(job)
+            if job.exclude_files:
+                try:
+                    with job.exclude_files.open(encoding="utf-8") as stream:
+                        stream.read()
+                except (OSError, UnicodeError):
+                    raise BackupError(f"Arquivo exclude_files ausente ou ilegível: {job.name}") from None
+            if job.type == "local":
+                target = Path(job.destination)
+                if target.exists() and not target.is_dir():
+                    raise BackupError("Destino local não é um diretório")
+                if target.exists():
                     if checking:
-                        checking.update("Listando destino", directory, visited, visited + pending + 1)
-                    for name in dirs + files:
-                        if (Path(directory) / name).is_symlink():
-                            raise BackupError("Destino contém link simbólico; operação interrompida")
-        else:
-            # Verify the configured remote is actually an S3 backend before
-            # writing; credentials are left to rclone's normal providers.
-            raw = runner.run([config.rclone, "config", "dump", *(
-                ["--config", config.rclone_config] if config.rclone_config else [])])
-            remotes = json.loads(raw)
-            remote = job.destination.split(":", 1)[0]
-            if not isinstance(remotes, dict) or not isinstance(remotes.get(remote, {}), dict):
-                raise BackupError("Configuração de remotes rclone inválida")
-            runner.secrets = tuple(set(runner.secrets) | credential_values(remotes.get(remote, {})))
-            environment = os.environ if config.environment is None else config.environment
-            backend = environment.get("RCLONE_CONFIG_" + remote.upper() + "_TYPE",
-                                     remotes.get(remote, {}).get("type", ""))
-            if backend != "s3":
-                raise BackupError(f"Remote {remote} precisa ser do tipo s3")
+                        checking.update("Verificando destino", target)
+            else:
+                # Verify the configured remote is actually an S3 backend before
+                # writing; credentials are left to rclone's normal providers.
+                raw = runner.run([config.rclone, "config", "dump", *(
+                    ["--config", config.rclone_config] if config.rclone_config else [])])
+                remotes = json.loads(raw)
+                remote = job.destination.split(":", 1)[0]
+                if not isinstance(remotes, dict) or not isinstance(remotes.get(remote, {}), dict):
+                    raise BackupError("Configuração de remotes rclone inválida")
+                runner.secrets = tuple(set(runner.secrets) | credential_values(remotes.get(remote, {})))
+                environment = os.environ if config.environment is None else config.environment
+                backend = environment.get("RCLONE_CONFIG_" + remote.upper() + "_TYPE",
+                                         remotes.get(remote, {}).get("type", ""))
+                if backend != "s3":
+                    raise BackupError(f"Remote {remote} precisa ser do tipo s3")
+            checked.add(job.name)
     inventories, shared = {}, {}
     for index, job in enumerate(config.jobs):
-        reading = progress.scope(0.2 + 0.8 * index / len(config.jobs),
-                                 0.2 + 0.8 * (index + 1) / len(config.jobs)) if progress else None
-        show_progress(runner, reading.scope(0, 0.1) if reading else None)
-        try:
-            from .recovery import identity
-            previous = load_state(config.state_dir / job.name / "state.json", identity(job))
-        except BackupError:
-            # Context will reject the corrupt index for this job; no cached
-            # fingerprints from it are trusted during the global preflight.
-            previous = {}
-        force = (not config.fingerprint_cache or "last_full_scan" not in previous or
-                 now < previous["last_full_scan"] or
-                 now - previous["last_full_scan"] >= config.fingerprint_full_scan_days * DAY)
-        rules = job.exclude_files.read_bytes() if job.exclude_files else None
-        cache_key = (job.source, rules, force)
-        if cache_key not in shared:
-            selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
-            fingerprints = {}
-            files = scan(job.source, selected_files, selected_dirs,
-                         cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
-                         mode=config.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
-            shared[cache_key] = (files, selected_dirs, fingerprints,
-                                 now if force else previous["last_full_scan"])
-        inventories[job.name] = shared[cache_key]
-        if reading:
-            files = inventories[job.name][0]
-            reading.update("Inventário concluído", (job.source / files[-1].path).parent if files else job.source, 1, 1)
+        if job.name not in checked:
+            continue
+        with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
+            reading = progress.scope(0.2 + 0.8 * index / len(config.jobs),
+                                     0.2 + 0.8 * (index + 1) / len(config.jobs)) if progress else None
+            show_progress(runner, reading.scope(0, 0.1) if reading else None)
+            try:
+                from .recovery import identity
+                previous = load_state(config.state_dir / job.name / "state.json", identity(job))
+            except BackupError:
+                # Context will reject the corrupt index for this job; no cached
+                # fingerprints from it are trusted during the global preflight.
+                previous = {}
+            force = (not config.fingerprint_cache or "last_full_scan" not in previous or
+                     now < previous["last_full_scan"] or
+                     now - previous["last_full_scan"] >= config.fingerprint_full_scan_days * DAY)
+            rules = job.exclude_files.read_bytes() if job.exclude_files else None
+            cache_key = (job.source, rules, force)
+            if cache_key not in shared:
+                selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
+                fingerprints = {}
+                files = scan(job.source, selected_files, selected_dirs,
+                             cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
+                             mode=config.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
+                shared[cache_key] = (files, selected_dirs, fingerprints,
+                                     now if force else previous["last_full_scan"])
+            inventories[job.name] = shared[cache_key]
+            if reading:
+                files = inventories[job.name][0]
+                reading.update("Inventário concluído", (job.source / files[-1].path).parent if files else job.source, 1, 1)
     return inventories
 
 
@@ -538,6 +551,11 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
     log = RunLog(config.log_dir, redact=redactor, progress=progress)
     failed = False
     errors = []
+    def report_job_error(error):
+        nonlocal failed
+        failed = True
+        errors.append(str(error))
+        log.event("error", job=error.job, error=str(error))
     def telemetry(state, message=""):
         nonlocal failed
         if config.dry_run:
@@ -561,10 +579,13 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                 if removed_logs:
                     log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
             telemetry("run")
-            with frozen_rules(config) as effective:
-                inventories = preflight(effective, runner, clock(), progress=progress.scope(0, 0.2))
+            with frozen_rules(config, on_job_error=report_job_error) as effective:
+                inventories = preflight(effective, runner, clock(), progress=progress.scope(0, 0.2),
+                                        on_job_error=report_job_error)
                 contexts = []
                 for job in effective.jobs:
+                    if job.name not in inventories:
+                        continue
                     log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
                     try:
                         files, selected_dirs, fingerprints, last_full_scan = inventories[job.name]
@@ -577,9 +598,9 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                         context.forecast_deletions()
                         contexts.append(context)
                     except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
-                        failed = True
-                        errors.append(f"{job.name}: {exc}")
-                        log.event("error", job=job.name, error=str(exc))
+                        report_job_error(JobError(job.name, exc))
+                        if not job.continue_on_job_error:
+                            break
                 weights = [sum(max(1, f.size) for f in context.files) or 1 for context in contexts]
                 total, completed = sum(weights), 0
                 for context, weight in zip(contexts, weights):
@@ -610,14 +631,14 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                                 context.save()
                         success = True
                     except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
-                        failed = True
-                        errors.append(f"{context.job.name}: {exc}")
-                        log.event("error", job=context.job.name, error=str(exc))
+                        report_job_error(JobError(context.job.name, exc))
                     finally:
                         context.summary(success)
                         if success:
                             job_progress.update("Concluindo tarefa", progress.directory, 1, 1)
                         completed += weight
+                    if not success and not context.job.continue_on_job_error:
+                        break
             if failed:
                 telemetry("fail", "; ".join(errors + ([forecast.message] if forecast.sent else [])))
             elif not forecast.sent:
@@ -627,8 +648,9 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
         raise
     except (BackupError, OSError, ValueError) as exc:
         failed = True
-        log.event("error", error=str(exc))
-        telemetry("fail", str(exc))
+        details = {"job": exc.job} if isinstance(exc, JobError) else {}
+        log.event("error", error=str(exc), **details)
+        telemetry("fail", "; ".join([*errors, str(exc)]))
     except BaseException:
         failed = True
         raise

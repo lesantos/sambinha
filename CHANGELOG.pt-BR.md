@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## 0.8.0 — 2026-10-12
+
+Ignora links simbólicos na origem/destino sem seguir, copiar ou traduzir seus alvos. Protege cópias e históricos existentes enquanto o caminho correspondente for um link na origem ou no destino. Opções explícitas do rclone mantêm essa decisão mesmo com configurações de ambiente para seguir links. Resume ambos os READMEs e preserva as instruções detalhadas no guia completo de configuração.
+
+Adiciona opções por job para suprimir checagens de disco na origem e no destino, mantendo a verificação dos temporários. Identifica o job nas mensagens, logs e notificações de erro, inclusive no preflight global. Adiciona `continue_on_job_error = true` por job para continuar jobs independentes, ou false para parar na primeira falha, em backups e verificações manuais. Documenta as opções nos READMEs, guias e exemplos bilíngues.
+
 ## 0.7.0 — 2026-10-11
 
 Retenção configurável de logs de auditoria: `log_retention_days = 14` por padrão; `0` desativa a limpeza, com override na CLI. Backups, restaurações e verificações normais removem logs reconhecidos e inativos pela idade da última escrita. Logs atuais/abertos, arquivos de outros tipos, links e subdiretórios são protegidos; simulações não limpam logs. O percentual global agora aparece no começo da linha de progresso, antes da etapa e do subdiretório. Exemplos e READMEs bilíngues documentam retenção e exclusões. Esta release inclui todas as mudanças commitadas depois de 0.6.2.

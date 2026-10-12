@@ -2,6 +2,12 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.8.0 — 2026-10-12
+
+Ignore source/destination symbolic links without following, copying or translating them. Protect existing backed-up paths/history while the corresponding source or destination path is a symlink. Explicit rclone flags enforce this behavior even when environment settings enable link handling. Shorten both READMEs and preserve detailed instructions in the complete configuration guide.
+
+Add per-job source/destination disk-check switches, keeping temporary storage checks enabled. Attribute job failures in messages, logs and notifications, including global preflight. Add per-job `continue_on_job_error = true` to continue independent jobs, or false to stop on the first failure, with matching behavior for backup and manual verification. Document settings in bilingual READMEs, usage guides and configuration examples.
+
 ## 0.7.0 — 2026-10-11
 
 Add configurable audit-log retention: `log_retention_days = 14` by default, with `0` disabling cleanup and a CLI override. Normal backup, restore and verification invocations prune inactive, recognized log files by last-write age. Current/open logs, unrelated files, symlinks and nested directories remain protected; dry runs never prune logs. Progress lines now put the overall percentage first, before the stage and working subdirectory. Bilingual configuration examples and READMEs document log retention and exclusion files. This release includes all changes committed after 0.6.2.

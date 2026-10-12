@@ -1,4 +1,5 @@
 # English. Brazilian Portuguese: sambinha.example.pt-BR.toml
+# Symbolic links in backup data are always ignored, without following targets.
 # Paths are relative to THIS configuration file; ~ and environment variables work.
 [backup]
 state_dir = "./state"
@@ -47,6 +48,14 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
+# Per-job disk checks (default true); false skips only that capacity check.
+# For Seafile/FUSE sources reporting zero capacity, set check_source_disk = false.
+# Destination also covers restore output; S3 has no local destination disk.
+# Batch/recovery temporary storage and mount/path checks remain enabled.
+check_source_disk = true
+check_destination_disk = true
+# When THIS job fails, true continues the next jobs; false stops the invocation.
+continue_on_job_error = true
 # Batch settings, if this job is changed to logic = "batch".
 # max_bytes = 1073741824
 # max_files = 1000
@@ -80,6 +89,14 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
+# Per-job disk checks (default true); false skips only that capacity check.
+# For Seafile/FUSE sources reporting zero capacity, set check_source_disk = false.
+# Destination also covers restore output; S3 has no local destination disk.
+# Batch/recovery temporary storage and mount/path checks remain enabled.
+check_source_disk = true
+check_destination_disk = true
+# When THIS job fails, true continues the next jobs; false stops the invocation.
+continue_on_job_error = true
 # Native exclusion patterns, optional for this job too.
 exclude_files = "./excludes.example.txt"
 # Expected mounted source volume, if applicable.

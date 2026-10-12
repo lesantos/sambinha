@@ -31,6 +31,8 @@ def safe_relative(value: str) -> str:
 
 
 def fingerprint(root: Path, relative: str, *, progress=None) -> File:
+    if path_has_symlink(root, relative):
+        raise BackupError(f"Origem mudou para link simbólico: {relative}")
     path = root / safe_relative(relative)
     before = path.lstat()
     if not stat.S_ISREG(before.st_mode):
@@ -55,6 +57,8 @@ def fingerprint(root: Path, relative: str, *, progress=None) -> File:
 
 
 def metadata(root: Path, relative: str) -> File:
+    if path_has_symlink(root, relative):
+        raise BackupError(f"Origem mudou para link simbólico: {relative}")
     path = root / safe_relative(relative)
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode):
@@ -71,6 +75,19 @@ def signature(info):
             stat.S_IMODE(info.st_mode)]
 
 
+def path_has_symlink(root, relative, cache=None):
+    """Inspect each component without descending through a symbolic link."""
+    cache = {} if cache is None else cache
+    path = Path(root)
+    for part in ("", *PurePosixPath(safe_relative(relative)).parts):
+        path = path / part
+        if path not in cache:
+            cache[path] = path.is_symlink()
+        if cache[path]:
+            return True
+    return False
+
+
 def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cache_out=None,
          mode="hash", progress=None) -> list[File]:
     if not root.is_dir() or root.is_symlink():
@@ -83,9 +100,7 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
     def fail(error):
         raise error
     for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
-        for name in dirs:
-            if (Path(directory) / name).is_symlink():
-                raise BackupError("Links simbólicos não são aceitos; origem permanece intacta")
+        dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()]
         if included_dirs is not None:
             dirs[:] = [name for name in dirs if (Path(directory) / name).relative_to(root).as_posix() in included_dirs]
         visited += 1
@@ -93,9 +108,9 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
         if progress:
             listing.update("Listando origem", directory, visited, visited + pending + 1)
         for name in files:
-            relative = (Path(directory) / name).relative_to(root).as_posix()
             if (Path(directory) / name).is_symlink():
-                raise BackupError("Links simbólicos não são aceitos; origem permanece intacta")
+                continue
+            relative = (Path(directory) / name).relative_to(root).as_posix()
             if relative.split("/")[0] == ".sambinha":
                 raise BackupError(".sambinha é reservado para metadados")
             if included_files is not None and relative not in included_files:

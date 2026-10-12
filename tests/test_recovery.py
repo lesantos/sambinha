@@ -78,6 +78,37 @@ class RecoveryIntegrationTests(Sandbox):
         self.recovery_events = [json.loads(line) for line in output.getvalue().splitlines()]
         return result
 
+    def test_destination_option_controls_restore_output_but_not_temporary_space(self):
+        from tests.test_disks import Usage
+        self.file('file')
+        self.assertEqual(self.execute(), 0)
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0],
+                              check_source_disk=False, check_destination_disk=False),))
+        restored = self.root / 'restored'
+        measured = []
+        def usage(path):
+            measured.append(Path(path))
+            return Usage(0, 0, 0) if Path(path) in (restored, self.root) else Usage(100, 10, 90)
+        with patch('shutil.disk_usage', side_effect=usage):
+            self.assertEqual(self.recover('restore', output=restored), 0)
+        self.assertEqual(contents(restored), contents(self.source))
+        self.assertNotIn(restored, measured)
+        self.assertNotIn(self.root, measured)
+        self.assertTrue(any('sambinha-restore-' in str(path) for path in measured))
+        with patch('shutil.disk_usage', return_value=Usage(100, 96, 4)):
+            self.assertEqual(self.recover('restore', output=self.root / 'full-temp'), 1)
+        error = next(e for e in self.recovery_events if e['event'] == 'error')
+        self.assertEqual(error['job'], 'test')
+        self.assertIn('temporários', error['error'])
+        self.assertFalse((self.root / 'full-temp').exists())
+
+    def test_disabling_output_disk_check_preserves_restore_path_validation(self):
+        self.file('file')
+        self.assertEqual(self.execute(), 0)
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], check_destination_disk=False),))
+        self.assertEqual(self.recover('restore', output=self.source), 1)
+        self.assertEqual((self.source / 'file').read_bytes(), b'test')
+
     def test_simple_restore_selected_directory_preserves_binary_and_permissions(self):
         self.file('dir/binary.dat', bytes(range(256)), mode=0o750)
         self.file('dir/ação.txt', 'Olá'.encode())

@@ -76,11 +76,10 @@ class VerificationModeTests(Sandbox):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 validate_file({**item, **changes})
 
-    def test_simple_still_rejects_symlinks_and_races(self):
+    def test_simple_ignores_symlinks_and_rejects_races(self):
         path = self.file('file')
         (self.source / 'link').symlink_to(path)
-        with self.assertRaises(BackupError):
-            scan(self.source, mode='simple')
+        self.assertEqual([f.path for f in scan(self.source, mode='simple')], ['file'])
         (self.source / 'link').unlink()
         from sambinha.inventory import metadata
         def changed(root, relative):

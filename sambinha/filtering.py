@@ -5,12 +5,14 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import replace
 
-from .errors import BackupError
-from .inventory import safe_relative
+from .errors import BackupError, job_errors
+from .inventory import safe_relative, path_has_symlink
+
+SKIP_LINK_FLAGS = ("--skip-links", "--links=false", "--copy-links=false")
 
 
 @contextmanager
-def frozen_rules(config):
+def frozen_rules(config, *, on_job_error=None):
     """Keep the same patterns for source, destination and retention decisions."""
     if not any(job.exclude_files for job in config.jobs):
         yield config
@@ -21,14 +23,15 @@ def frozen_rules(config):
             if not job.exclude_files:
                 jobs.append(job)
                 continue
-            try:
-                content = job.exclude_files.read_bytes()
-                content.decode("utf-8")
-            except (OSError, UnicodeError):
-                raise BackupError(f"Arquivo exclude_files ausente ou ilegível: {job.name}") from None
-            snapshot = Path(directory) / f"{index}.txt"
-            snapshot.write_bytes(content)
-            jobs.append(replace(job, exclude_files=snapshot))
+            with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
+                try:
+                    content = job.exclude_files.read_bytes()
+                    content.decode("utf-8")
+                except (OSError, UnicodeError):
+                    raise BackupError(f"Arquivo exclude_files ausente ou ilegível: {job.name}") from None
+                snapshot = Path(directory) / f"{index}.txt"
+                snapshot.write_bytes(content)
+                jobs.append(replace(job, exclude_files=snapshot))
         yield replace(config, jobs=tuple(jobs))
 
 
@@ -58,13 +61,14 @@ def path_groups(paths):
 
 
 class Selection:
-    def __init__(self, exclude_file, config, runner):
+    def __init__(self, exclude_file, config, runner, *, ignored_roots=()):
         self.exclude_file, self.config, self.runner = exclude_file, config, runner
+        self.ignored_roots = tuple(ignored_roots)
         self._included = {}
 
     def listing(self, root, files_only=False):
         arguments = [self.config.rclone, "lsjson", str(root), "--recursive",
-                     "--retries", "1", "--low-level-retries", "1"]
+                     "--retries", "1", "--low-level-retries", "1", *SKIP_LINK_FLAGS]
         if files_only:
             arguments.append("--files-only")
         if self.exclude_file:
@@ -88,6 +92,9 @@ class Selection:
 
     def include_paths(self, paths):
         paths = set(paths)
+        cache = {}
+        paths = {p for p in paths if not any(path_has_symlink(root, p, cache)
+                                            for root in self.ignored_roots)}
         if not self.exclude_file or not paths:
             return paths
         cache_key = frozenset(paths)

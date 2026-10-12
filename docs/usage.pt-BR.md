@@ -47,7 +47,7 @@ Para recuperar `simple`, copie os arquivos atuais do destino, excluindo `.sambin
 
 `batch` confia no espelho local para evitar chamadas S3 de inventário. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. A cópia `simple` compara tamanho/data por padrão; no modo hash, consulta checksums do destino e repara divergências de conteúdo. No modo hash, destinos sem MD5 disponível falham explicitamente. O rclone verifica transferências conforme o modo escolhido e as garantias do backend.
 
-Links simbólicos, arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Origens, destinos, estado e logs não podem se sobrepor; jobs não podem compartilhar destinos. `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
+Links simbólicos são ignorados. Arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Origens, destinos, estado e logs não podem se sobrepor; jobs não podem compartilhar destinos. `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
 
 
 ## Atualizando para a versão 0.2.0
@@ -157,6 +157,8 @@ As opções por tarefa `max_delete_percent = 50` e `deletion_min_files = 20` blo
 
 Discos da origem, destino local e temporários de lotes causam erro acima de 95% de ocupação, contando espaço indisponível ao usuário. Exatamente 95% é permitido. Destinos inexistentes usam o ancestral existente mais próximo para a medição. Checks ocorrem antes do backup e antes de operações de alteração; `disk_usage` registra porcentagem e bytes livres. S3 não expõe ocupação local. A restauração verifica também o disco de saída.
 
+As opções por job `check_source_disk` e `check_destination_disk` têm padrão true. Use false na origem para filesystems virtuais (como Seafile/FUSE) que informam capacidade zero. A opção do destino também controla a saída de restauração; temporários e proteções de montagem/caminhos continuam ativos. `[[jobs]].continue_on_job_error` tem padrão true, inclusive para falhas de preflight por job; false interrompe na primeira falha. Qualquer falha de job mantém o código de saída diferente de zero. Erros identificam o job na mensagem, no log e nas notificações. Veja a configuração no [guia completo](configuration.pt-BR.md#verificação-de-disco-por-job).
+
 ## Resumo, performance e compatibilidade
 
 Cada tarefa emite `summary` com arquivos totais/novos/modificados/intactos/removidos, lotes reutilizados/recriados, bytes originais previstos, bytes de conteúdo transferidos e exclusões históricas pendentes. Custos dos controles/índice ficam fora dos bytes de conteúdo. Falhas podem ter transferências parciais; não há transação distribuída entre tarefas. Veja as configurações P1–P6 em [performance](performance.pt-BR.md).
@@ -167,4 +169,14 @@ Estados 0.3.x continuam compatíveis. Lotes sem checksum de envio não têm veri
 
 `[backup].verification_mode = "simple"` é o padrão, inclusive em configurações existentes sem essa chave; `"hash"` ativa SHA-256/MD5. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam ao modo hash. Trocar para hash recalcula hashes ausentes; trocar modos em backups por lotes pode reconstruir arquivos compactados. Verificação por hash de um índice sem hashes exige antes um backup nesse modo. Restauração confere tamanhos e hashes quando presentes no índice; checksums dos lotes são mantidos nos dois modos.
 
-O stderr interativo exibe etapa, diretório e percentual estimado: arquivos/bytes para inventários, fila conhecida na descoberta de diretórios e tempo decorrido em subprocessos opacos. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; não volta e só chega a 100% após sucesso. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo. Cópias agrupadas mostram o subdiretório real. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [README](../README.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
+O stderr interativo exibe etapa, diretório e percentual estimado: arquivos/bytes para inventários, fila conhecida na descoberta de diretórios e tempo decorrido em subprocessos opacos. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; não volta e só chega a 100% após sucesso. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo. Cópias agrupadas mostram o subdiretório real. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
+
+## Links simbólicos
+
+Links simbólicos nos dados da origem e do destino local são sempre ignorados. Diretórios ligados não são percorridos; links para arquivos, links quebrados e ciclos não interrompem o inventário normal. Os links e seus alvos não são copiados através do link, compactados ou representados como arquivos `.rclonelink`. Um alvo que também apareça como arquivo regular por outro caminho é copiado normalmente.
+
+Esses caminhos funcionam como exclusões implícitas: cópias, lotes e históricos existentes ficam protegidos enquanto o caminho correspondente na origem ou no destino contiver um link. Um link no destino local também impede copiar a origem para aquele caminho, sem alterar o link nem seu alvo.
+
+O rclone normalmente ignora links. O Sambinha usa `--skip-links` para suprimir avisos e `--links=false --copy-links=false` para prevalecer sobre variáveis de ambiente que habilitem links. [Documentação oficial do rclone](https://rclone.org/local/#skip-links). Esse comportamento é fixo e não exige configuração.
+
+Caminhos de metadados/estado/trava e a saída da restauração continuam protegidos contra redirecionamento por links. Membros inseguros em lotes e caminhos que mudem para links durante uma transferência ainda podem causar erro explícito, em vez de seguir o novo alvo.

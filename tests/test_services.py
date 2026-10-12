@@ -64,14 +64,13 @@ class InventoryStateTests(Sandbox):
         with self.assertRaises(BackupError):
             verify(self.source, before)
 
-    def test_symlink_file_and_directory_refused(self):
+    def test_symlink_file_and_directory_ignored(self):
         target = self.file('a')
         for directory in (False, True):
             with self.subTest(directory=directory):
                 link = self.source / 'link'
                 link.symlink_to(self.source if directory else target, target_is_directory=directory)
-                with self.assertRaises(BackupError):
-                    scan(self.source)
+                self.assertEqual([f.path for f in scan(self.source)], ['a'])
                 link.unlink()
 
     def test_reserved_and_invalid_paths(self):

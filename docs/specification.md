@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.7.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.8.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -107,7 +107,7 @@ Acceptance: summaries must account correctly for added/edited/deleted/unchanged 
 ## 9. Security review and critical corrections — 0.4.1
 
 - Review the code against established security guidance and implement the most critical applicable corrections, documenting their scope and regression validation.
-- Validate state/control schemas, safe relative paths, original metadata/checksums, unique active members and conflicts between active and retired objects before retention or recovery. Reject traversal, root paths, NUL/newline filenames and unsupported source symlinks/special files; reserve `.sambinha` at the source root.
+- Validate state/control schemas, safe relative paths, original metadata/checksums, unique active members and conflicts between active and retired objects before retention or recovery. Reject traversal, root paths, NUL/newline filenames and unsupported source special files; reserve `.sambinha` at the source root.
 - Write state atomically and protect single-writer operations with a lock. Use private metadata/log directories (0700) and new state/control/log/lock files (0600), independent of permissive umask. Reject metadata-directory symlink redirection and symlink locks.
 - Keep AWS/Cronitor secrets outside versioned files. Parse optional private dotenv input as data, never shell commands; inherited environment values take priority. Missing/malformed input must fail without exposing values.
 - Redact known credential values from environment and rclone configuration, explicit Cronitor URLs, URL userinfo and password-style variables from backend errors/logs/telemetry, including multiline values before JSON serialization. Leave encrypted rclone configuration decryption to rclone.
@@ -203,3 +203,7 @@ Acceptance: every maintained guide must have a matching language companion with 
 | 0.7.0 | Configurable 14-day log retention and percentage-first progress; consolidate and publish all changes since 0.6.2. |
 
 These milestones record the requested scope and version decisions; they do not imply that every intermediate version was separately published. Operational detail is in the [usage guide](usage.md), [performance guide](performance.md), [S3 guide](s3.md), [security notes](../SECURITY.md) and [README](../README.md).
+
+## 17. Disk options, job failures and symbolic links — 0.8.0
+
+Per-job `check_source_disk` and `check_destination_disk` default to true. The latter also controls restore output; temporary checks remain enabled. Per-job `continue_on_job_error` defaults to true and the failing job decides whether following jobs run. Errors identify the job, including preflight failures. Always ignore source/destination symbolic links without following, copying or translating them; protect existing copies/history while linked paths are ignored. Keep metadata/restore path protections and race checks. Short READMEs link to complete bilingual guides.

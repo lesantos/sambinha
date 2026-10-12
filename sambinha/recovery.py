@@ -11,7 +11,7 @@ import tempfile
 
 from .config import overlap
 from .disks import check_disk, check_disks
-from .errors import BackupError
+from .errors import BackupError, JobError
 from .inventory import fingerprint, metadata as file_metadata, safe_relative, scan
 from .logging import RunLog
 from .process import Runner
@@ -162,7 +162,7 @@ def verify_job(config, job, runner, log, state=None, *, progress=None):
         return result
 
 
-def validate_output(config, output):
+def validate_output(config, output, *, check_space=True):
     output = Path(output).absolute()
     if any(p.is_symlink() for p in (output, *output.parents)):
         raise BackupError("Destino de restauração contém link simbólico")
@@ -173,12 +173,13 @@ def validate_output(config, output):
         raise BackupError("Restauração deve usar uma pasta separada da origem, backup, estado e logs")
     if output.exists() and (not output.is_dir() or next(output.iterdir(), None) is not None):
         raise BackupError("Pasta de restauração deve ser nova ou vazia")
-    check_disk(output, "restauração")
+    if check_space:
+        check_disk(output, "restauração")
     return output
 
 
 def restore_job(config, job, runner, log, output, selectors=()):
-    output = validate_output(config, output)
+    output = validate_output(config, output, check_space=job.check_destination_disk)
     selectors = tuple(safe_relative(p.rstrip("/")) for p in selectors)
     storage = Storage(job, config, runner)
     with tempfile.TemporaryDirectory(prefix="sambinha-restore-") as directory:
@@ -212,10 +213,11 @@ def restore_job(config, job, runner, log, output, selectors=()):
                     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                     shutil.move(extracted / metadata["path"], target)
         # Publish only after all requested content has passed verification.
-        validate_output(config, output)
+        validate_output(config, output, check_space=job.check_destination_disk)
         private_directory(output)
         for path, metadata in selected.items():
-            check_disk(output, "restauração")
+            if job.check_destination_disk:
+                check_disk(output, "restauração")
             target = output / path
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             if any(p.is_symlink() for p in (target.parent, *target.parent.parents)):
@@ -226,7 +228,8 @@ def restore_job(config, job, runner, log, output, selectors=()):
                 os.fchmod(stream.fileno(), metadata["mode"] & 0o777)
                 os.utime(stream.fileno(), ns=(metadata["mtime_ns"], metadata["mtime_ns"]))
             log.event("restored", job=job.name, path=path)
-        check_disk(output, "restauração")
+        if job.check_destination_disk:
+            check_disk(output, "restauração")
         log.event("restore_summary", job=job.name, files=len(selected),
                   bytes=sum(f["size"] for f in selected.values()), dry_run=False)
 
@@ -242,8 +245,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
     log.event("start", action=action, dry_run=config.dry_run)
     try:
         runner.load_config_secrets(config.rclone_config)
-        runner.require([config.rclone] + [j.compressor for j in config.jobs if j.logic == "batch"
-                                        and (action == "restore" or j.type == "local")])
+        runner.require([config.rclone])
         if action == "restore" and (len(config.jobs) != 1 or output is None):
             raise BackupError("Restauração exige --job com uma tarefa e --output")
         with lock(config.state_dir) if action == "verify" and not config.dry_run else nullcontext():
@@ -253,6 +255,8 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                     log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
             for job in config.jobs:
                 try:
+                    runner.require([job.compressor] if job.logic == "batch"
+                                   and (action == "restore" or job.type == "local") else [])
                     check_disks(job, lambda event, **values: log.event(event, job=job.name, **values))
                     if action == "restore":
                         restore_job(config, job, runner, log, output, selectors)
@@ -262,9 +266,12 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                         verify_job(config, job, runner, log, progress=progress)
                 except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
                     failed = True
-                    log.event("error", job=job.name, error=str(exc))
+                    message = str(JobError(job.name, exc))
+                    log.event("error", job=job.name, error=message)
                     if notifier and not config.dry_run:
-                        notifier(config.cronitor_url, "fail", log.id, redactor(str(exc))[:2000])
+                        notifier(config.cronitor_url, "fail", log.id, redactor(message)[:2000])
+                    if not job.continue_on_job_error:
+                        break
     except (BackupError, OSError, ValueError) as exc:
         failed = True
         log.event("error", error=str(exc))

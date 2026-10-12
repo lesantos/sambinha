@@ -2,27 +2,9 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.7.0**.
-
-## How it protects your files
-
-**Simple backups** keep the original names and directory tree. **Batch backups** use 7-Zip to package files into immutable archives, reducing the number of objects stored in S3. Each archive has a JSON control file listing its original files and metadata. Both strategies support local and S3 destinations, and one source can have multiple independent backup jobs.
-
-New batches visit directories deterministically and sort files within each directory by modification time, oldest first, then by path for ties. New batches separate text, video, photo and other compression profiles without changing that time order. Existing intact batches keep their keys and member order, including archives from older versions. Only new files and members of affected or incompatible batches are repacked. Preserve the local index so intact batches can be reused without remote listings or uploads.
-
-Files newer at the destination are preserved: the job reports an error before replacing them, and Cronitor receives the conflict details. Batch comparisons use original timestamps from the confirmed index, rather than archive upload times. Independent jobs continue after a job failure.
-
-Deleted source files remain in history for **10 days** by default; previous versions of edited files remain for **2 days**. Expired history is removed during later backup runs. The soft `deletion_alert_threshold` warning reports upcoming permanent deletions without delaying retention.
-
-A separate safeguard blocks abnormal source removals **before any destination changes**: by default, more than 50% of a previously selected inventory of at least 20 files. Intentional removals can be authorized for one invocation with `--allow-mass-deletion`.
-
-Source and local destination disks are checked before the backup and before transfers/deletions. Occupancy **above 95%** produces an error; exactly 95% is accepted. Batch temporary storage is also checked. S3 buckets do not expose a local disk occupancy percentage.
-
-Metadata and logs use private permissions. Relative paths and indexes are validated before retention or recovery. Known secrets are redacted from errors, logs and telemetry. Retries are bounded: one attempt and up to three retries, two seconds apart.
+Sambinha **0.8.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
 
 ## Install
-
-Use Linux and **Python 3.12 or newer**, with rclone and 7-Zip. Backups run under your normal account.
 
 ```bash
 sudo apt install git python3 python3-venv rclone p7zip-full
@@ -30,14 +12,13 @@ git clone https://github.com/lesantos/sambinha.git
 cd sambinha
 python3 -m venv .venv
 .venv/bin/python -m pip install .
-.venv/bin/sambinha --version
 ```
 
-The repository is private, so your GitHub account needs access. Installable artifacts are available from the [releases page](https://github.com/lesantos/sambinha/releases). From a source checkout, `.venv/bin/python -m sambinha` also works.
+The repository is private. Installable packages are also available in [releases](https://github.com/lesantos/sambinha/releases).
 
-## First backup
+## Configure and run
 
-Create `sambinha.toml`, with paths relative to the configuration file. `~` and environment variables are supported.
+Create `sambinha.toml`. Paths are relative to this file; `~` and environment variables are supported. Keep destination, state and logs outside the source, and preserve the state directory.
 
 ```toml
 [backup]
@@ -46,8 +27,7 @@ log_dir = "./logs"
 log_retention_days = 14
 deleted_days = 10
 version_days = 2
-verify_interval_days = 7
-verification_mode = "simple" # Default: size in bytes and modification time.
+verification_mode = "simple"
 
 [[jobs]]
 name = "documents"
@@ -55,163 +35,35 @@ source = "~/Documents"
 destination = "/mnt/backup/documents"
 type = "local"
 logic = "simple"
+check_source_disk = true
+check_destination_disk = true
+continue_on_job_error = true
+# Optional UTF-8 rclone exclusion-pattern file:
+# exclude_files = "./excludes.txt"
 ```
-
-Keep the destination outside the source. Use a destination managed exclusively by this job, and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
 
 ```bash
 .venv/bin/sambinha --config sambinha.toml --dry-run
 .venv/bin/sambinha --config sambinha.toml
+.venv/bin/sambinha verify --config sambinha.toml --job documents
+.venv/bin/sambinha restore --config sambinha.toml --job documents --output /mnt/recovered
 ```
 
-Simulation writes a report and reads inventories, but creates no backup state or archives, transfers or deletes no backup objects, and sends no Cronitor notifications. Each job ends with a `summary` record containing new, modified, unchanged and removed files, batches reused/rebuilt, planned original bytes, transferred payload bytes, pending history entries and success. Compression can make transferred bytes differ from planned bytes. Empty source directories are preserved by local simple backups.
+Simulation reads inventories and writes a log without changing backups/state or sending notifications. Restore uses a separate new or empty directory. The [complete example](sambinha.example.toml) includes all options.
 
-## Jobs and parallel execution
+## Essential behavior
 
-Jobs execute sequentially in TOML order after preflight inventories. Concurrency settings apply inside each job. Normal backup and verification invocations acquire a nonblocking exclusive lock in `state_dir`: a second invocation using the same state directory exits with an error rather than waiting or modifying backup data. This also applies to different `--job` selections. Dry runs and restores do not acquire that writer lock. Independent state directories can run concurrently and should manage separate destinations.
+- **Storage and verification:** `logic = "simple"` preserves the tree; `"batch"` creates compressed archives. Default `verification_mode = "simple"` compares size in bytes and nanosecond modification time; `"hash"` checks contents.
+- **Symbolic links are always ignored:** links are not copied, followed or translated, and linked directories are not traversed. Existing copies/history for linked paths remain protected while the link exists. [Decision and limits](docs/usage.md#symbolic-links).
+- **Retention:** deleted files stay for 10 days and previous versions for 2 days by default. Logs retain 14 days; `log_retention_days = 0` disables log cleanup.
+- **Jobs:** run sequentially. Each job's `continue_on_job_error` defaults to `true`; set it to `false` to stop when that job fails. Any job failure returns a nonzero exit code, and errors identify the job.
+- **Disks:** source/local destination checks default to `true` and fail above 95% occupancy. Use `false` on the corresponding per-job option to skip the check, such as `check_source_disk = false` for Seafile/FUSE. Temporary space stays checked.
+- **Protection and progress:** abnormal removals are blocked by default. Concurrent normal backups/verifications sharing `state_dir` are refused. Terminal progress begins with the overall estimated percentage and shows stage/subdirectory; file details remain in JSON logs.
 
-## Log retention
+## More information
 
-`[backup].log_retention_days = 14` keeps Sambinha audit logs written within the last 14 days. Set a different number of days, or `0` to keep logs indefinitely. `--log-retention-days 30` overrides the setting for one invocation. Non-simulated backup, restore and verification runs remove only inactive regular log files matching Sambinha's timestamp/UUID `.jsonl` naming format in `log_dir`. The age is measured from the last write, not the filename date. The current log, logs held open by other invocations, symlinks, subdirectories and unrelated files are preserved. Dry runs do not remove logs. No separate cleanup timer is installed.
-
-```toml
-[backup]
-log_retention_days = 14
-```
-
-## Choose simple or hash verification
-
-**`verification_mode = "simple"` is the default in 0.6.1**, including when the option is omitted from an existing configuration. It compares size in bytes and the modification timestamp (`mtime`, with nanosecond precision). The source inventory uses filesystem metadata without reading file contents, and destination listings do not calculate hashes. File contents are still read when copying or compressing them.
-
-To compare contents using SHA-256 and MD5, configure:
-
-```toml
-[backup]
-verification_mode = "hash"
-```
-
-Or select a mode for one invocation:
-
-```bash
-.venv/bin/sambinha --config sambinha.toml --verification-mode simple
-.venv/bin/sambinha --config sambinha.toml --verification-mode hash
-```
-
-The simple mode intentionally cannot detect a content edit that preserves both size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching from simple to hash computes fresh hashes; switching batch modes can rebuild archives because their indexed metadata changes. Hash verification of an index without hashes requires a hash-mode backup first. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
-
-During interactive execution, stderr displays one estimated percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate reserves 20% for preflight/inventories, 75% for jobs weighted by source bytes, and 5% for finalization. File/byte counters, directory queues and bounded elapsed-time estimates advance within those ranges. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
-
-## Restore a file, folder or complete backup
-
-```bash
-.venv/bin/sambinha restore --job documents --path projects --output /mnt/recovery/documents
-.venv/bin/sambinha restore --job documents --path notes.md --output /mnt/recovery/notes
-.venv/bin/sambinha restore --job documents --output /mnt/recovery/all
-```
-
-`--path` can be repeated. Paths refer to the active index and preserve their original directory tree. The output must be new or empty and separate from sources, backups, state and logs. Selected files are staged and their sizes checked before publication; recorded SHA-256 and MD5 are checked when present in the index. Archives also undergo checksum and 7-Zip integrity checks. Restore does not overwrite existing files or restore privileged permission bits. Source files need not still exist.
-
-Restoration from S3 **downloads the selected objects** and can incur retrieval charges. Selecting one file in a batch downloads its entire archive. Glacier/Deep Archive objects must first be made available through AWS restore. Batch restoration can recover a missing local index from `.sambinha/control.tar.gz`; simple restoration needs its local index. Historical revisions remain accessible through the controls and history paths described in the [usage guide](docs/usage.md).
-
-## Verify integrity without S3 downloads
-
-```bash
-.venv/bin/sambinha verify --job documents
-```
-
-Local copy verification compares size and modification time in simple mode, or reads contents in hash mode. Batch verification tests/extracts archives and checks the indexed original files, including recorded hashes when present. S3 verification uses **only metadata requests**: copy jobs compare size/time in simple mode and size/MD5 in hash mode; batch archives and JSON controls always use size/MD5. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This does not test extraction of archived S3 members.
-
-New batches record their compressed size and checksum at upload. Old batches lacking these fields, missing local indexes or unavailable remote hashes cause an explicit verification error, with no download fallback. Intact legacy archives are preserved rather than automatically rewritten. Keep rclone's S3 checksum metadata enabled for multipart uploads; see the [S3 guide](docs/s3.md).
-
-Set `[backup].verify_interval_days = 7` to verify after a successful backup when seven days have elapsed. The first eligible run verifies immediately. `0`, the default for compatibility, disables scheduled checks. This schedule runs during backups; it does not install a system timer. A failed check returns an error and keeps the last successful verification timestamp.
-
-## Performance settings and separate file profiles
-
-All six performance improvements are implemented: fingerprint caching with periodic full scans; bounded bulk rclone copies; shared inventories for equivalent source/selection jobs; limited concurrent batch compression/uploads; per-run filter caching; and per-category compression levels and threads.
-
-```toml
-[backup]
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
-transfer_group_size = 100
-transfer_workers = 4
-batch_workers = 2
-
-[[jobs]]
-name = "media"
-source = "~/Files"
-destination = "/mnt/backup/media"
-logic = "batch"
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
-```
-
-In **hash mode**, cache reuse requires unchanged device, inode, size, nanosecond modification/change times and permissions. A full content scan runs every seven days by default; `--no-fingerprint-cache` forces hashing for each run. In **simple mode**, both settings leave content hashing disabled; checks compare size and modification time. Transfer and archive validation follow the selected mode. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](docs/performance.md).
-
-## S3, credentials, exclusions and notifications
-
-Use [sambinha.example.toml](sambinha.example.toml) for the complete configuration and [rclone.example.conf](rclone.example.conf) for the `aws` S3 remote. Create the bucket first and match its region. Each job needs a separate prefix. The default `GLACIER_IR` class provides immediate retrieval but charges for retrieval and has minimum billing terms. JSON controls and the recovery index use STANDARD. [S3 setup and storage classes](docs/s3.md).
-
-Store credentials outside the repository in an AWS profile/IAM role or a private dotenv file:
-
-```toml
-[backup]
-secrets_file = "~/.config/sambinha/secrets.env"
-cronitor_url = "${CRONITOR_URL}"
-```
-
-Protect the file with `chmod 600`. [secrets.example.env](secrets.example.env) contains placeholders only. The file is parsed as data, never executed; inherited environment values take precedence. `--secrets-file ""` disables loading for one run. Missing or malformed files fail without exposing their values. Notifications are optional; with no Cronitor URL, they are disabled. Never commit a credential-bearing URL or real AWS keys.
-
-## Exclude files and directories
-
-Create a UTF-8 text file beside your `sambinha.toml`, for example `excludes.txt`, and set `exclude_files` inside each job that should use it:
-
-```toml
-[[jobs]]
-name = "documents"
-source = "~/Documents"
-destination = "/mnt/backup/documents"
-exclude_files = "./excludes.txt"
-```
-
-Put one rclone exclusion pattern per line in `excludes.txt`:
-
-```text
-# Temporary files and logs at any depth
-*.tmp
-*.log
-
-# Directories at the source root, including all their contents
-/cache/**
-/node_modules/**
-```
-
-The **file location** is relative to `sambinha.toml`, not the terminal's working directory. The **patterns** are relative to the job's source. For a source `/mnt/dados`, `/cache/**` matches `/mnt/dados/cache/`, not the system directory `/cache/`; it does not match a nested `projects/cache/`. `*.tmp` and `*.log` match files in any subdirectory. Blank lines and lines beginning with `#` are ignored. Rules use rclone syntax, rather than Git's ignore-file syntax.
-
-The shipped TOML examples already set `exclude_files = "./excludes.example.txt"`. That template has no active exclusions; uncomment the patterns you want or copy it to `excludes.txt` and update the job's path. A [Brazilian Portuguese template](excludes.example.pt-BR.txt) is also provided.
-
-Run a simulation to check the selected file count and planned work before the backup:
-
-```bash
-.venv/bin/sambinha --config sambinha.toml --dry-run
-```
-
-Excluded files are not uploaded or considered removed. Files already in the backup are **not deleted merely because they become excluded**; their history also stays protected while the exclusion applies. Mixed legacy archives containing excluded paths are retained separately in `state.excluded`. Each job can use a different rule file. Missing, unreadable or invalid UTF-8 rule files stop the backup. Changes made to the file during a run apply on the next invocation. [Filtering and retention details](docs/usage.md).
-
-## Tests and documentation
-
-```bash
-.venv/bin/python -m pip install -e . -r requirements-test.txt
-SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
-.venv/bin/python -m coverage report --include='sambinha/*' --show-missing --fail-under=85
-```
-
-Tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They do not require real AWS or Cronitor credentials. HTTP integration requires loopback networking. Results are recorded in [test results](docs/test-results.md); GitHub runs [continuous tests](https://github.com/lesantos/sambinha/actions).
-
-English is the default documentation language. Every maintained Markdown guide and public commented configuration example has a `.pt-BR` counterpart. Code, configuration keys, dependency lists, backup data fixtures and license identifiers retain their stable names. See the [usage guide](docs/usage.md), [architecture](docs/architecture.md), [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [configuration example](sambinha.example.toml).
+- [Complete configuration, failure policy, exclusions and log retention](docs/configuration.md)
+- [Recovery, verification, retention, disk/mount checks and limits](docs/usage.md)
+- [Performance and compression/thread profiles](docs/performance.md)
+- [S3 setup and storage classes](docs/s3.md) · [Credentials and security](SECURITY.md)
+- [Changelog](CHANGELOG.md) · [Tests](docs/test-results.md) · [Architecture](docs/architecture.md)

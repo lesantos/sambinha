@@ -30,6 +30,9 @@ class Job:
     destination_mount: Path | None = None
     max_delete_percent: float = 50
     deletion_min_files: int = 20
+    check_source_disk: bool = True
+    check_destination_disk: bool = True
+    continue_on_job_error: bool = True
     compression_text_level: int = 3
     compression_text_threads: int = 2
     compression_video_level: int = 0
@@ -110,6 +113,9 @@ def validate(config: Config) -> Config:
         if job.name in seen:
             raise ConfigError(f"Job duplicado: {job.name}")
         seen.add(job.name)
+        for name in ("check_source_disk", "check_destination_disk", "continue_on_job_error"):
+            if type(getattr(job, name)) is not bool:
+                raise ConfigError(f"{name} deve ser booleano: {job.name}")
         if job.type not in {"local", "s3"} or job.logic not in {"simple", "batch"}:
             raise ConfigError(f"Tipo ou lógica inválidos: {job.name}")
         if job.storage_class not in STORAGE_CLASSES:

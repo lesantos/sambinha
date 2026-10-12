@@ -232,11 +232,12 @@ class LocalIntegrationTests(Sandbox):
 
     def test_preflight_missing_source_fails_before_any_job_transfer(self):
         self.file('a')
-        job = replace(self.config.jobs[0], name='missing', source=self.root / 'missing', destination=str(self.root / 'other'))
+        job = replace(self.config.jobs[0], name='missing', source=self.root / 'missing',
+                      destination=str(self.root / 'other'), continue_on_job_error=False)
         self.assertEqual(self.execute(replace(self.config, jobs=self.config.jobs + (job,))), 1)
         self.assertFalse(self.destination.exists())
 
-    def test_corrupt_state_and_destination_symlink_stop_safely(self):
+    def test_corrupt_state_stops_and_destination_symlink_is_ignored(self):
         self.file('a')
         self.assertEqual(self.execute(), 0)
         state = self.config.state_dir / 'test/state.json'
@@ -247,7 +248,7 @@ class LocalIntegrationTests(Sandbox):
         outside = self.root / 'outside'
         outside.write_bytes(b'untouched')
         (self.destination / 'link').symlink_to(outside)
-        self.assertEqual(self.execute(), 1)
+        self.assertEqual(self.execute(), 0)
         self.assertEqual(outside.read_bytes(), b'untouched')
 
     def test_batch_transfer_failure_keeps_previous_committed_state(self):

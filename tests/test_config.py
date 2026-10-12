@@ -23,6 +23,31 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
         self.assertEqual(config.log_retention_days, 14)
+        self.assertTrue(config.jobs[0].continue_on_job_error)
+        self.assertTrue(config.jobs[0].check_source_disk)
+        self.assertTrue(config.jobs[0].check_destination_disk)
+
+    def test_disk_checks_and_failure_policy_load_from_toml(self):
+        jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'
+                'check_source_disk=false\ncheck_destination_disk=false\ncontinue_on_job_error=false\n'
+                '[[jobs]]\nname="second"\nsource="source"\ndestination="second"\n')
+        config = load(self.toml(jobs=jobs))
+        self.assertFalse(config.jobs[0].continue_on_job_error)
+        self.assertTrue(config.jobs[1].continue_on_job_error)
+        self.assertFalse(config.jobs[0].check_source_disk)
+        self.assertFalse(config.jobs[0].check_destination_disk)
+        self.assertTrue(config.jobs[1].check_source_disk)
+        self.assertTrue(config.jobs[1].check_destination_disk)
+
+    def test_disk_checks_and_failure_policy_require_booleans(self):
+        for value in ('false', 0, 1, None):
+            for key in ('check_source_disk', 'check_destination_disk', 'continue_on_job_error'):
+                with self.subTest(key=key, value=value), self.assertRaisesRegex(ConfigError, key):
+                    validate(replace(self.config, jobs=(replace(self.config.jobs[0], **{key: value}),)))
+
+    def test_failure_policy_is_not_a_global_backup_option(self):
+        with self.assertRaisesRegex(ConfigError, r'Parâmetros desconhecidos em \[backup\]'):
+            load(self.toml('continue_on_job_error=true'))
 
     def test_override_only_supplied_values(self):
         config = load(self.toml('deleted_days=17\ndry_run=true'), {"version_days": 0, "dry_run": False, "max_bytes": 100000})

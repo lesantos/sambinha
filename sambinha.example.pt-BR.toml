@@ -1,4 +1,5 @@
 # Português do Brasil. English: sambinha.example.toml
+# Links simbólicos nos dados do backup são sempre ignorados, sem seguir os alvos.
 # Caminhos são relativos a ESTE arquivo; ~ e variáveis de ambiente funcionam.
 [backup]
 state_dir = "./state"
@@ -47,6 +48,14 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
+# Verificações de disco por job (padrão true); false ignora apenas essa checagem.
+# Para origens Seafile/FUSE com capacidade zero, use check_source_disk = false.
+# Destino inclui a saída de restauração; S3 não tem disco local de destino.
+# Temporários de lotes/recuperação e validações de montagem/caminhos continuam ativos.
+check_source_disk = true
+check_destination_disk = true
+# Se ESTE job falhar, true continua os próximos; false interrompe a execução.
+continue_on_job_error = true
 # Configurações de lotes, se esta tarefa mudar para logic = "batch".
 # max_bytes = 1073741824
 # max_files = 1000
@@ -80,6 +89,14 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
+# Verificações de disco por job (padrão true); false ignora apenas essa checagem.
+# Para origens Seafile/FUSE com capacidade zero, use check_source_disk = false.
+# Destino inclui a saída de restauração; S3 não tem disco local de destino.
+# Temporários de lotes/recuperação e validações de montagem/caminhos continuam ativos.
+check_source_disk = true
+check_destination_disk = true
+# Se ESTE job falhar, true continua os próximos; false interrompe a execução.
+continue_on_job_error = true
 # Padrões nativos de exclusão, opcionais também nesta tarefa.
 exclude_files = "./excludes.example.txt"
 # Volume montado esperado na origem, quando aplicável.

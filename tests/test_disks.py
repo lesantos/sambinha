@@ -33,6 +33,57 @@ class DiskTests(Sandbox):
             check_disks(job)
         self.assertEqual([c.args[1] for c in check.call_args_list], ['origem', 'temporários'])
 
+    def test_checks_can_be_disabled_independently_and_keep_batch_temporary_check(self):
+        for source in (True, False):
+            for destination in (True, False):
+                for kind in ('local', 's3'):
+                    with self.subTest(source=source, destination=destination, kind=kind):
+                        job = replace(self.config.jobs[0], type=kind, logic='batch',
+                                      check_source_disk=source, check_destination_disk=destination)
+                        with patch('sambinha.disks.check_disk') as check:
+                            check_disks(job)
+                        expected = (['origem'] if source else [])
+                        expected += ['destino'] if kind == 'local' and destination else []
+                        expected += ['temporários']
+                        self.assertEqual([c.args[1] for c in check.call_args_list], expected)
+
+    def test_unknown_capacity_and_os_errors_include_source_path(self):
+        for failure in (Usage(0, 0, 0), PermissionError('sem permissão')):
+            with self.subTest(failure=failure):
+                options = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
+                with patch('shutil.disk_usage', **options), self.assertRaises(BackupError) as error:
+                    check_disk(self.source, 'origem')
+                self.assertIn(str(self.source), str(error.exception))
+                self.assertIn('origem', str(error.exception))
+                self.assertIn('0 bytes' if not isinstance(failure, Exception) else 'sem permissão', str(error.exception))
+
+    def test_disabled_checks_allow_backup_when_capacity_is_unavailable(self):
+        if not REAL_TOOLS:
+            self.skipTest('rclone and 7z required')
+        self.file('file')
+        for logic in ('simple', 'batch'):
+            for role in ('source', 'destination'):
+                with self.subTest(logic=logic, role=role):
+                    destination = self.root / f'{logic}-{role}'
+                    job = replace(self.config.jobs[0], logic=logic, destination=str(destination),
+                                  **{f'check_{role}_disk': False})
+                    config = replace(self.config, jobs=(job,), state_dir=self.root / f'state-{logic}-{role}')
+                    measured = []
+                    def usage(path):
+                        measured.append(Path(path))
+                        unavailable = (Path(path) == self.source if role == 'source' else
+                                       Path(path) in (destination, self.root))
+                        return Usage(0, 0, 0) if unavailable else Usage(100, 10, 90)
+                    # The nearest existing destination parent must also remain
+                    # unmeasured; temporary storage always has a real capacity.
+                    with patch('shutil.disk_usage', side_effect=usage):
+                        self.assertEqual(self.execute(config), 0)
+                    self.assertTrue(destination.exists())
+                    if role == 'source':
+                        self.assertNotIn(self.source, measured)
+                    else:
+                        self.assertNotIn(destination, measured)
+
     def test_full_source_stops_before_destination_write_and_notifies(self):
         if not REAL_TOOLS:
             self.skipTest('rclone required')
@@ -42,6 +93,31 @@ class DiskTests(Sandbox):
         self.assertFalse(self.destination.exists())
         self.assertEqual(self.notifications[-1][1], 'fail')
         self.assertIn('95%', self.notifications[-1][3])
+
+    def test_disabling_source_check_does_not_disable_destination_protection(self):
+        if not REAL_TOOLS:
+            self.skipTest('rclone required')
+        self.file('file')
+        job = replace(self.config.jobs[0], check_source_disk=False)
+        with patch('shutil.disk_usage', return_value=Usage(100, 96, 4)):
+            self.assertEqual(self.execute(replace(self.config, jobs=(job,))), 1)
+        self.assertFalse(self.destination.exists())
+        self.assertIn('destino', self.notifications[-1][3])
+
+    def test_disabling_both_checks_keeps_temporary_and_mount_protection(self):
+        if not REAL_TOOLS:
+            self.skipTest('rclone and 7z required')
+        self.file('file')
+        job = replace(self.config.jobs[0], logic='batch', check_source_disk=False,
+                      check_destination_disk=False)
+        with patch('shutil.disk_usage', return_value=Usage(100, 96, 4)):
+            self.assertEqual(self.execute(replace(self.config, jobs=(job,))), 1)
+        self.assertFalse(self.destination.exists())
+        self.assertIn('temporários', self.notifications[-1][3])
+        job = replace(job, source_mount=self.root / 'missing-mount')
+        self.assertEqual(self.execute(replace(self.config, jobs=(job,))), 1)
+        self.assertFalse(self.destination.exists())
+        self.assertIn('Montagem de origem', self.notifications[-1][3])
 
     def test_destination_crossing_limit_on_final_transfer_is_reported_as_error(self):
         if not REAL_TOOLS:

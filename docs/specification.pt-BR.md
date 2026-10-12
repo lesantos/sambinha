@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.7.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.8.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -107,7 +107,7 @@ Aceitação: resumos devem contabilizar corretamente arquivos adicionados/editad
 ## 9. Revisão de segurança e correções críticas — 0.4.1
 
 - Revisar o código segundo orientações de segurança reconhecidas e implementar as correções aplicáveis mais críticas, documentando escopo e validação por regressão.
-- Validar esquema de estado/controles, caminhos relativos seguros, metadados/checksums originais, membros ativos únicos e conflitos entre ativos/aposentados antes da retenção ou recuperação. Recusar travessia, caminho raiz, caracteres nulos/quebras de linha e links/arquivos especiais não suportados na origem; reservar `.sambinha` na raiz da origem.
+- Validar esquema de estado/controles, caminhos relativos seguros, metadados/checksums originais, membros ativos únicos e conflitos entre ativos/aposentados antes da retenção ou recuperação. Recusar travessia, caminho raiz, caracteres nulos/quebras de linha e arquivos especiais não suportados na origem; reservar `.sambinha` na raiz da origem.
 - Gravar estado atomicamente e proteger operações de escritor único com lock. Usar diretórios privados de metadados/logs (0700) e novos arquivos de estado/controle/log/lock (0600), independentemente de umask permissivo. Recusar redirecionamento por links nos diretórios de metadados e no lock.
 - Manter segredos AWS/Cronitor fora dos arquivos versionados. Ler dotenv privado opcional como dados, nunca comandos de shell; variáveis herdadas têm prioridade. Arquivos ausentes/inválidos devem falhar sem expor valores.
 - Ocultar credenciais conhecidas de ambiente/configuração do rclone, URLs explícitas do Cronitor, usuário/senha em URLs e variáveis de senha nos erros de backend/logs/telemetria, inclusive valores multilinha antes da serialização JSON. Deixar o rclone descriptografar sua configuração criptografada.
@@ -203,3 +203,7 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 | 0.7.0 | Retenção configurável de 14 dias de logs e percentual no começo da linha; consolidar e publicar tudo desde 0.6.2. |
 
 Os marcos registram escopo e decisões de versão; não significam que toda versão intermediária foi publicada separadamente. Os detalhes operacionais estão no [guia de uso](usage.pt-BR.md), [guia de performance](performance.pt-BR.md), [guia de S3](s3.pt-BR.md), [segurança](../SECURITY.pt-BR.md) e [README](../README.pt-BR.md).
+
+## 17. Opções de disco, falhas por job e links simbólicos — 0.8.0
+
+`check_source_disk` e `check_destination_disk` são opções por job com padrão true. A segunda também controla a saída da restauração; temporários continuam verificados. `continue_on_job_error` é por job, padrão true, e o job que falhou decide se os seguintes executam. Erros identificam o job, inclusive no preflight. Ignorar sempre links simbólicos da origem/destino, sem seguir, copiar ou traduzir; proteger cópias/históricos existentes enquanto esses caminhos forem ignorados. Manter as proteções de metadados/restauração e detecção de mudanças concorrentes. READMEs resumidos apontam para guias completos bilíngues.

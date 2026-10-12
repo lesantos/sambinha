@@ -39,7 +39,7 @@ class ExampleTests(unittest.TestCase):
                 self.assertTrue(counterpart.is_file())
                 self.assertIn('(' + counterpart.name + ')', path.read_text())
                 self.assertIn('(' + path.name + ')', counterpart.read_text())
-        self.assertIn('Local', (ROOT / 'README.md').read_text())
+        self.assertIn('backs up files', (ROOT / 'README.md').read_text())
 
     def test_all_public_options_present_even_when_commented(self):
         section, global_keys, job_keys = None, set(), []
