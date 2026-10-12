@@ -3,6 +3,9 @@
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+# Keep logs written in the last 14 days; 0 disables automatic cleanup.
+# Old inactive Sambinha logs are removed during non-simulated invocations.
+log_retention_days = 14
 deleted_days = 10
 version_days = 2
 # Soft Cronitor alert for more than this many impending permanent deletions.

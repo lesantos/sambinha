@@ -45,6 +45,7 @@ class Config:
     jobs: tuple[Job, ...]
     state_dir: Path = field(default_factory=lambda: Path("state").resolve())
     log_dir: Path = field(default_factory=lambda: Path("logs").resolve())
+    log_retention_days: int = 14
     deleted_days: int = 10
     version_days: int = 2
     dry_run: bool = False
@@ -78,7 +79,8 @@ def overlap(a: Path, b: Path) -> bool:
 def validate(config: Config) -> Config:
     if not config.jobs:
         raise ConfigError("Configure pelo menos um [[jobs]]")
-    for name in ("deleted_days", "version_days", "timeout", "deletion_alert_threshold", "verify_interval_days"):
+    for name in ("deleted_days", "version_days", "timeout", "deletion_alert_threshold", "verify_interval_days",
+                 "log_retention_days"):
         value = getattr(config, name)
         if type(value) is not int or value < (1 if name == "timeout" else 0):
             raise ConfigError(f"{name}: inteiro fora do intervalo permitido")

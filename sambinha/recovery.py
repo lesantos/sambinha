@@ -247,6 +247,10 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
         if action == "restore" and (len(config.jobs) != 1 or output is None):
             raise BackupError("Restauração exige --job com uma tarefa e --output")
         with lock(config.state_dir) if action == "verify" and not config.dry_run else nullcontext():
+            if not config.dry_run:
+                removed_logs = log.prune(config.log_retention_days)
+                if removed_logs:
+                    log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
             for job in config.jobs:
                 try:
                     check_disks(job, lambda event, **values: log.event(event, job=job.name, **values))

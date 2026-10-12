@@ -556,6 +556,10 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
     try:
         runner.load_config_secrets(config.rclone_config)
         with nullcontext() if config.dry_run else lock(config.state_dir):
+            if not config.dry_run:
+                removed_logs = log.prune(config.log_retention_days)
+                if removed_logs:
+                    log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
             telemetry("run")
             with frozen_rules(config) as effective:
                 inventories = preflight(effective, runner, clock(), progress=progress.scope(0, 0.2))

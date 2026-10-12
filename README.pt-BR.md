@@ -57,6 +57,7 @@ Comece com uma cópia simples para outra pasta ou disco. Na pasta do projeto, cr
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+log_retention_days = 14
 deleted_days = 10
 version_days = 2
 verification_mode = "simple" # Padrão: tamanho em bytes e data de modificação.
@@ -198,6 +199,15 @@ O [relatório da versão atual](docs/test-results.pt-BR.md) registra os resultad
 Todas as opções públicas de configuração estão em [sambinha.example.toml](sambinha.example.toml), inclusive as opcionais comentadas; um teste confere essa lista com o código. Depois do primeiro backup, o [guia de uso](docs/usage.pt-BR.md) ajuda a ajustar prazos, limites e várias tarefas. O [guia de S3](docs/s3.pt-BR.md) trata da nuvem e das credenciais. Para quem quiser contribuir com o código, a [arquitetura](docs/architecture.pt-BR.md) explica como o projeto está organizado, e as [notas da versão](CHANGELOG.pt-BR.md) registram as mudanças.
 
 As orientações e os resultados da auditoria de credenciais estão em [SECURITY.md](SECURITY.pt-BR.md). A CI também verifica o histórico completo para detectar novas credenciais no código.
+
+## Retenção dos logs
+
+`[backup].log_retention_days = 14` mantém os logs de auditoria do Sambinha escritos nos últimos 14 dias. Escolha outro número de dias ou `0` para guardar os logs indefinidamente. `--log-retention-days 30` substitui a configuração para uma execução. Backups, restaurações e verificações sem simulação removem apenas arquivos de log regulares e inativos com o formato de nome timestamp/UUID `.jsonl` do Sambinha, diretamente em `log_dir`. A idade conta da última escrita, não da data no nome. O log atual, logs abertos por outras execuções, links simbólicos, subdiretórios e arquivos de outros tipos são preservados. Simulações não removem logs. A limpeza depende das execuções do programa; não instala um timer separado.
+
+```toml
+[backup]
+log_retention_days = 14
+```
 
 ## Escolha a verificação simples ou por hash
 

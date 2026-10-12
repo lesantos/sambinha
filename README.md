@@ -43,6 +43,7 @@ Create `sambinha.toml`, with paths relative to the configuration file. `~` and e
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+log_retention_days = 14
 deleted_days = 10
 version_days = 2
 verify_interval_days = 7
@@ -64,6 +65,15 @@ Keep the destination outside the source. Use a destination managed exclusively b
 ```
 
 Simulation writes a report and reads inventories, but creates no backup state or archives, transfers or deletes no backup objects, and sends no Cronitor notifications. Each job ends with a `summary` record containing new, modified, unchanged and removed files, batches reused/rebuilt, planned original bytes, transferred payload bytes, pending history entries and success. Compression can make transferred bytes differ from planned bytes. Empty source directories are preserved by local simple backups.
+
+## Log retention
+
+`[backup].log_retention_days = 14` keeps Sambinha audit logs written within the last 14 days. Set a different number of days, or `0` to keep logs indefinitely. `--log-retention-days 30` overrides the setting for one invocation. Non-simulated backup, restore and verification runs remove only inactive regular log files matching Sambinha's timestamp/UUID `.jsonl` naming format in `log_dir`. The age is measured from the last write, not the filename date. The current log, logs held open by other invocations, symlinks, subdirectories and unrelated files are preserved. Dry runs do not remove logs. No separate cleanup timer is installed.
+
+```toml
+[backup]
+log_retention_days = 14
+```
 
 ## Choose simple or hash verification
 

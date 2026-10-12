@@ -22,6 +22,7 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(config.jobs[0].max_files, 1000)
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
+        self.assertEqual(config.log_retention_days, 14)
 
     def test_override_only_supplied_values(self):
         config = load(self.toml('deleted_days=17\ndry_run=true'), {"version_days": 0, "dry_run": False, "max_bytes": 100000})
@@ -42,10 +43,19 @@ class ConfigurationTests(Sandbox):
 
     def test_invalid_global_values(self):
         for values in ({"deleted_days": -1}, {"version_days": True}, {"timeout": 0},
+                       {"log_retention_days": -1}, {"log_retention_days": True},
+                       {"log_retention_days": 1.5}, {"log_retention_days": "14"},
                        {"dry_run": "yes"}, {"cronitor_url": "http://example.com"},
                        {"rclone": ""}, {"rclone_config": 123}, {"secrets_file": "wrong-type"}, {"deletion_alert_threshold": -1}, {"deletion_alert_threshold": True}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, **values))
+
+    def test_log_retention_toml_cli_and_zero_disables_cleanup(self):
+        config = load(self.toml('log_retention_days=30'))
+        self.assertEqual(config.log_retention_days, 30)
+        arguments = vars(parser().parse_args(['--log-retention-days', '0']))
+        self.assertEqual(load(self.toml('log_retention_days=30'),
+                              {'log_retention_days': arguments['log_retention_days']}).log_retention_days, 0)
 
     def test_invalid_job_values(self):
         for values in ({"name": "../bad"}, {"type": "ftp"}, {"logic": "unknown"},

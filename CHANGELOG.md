@@ -2,6 +2,10 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## Unreleased
+
+Add configurable audit-log retention: `log_retention_days = 14` by default, with `0` disabling cleanup and a CLI override. Normal backup, restore and verification invocations prune inactive, recognized log files by last-write age. Current/open logs, unrelated files, symlinks and nested directories remain protected; dry runs never prune logs. Bilingual configuration examples and READMEs document the setting. Validation: 260 tests passed, plus 50 final focused checks; combined branch-inclusive coverage is 94%.
+
 ## 0.6.2 — 2026-10-11
 
 Interactive terminals omit per-file audit events and show the actual working subdirectory. Progress estimates the entire backup with weighted phases/jobs and concurrent batches, never restarting or decreasing across directory/stage changes; only successful completion shows 100%. Complete per-file details remain in JSON logs. Bulk copy groups stay within one directory. Document exclusion-file paths, native rclone patterns, simulation and protection of already backed-up excluded files in both READMEs. Public configurations include the exclusion-file path and bilingual templates with no active exclusions.

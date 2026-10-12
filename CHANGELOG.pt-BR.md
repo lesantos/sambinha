@@ -2,6 +2,10 @@
 
 [English](CHANGELOG.md)
 
+## Ainda não publicado
+
+Retenção configurável de logs de auditoria: `log_retention_days = 14` por padrão; `0` desativa a limpeza, com override na CLI. Backups, restaurações e verificações normais removem logs reconhecidos e inativos pela idade da última escrita. Logs atuais/abertos, arquivos de outros tipos, links e subdiretórios são protegidos; simulações não limpam logs. Exemplos e READMEs bilíngues documentam a opção. Validação: 260 testes passaram, mais 50 checks focados finais; cobertura combinada com branches de 94%.
+
 
 ## 0.6.2 — 2026-10-11
 
