@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.9.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.9.1**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -271,11 +271,11 @@ Também é possível escolher o modo para uma execução:
 
 O modo simples não detecta uma edição que preserve simultaneamente tamanho e data de modificação. O modo hash lê o conteúdo no primeiro inventário e periodicamente depois. Trocar de simples para hash calcula hashes novos; trocar o modo em backups por lotes pode reconstruir os arquivos compactados porque os metadados do índice mudam. Para verificar por hash um índice que ainda não os possui, faça primeiro um backup no modo hash. `logic = "simple"`/`"batch"` escolhe a estratégia de armazenamento, independentemente de `verification_mode`. Lotes e controles de recuperação mantêm checksums nos dois modos.
 
-Durante a execução interativa, o stderr exibe o percentual estimado do backup inteiro no começo da linha, seguido da etapa e do subdiretório em trabalho. A estimativa atribui faixas iguais aos jobs e reserva 5% para finalização. Cada job usa 20% da sua faixa para verificações/inventário, 70% para transferências/retenção e 10% para verificação/conclusão. Contadores de arquivos/bytes, filas de diretórios e estimativas limitadas por tempo decorrido avançam dentro dessas faixas. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
+Durante a execução interativa, o stderr exibe o percentual do backup inteiro no começo da linha, seguido da etapa e do subdiretório em trabalho. A estimativa atribui faixas iguais aos jobs e reserva 5% para finalização. Cada job usa 20% da sua faixa para verificações/inventário, 70% para transferências/retenção e 10% para verificação/conclusão. Contadores de arquivos/bytes e filas de diretórios avançam dentro dessas faixas. Cópias agrupadas do rclone usam o percentual de transferência informado pelo próprio rclone; outras operações opacas usam estimativas limitadas por tempo decorrido. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
 ## Recursos adicionais
 
-A versão atual é **0.9.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.9.1**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

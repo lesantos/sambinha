@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.9.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.9.1** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
 
 Os jobs executam até o fim na ordem do TOML, com inventários e verificações independentes. Sobreposições entre origens/destinos de jobs diferentes são permitidas; confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos) antes de compartilhar caminhos.
 
@@ -60,7 +60,7 @@ A simulação lê inventários e escreve um log, sem alterar backups/estado ou e
 - **Retenção:** arquivos apagados ficam guardados por 10 dias e versões anteriores por 2 dias, por padrão. Logs mantêm 14 dias; `log_retention_days = 0` desativa a limpeza.
 - **Jobs:** executam sequencialmente. Cada job tem `continue_on_job_error = true` por padrão; use `false` para interromper quando esse job falhar. Qualquer falha deixa o código de saída diferente de zero, e os erros identificam o job.
 - **Discos:** verificações de origem/destino local têm padrão `true` e geram erro acima de 95% de ocupação. Use `false` na respectiva opção por job para suprimir a checagem, como `check_source_disk = false` no Seafile/FUSE. Temporários continuam sendo verificados.
-- **Proteções e progresso:** remoções anormais são bloqueadas por padrão. Backups/verificações normais simultâneos com o mesmo `state_dir` são recusados. O progresso começa com o percentual estimado do backup inteiro e mostra etapa/subdiretório; detalhes por arquivo ficam nos logs JSON.
+- **Proteções e progresso:** remoções anormais são bloqueadas por padrão. Backups/verificações normais simultâneos com o mesmo `state_dir` são recusados. O percentual do backup inteiro mostra etapa/subdiretório e acompanha o rclone durante cópias em lote; detalhes por arquivo ficam nos logs JSON.
 
 ## Mais informações
 

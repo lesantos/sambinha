@@ -83,10 +83,20 @@ class Progress:
         self.clear()
 
     @contextmanager
-    def task(self, stage, directory):
+    def task(self, stage, directory, *, measured=False):
         """Estimate opaque subprocess work by elapsed time, capped below 100%."""
         if not self.enabled:
             yield
+            return
+        if measured:
+            self.update(stage, directory, 0, 100, force=True)
+            try:
+                yield lambda percent: self.update(stage, directory, percent, 100)
+            except BaseException:
+                self.clear()
+                raise
+            else:
+                self.update(stage, directory, 100, 100, force=True)
             return
         stop = threading.Event()
         started = self.clock()

@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 import time
+import json
+import threading
 from configparser import ConfigParser, Error as ConfigParserError
 from contextlib import nullcontext
 from pathlib import Path
@@ -76,10 +78,15 @@ class Runner:
                 if stage in {"Copiando arquivo", "Conferindo lote"} or (stage == "Lendo destino" and "--stat" in args):
                     directory = Path(directory).parent
                 directory = progress_directory or directory
-                task = self.progress.task(stage, directory) if self.progress and stage else nullcontext()
-                with task:
-                    result = subprocess.run(args, cwd=cwd, input=input, capture_output=True,
-                                            text=True, timeout=self.timeout, check=False, env=self.env)
+                measured = bool(self.progress and self.progress.enabled and len(args) > 1 and args[1] == "copy")
+                command = [*args, "--stats", "1s", "--stats-one-line", "--stats-log-level", "NOTICE"] if measured else args
+                task = self.progress.task(stage, directory, measured=measured) if self.progress and stage else nullcontext()
+                with task as report:
+                    if measured:
+                        result = self._run_with_progress(command, cwd, input, report)
+                    else:
+                        result = subprocess.run(command, cwd=cwd, input=input, capture_output=True,
+                                                text=True, timeout=self.timeout, check=False, env=self.env)
                 if result.returncode == 0:
                     self.last_stderr = result.stderr
                     return result.stdout
@@ -89,3 +96,43 @@ class Runner:
             if attempt == (3 if retry else 0):
                 raise error
             self.sleep(2)
+
+    def _run_with_progress(self, args, cwd, input, report):
+        """Stream rclone stats while retaining its output for audit parsing/errors."""
+        process = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE if input is not None else None,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, bufsize=1, env=self.env)
+        if input is not None:
+            process.stdin.write(input)
+            process.stdin.close()
+
+        output = []
+        percentage = re.compile(r"Transferred:\s*[^,]*,\s*(\d+(?:\.\d+)?)%")
+
+        def collect():
+            for line in process.stdout:
+                output.append(line)
+                message = line
+                try:
+                    record = json.loads(line)
+                    if isinstance(record, dict):
+                        message = record.get("msg", line)
+                except (ValueError, TypeError):
+                    pass
+                match = percentage.search(message)
+                if match:
+                    report(float(match.group(1)))
+
+        reader = threading.Thread(target=collect, daemon=True)
+        reader.start()
+        try:
+            returncode = process.wait(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            reader.join()
+            raise
+        reader.join()
+        output = "".join(output)
+        self.last_stderr = output
+        return subprocess.CompletedProcess(args, returncode, "", output)

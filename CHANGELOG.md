@@ -2,6 +2,10 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.9.1 — 2026-10-12
+
+Show rclone's live transfer percentage during interactive bulk copies, so the overall backup progress follows the active transfer instead of a time-based estimate. Keep elapsed-time estimates for other opaque subprocess work. Update bilingual usage/configuration documentation and release metadata.
+
 ## 0.9.0 — 2026-10-12
 
 Run every job's full lifecycle sequentially in TOML order: freeze exclusions, preflight, inventory, transfers/retention, state commit, scheduled verification and summary. Later jobs observe earlier writes, including newly created origins and exclusion files. Remove cross-job source/destination and destination/destination overlap restrictions for local and S3 backups; keep each job's own source/destination and state/log protections. A later preflight failure no longer blocks already completed jobs.

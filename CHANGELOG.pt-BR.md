@@ -2,6 +2,10 @@
 
 [English](CHANGELOG.md)
 
+## 0.9.1 — 2026-10-12
+
+Exibir o percentual de transferência informado pelo rclone durante cópias agrupadas interativas, fazendo o progresso geral acompanhar a transferência atual em vez de uma estimativa por tempo. Manter estimativas por tempo para outras operações opacas. Atualizar documentação bilíngue e metadados da release.
+
 ## 0.9.0 — 2026-10-12
 
 Executar todo o ciclo de cada job sequencialmente na ordem do TOML: congelar exclusões, preflight, inventário, transferências/retenção, confirmação do estado, verificação agendada e resumo. Jobs posteriores observam gravações anteriores, inclusive origens e arquivos de exclusão recém-criados. Retirar restrições de sobreposição entre origem/destino e destinos de jobs diferentes, localmente e no S3; manter as proteções da própria origem/destino e de estado/logs. Falhas posteriores no preflight não impedem jobs já concluídos.
