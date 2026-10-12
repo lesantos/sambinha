@@ -230,12 +230,13 @@ class LocalIntegrationTests(Sandbox):
         self.assertFalse(self.destination.exists())
         self.assertEqual([n[1] for n in self.notifications], ['run', 'fail'])
 
-    def test_preflight_missing_source_fails_before_any_job_transfer(self):
+    def test_later_missing_source_preserves_the_previous_jobs_completed_transfer(self):
         self.file('a')
         job = replace(self.config.jobs[0], name='missing', source=self.root / 'missing',
                       destination=str(self.root / 'other'), continue_on_job_error=False)
         self.assertEqual(self.execute(replace(self.config, jobs=self.config.jobs + (job,))), 1)
-        self.assertFalse(self.destination.exists())
+        self.assertEqual(contents(self.destination), contents(self.source))
+        self.assertFalse(Path(job.destination).exists())
 
     def test_corrupt_state_stops_and_destination_symlink_is_ignored(self):
         self.file('a')

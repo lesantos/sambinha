@@ -1,6 +1,7 @@
 """Backup orchestration, extensible strategies and retention transactions."""
 from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import copy
 import json
 import os
@@ -463,10 +464,6 @@ STRATEGIES = {"simple": simple, "batch": batch}
 
 def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
     now = time.time() if now is None else now
-    runner.require([config.rclone])
-    runner.run([config.rclone, "version"])
-    if config.rclone_config and not Path(config.rclone_config).is_file():
-        raise BackupError("Arquivo de configuração rclone não existe")
     checked = set()
     for index, job in enumerate(config.jobs):
         with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
@@ -507,7 +504,7 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
                 if backend != "s3":
                     raise BackupError(f"Remote {remote} precisa ser do tipo s3")
             checked.add(job.name)
-    inventories, shared = {}, {}
+    inventories = {}
     for index, job in enumerate(config.jobs):
         if job.name not in checked:
             continue
@@ -520,22 +517,18 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
                 previous = load_state(config.state_dir / job.name / "state.json", identity(job))
             except BackupError:
                 # Context will reject the corrupt index for this job; no cached
-                # fingerprints from it are trusted during the global preflight.
+                # fingerprints from it are trusted during this job's preflight.
                 previous = {}
             force = (not config.fingerprint_cache or "last_full_scan" not in previous or
                      now < previous["last_full_scan"] or
                      now - previous["last_full_scan"] >= config.fingerprint_full_scan_days * DAY)
-            rules = job.exclude_files.read_bytes() if job.exclude_files else None
-            cache_key = (job.source, rules, force)
-            if cache_key not in shared:
-                selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
-                fingerprints = {}
-                files = scan(job.source, selected_files, selected_dirs,
-                             cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
-                             mode=config.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
-                shared[cache_key] = (files, selected_dirs, fingerprints,
+            selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
+            fingerprints = {}
+            files = scan(job.source, selected_files, selected_dirs,
+                         cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
+                         mode=config.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
+            inventories[job.name] = (files, selected_dirs, fingerprints,
                                      now if force else previous["last_full_scan"])
-            inventories[job.name] = shared[cache_key]
             if reading:
                 files = inventories[job.name][0]
                 reading.update("Inventário concluído", (job.source / files[-1].path).parent if files else job.source, 1, 1)
@@ -568,8 +561,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
         except BackupError as exc:
             failed = True
             log.event("notification_error", error=str(exc))
-    forecast = DeletionForecast(config.deletion_alert_threshold, log,
-                                lambda message: telemetry("fail", message))
+    deletion_alerts = []
     log.event("start", dry_run=config.dry_run, sources=[str(j.source) for j in config.jobs])
     try:
         runner.load_config_secrets(config.rclone_config)
@@ -579,36 +571,33 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                 if removed_logs:
                     log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
             telemetry("run")
-            with frozen_rules(config, on_job_error=report_job_error) as effective:
-                inventories = preflight(effective, runner, clock(), progress=progress.scope(0, 0.2),
-                                        on_job_error=report_job_error)
-                contexts = []
-                for job in effective.jobs:
-                    if job.name not in inventories:
-                        continue
-                    log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
-                    try:
+            runner.require([config.rclone])
+            runner.run([config.rclone, "version"])
+            if config.rclone_config and not Path(config.rclone_config).is_file():
+                raise BackupError("Arquivo de configuração rclone não existe")
+            # Each job owns its full lifecycle. Later jobs must see the files,
+            # rules and state left by earlier jobs, just as separate invocations do.
+            for index, job in enumerate(config.jobs):
+                job_progress = progress.scope(0.95 * index / len(config.jobs),
+                                              0.95 * (index + 1) / len(config.jobs))
+                context = None
+                success = False
+                forecast = DeletionForecast(config.deletion_alert_threshold, log,
+                                            lambda message: telemetry("fail", message))
+                log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
+                try:
+                    with frozen_rules(replace(config, jobs=(job,))) as effective:
+                        job = effective.jobs[0]
+                        inventories = preflight(effective, runner, clock(), progress=job_progress.scope(0, 0.2))
                         files, selected_dirs, fingerprints, last_full_scan = inventories[job.name]
-                        context = Context(effective, job, runner, log, files, clock(), selected_dirs, forecast, progress)
+                        context = Context(effective, job, runner, log, files, clock(), selected_dirs, forecast,
+                                          job_progress.scope(0.2, 0.9))
                         cached_inventory = fingerprints if config.fingerprint_cache else {}
                         context.inventory_changed = (context.state.get("fingerprints") != cached_inventory or
                                                      context.state.get("last_full_scan") != last_full_scan)
                         context.state["fingerprints"] = cached_inventory
                         context.state["last_full_scan"] = last_full_scan
                         context.forecast_deletions()
-                        contexts.append(context)
-                    except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
-                        report_job_error(JobError(job.name, exc))
-                        if not job.continue_on_job_error:
-                            break
-                weights = [sum(max(1, f.size) for f in context.files) or 1 for context in contexts]
-                total, completed = sum(weights), 0
-                for context, weight in zip(contexts, weights):
-                    job_progress = progress.scope(0.2 + 0.75 * completed / total,
-                                                  0.2 + 0.75 * (completed + weight) / total)
-                    context.progress = job_progress.scope(0, 0.9)
-                    success = False
-                    try:
                         check_disks(context.job, context.event)
                         context.protect_deletions(allow_mass_deletion)
                         STRATEGIES[context.job.logic](context)
@@ -622,26 +611,28 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                                 from .recovery import verify_job
                                 checking = job_progress.scope(0.9, 1)
                                 show_progress(runner, checking)
-                                verify_job(config, context.job, runner, log, context.state, progress=checking)
+                                verify_job(effective, context.job, runner, log, context.state, progress=checking)
                                 verified = copy.deepcopy(context.state)
                                 verified["last_verified"] = context.now
                                 if context.job.logic == "batch":
                                     upload_index(context, verified)
                                 context.state = verified
                                 context.save()
-                        success = True
-                    except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
-                        report_job_error(JobError(context.job.name, exc))
-                    finally:
+                    success = True
+                except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
+                    report_job_error(exc if isinstance(exc, JobError) else JobError(job.name, exc))
+                finally:
+                    if forecast.sent:
+                        deletion_alerts.append(forecast.message)
+                    if context is not None:
                         context.summary(success)
-                        if success:
-                            job_progress.update("Concluindo tarefa", progress.directory, 1, 1)
-                        completed += weight
-                    if not success and not context.job.continue_on_job_error:
-                        break
+                    if success:
+                        job_progress.update("Concluindo tarefa", progress.directory, 1, 1)
+                if not success and not job.continue_on_job_error:
+                    break
             if failed:
-                telemetry("fail", "; ".join(errors + ([forecast.message] if forecast.sent else [])))
-            elif not forecast.sent:
+                telemetry("fail", "; ".join(errors + deletion_alerts))
+            elif not deletion_alerts:
                 telemetry("complete")
     except KeyboardInterrupt:
         failed = True
@@ -655,7 +646,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
         failed = True
         raise
     finally:
-        log.event("end", success=not failed, deletion_alert=forecast.sent)
+        log.event("end", success=not failed, deletion_alert=bool(deletion_alerts))
         if not failed:
             progress.finish()
         progress.close()

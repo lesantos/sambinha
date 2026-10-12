@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.8.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.9.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -11,7 +11,7 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 - Manter o projeto no repositório privado `lesantos/sambinha` do GitHub, com README, guias de uso/recuperação, exemplos públicos de configuração, testes e notas de release.
 - Validar dependências, origens configuradas, montagens e ocupação dos discos locais antes das transferências. Tarefas independentes devem continuar após uma falha por tarefa; uma falha global de preflight pode interromper a execução antes dos envios.
 - Usar configuração TOML com opções globais em `[backup]` e tarefas independentes em `[[jobs]]`. Aceitar arquivo alternativo e sobreposições pela CLI; argumentos omitidos herdam os valores do arquivo.
-- Permitir que uma origem tenha várias tarefas, destinos e estratégias independentes. Recusar sobreposição entre origem/destino/estado/logs e entre destinos administrados por tarefas diferentes.
+- Permitir que uma origem tenha várias tarefas, destinos e estratégias independentes. Recusar sobreposição entre a própria origem/destino de um job e com estado/logs; permitir sobreposição entre origens e destinos de jobs diferentes.
 - Resolver caminhos relativos a partir da pasta do TOML e aceitar referências ao diretório pessoal e a variáveis de ambiente.
 - Limitar timeouts e fazer uma tentativa inicial de transferência mais, no máximo, três retentativas, com dois segundos entre elas.
 
@@ -99,7 +99,7 @@ Aceitação: testar abaixo/no limite/acima de 95%, espaço reservado, destinos i
 - Disponibilizar simulação que informa o trabalho previsto e grava seu relatório, sem criar estado/lotes de backup, transferir/apagar objetos de backup ou notificar Cronitor.
 - Emitir `summary` por tarefa em execução e simulação com sucesso, indicação de simulação, arquivos totais/novos/modificados/intactos/removidos, lotes reutilizados/recriados, bytes originais previstos, bytes de conteúdo realmente transferidos e exclusões históricas pendentes.
 - Excluir controles/índice de recuperação dos bytes de conteúdo transferidos. Distinguir bytes originais previstos e bytes compactados transmitidos. Transferências parciais em falha não podem ser relatadas como transação concluída.
-- Preservar `deletion_alert_threshold`, padrão 1000: exceder estritamente esse limite dispara aviso consultivo de exclusões definitivas previstas. Agregar tarefas e contar arquivos/versões originais dentro dos lotes, sem histórico protegido.
+- Preservar `deletion_alert_threshold`, padrão 1000: exceder estritamente esse limite dispara aviso consultivo de exclusões definitivas previstas. Contar independentemente por job e incluir arquivos/versões originais dentro dos lotes, sem histórico protegido.
 - Usar janela de aviso de dois dias, um dia para retenção de um dia e aviso imediato para retenção zero. O aviso não pode interromper backup, mudar prazos ou transformar uma execução bem-sucedida em código de falha.
 
 Aceitação: resumos devem contabilizar corretamente arquivos adicionados/editados/apagados/intactos, reutilização/recriação de lotes e zero bytes transferidos na simulação; avisos existentes de retenção devem continuar consultivos.
@@ -127,7 +127,7 @@ As seis melhorias foram selecionadas para implementação, na prioridade de P1 a
 | --- | --- | --- |
 | P1 | Cache de fingerprints de arquivos intactos. | `fingerprint_cache = true`; reutilização exige dispositivo, inode, tamanho, mtime/ctime em nanossegundos e permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa periódica; `--no-fingerprint-cache` desativa. Editar com tamanho igual e mtime restaurado deve invalidar o cache pelo ctime. |
 | P2 | Transferências simples agrupadas em operações limitadas do rclone. | `transfer_group_size = 100`, `transfer_workers = 4`; usar listas literais, confirmar histórico antes e manter checksums/proteção de destino mais novo/consistência da origem. Conferir menos processos e bytes recuperados exatos. |
-| P3 | Inventários equivalentes compartilhados entre tarefas independentes. | Mesma origem, seleção congelada e exigência compatível de leitura completa compartilham um scan na execução, inclusive entre destinos diferentes. Seleções/prazos de leitura diferentes continuam independentes. |
+| P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Compactação e envio de lotes com concorrência limitada. | `batch_workers = 2`; cada worker tem staging e relatórios de subprocesso próprios. Confirmar somente após todos os envios necessários. Testar concorrência real e limite configurado. |
 | P5 | Reutilização dos resultados de filtros na execução. | Guardar resultados imutáveis de seleções iguais de caminhos históricos; manter matcher do rclone e regras congeladas. Não levar resultados desatualizados a execuções seguintes. |
 | P6 | Esforço e threads de compactação por tipo de arquivo. | Níveis/threads separados por tarefa para texto/vídeo/foto/outros, definidos abaixo. Preservar lotes antigos intactos; novos ajustes valem na criação/recriação. |
@@ -177,7 +177,7 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 
 ## 15. Progresso global, terminal conciso e exclusões — 0.6.2
 
-- Estimar o backup inteiro combinando preflight, tarefas ponderadas por bytes e lotes concorrentes. Não reiniciar nem voltar o percentual entre etapas/diretórios/tarefas. Só a conclusão bem-sucedida pode exibir 100%.
+- Estimar o backup inteiro combinando preflight por job, faixas iguais para jobs e lotes concorrentes ponderados por bytes. Não reiniciar nem voltar o percentual entre etapas/diretórios/tarefas. Só a conclusão bem-sucedida pode exibir 100%.
 - Mostrar o subdiretório em trabalho na leitura e nas cópias. Grupos de cópia ficam no mesmo diretório. Omitir eventos por arquivo do terminal interativo, mantendo a auditoria JSON completa.
 - Documentar arquivo de exclusões e padrões nativos nos dois READMEs. Incluir o caminho nos exemplos TOML e modelos UTF-8 sem exclusões ativas. Configurar `~/sambinha/sambinha.toml` para `./excludes.txt`, criando o arquivo inicialmente sem regras ativas.
 - Testar progresso global crescente, conclusão concorrente fora de ordem, múltiplas tarefas, subdiretórios e separação terminal/auditoria. Repetir todos os testes e publicar a release 0.6.2 com fonte/wheel.
@@ -207,3 +207,7 @@ Os marcos registram escopo e decisões de versão; não significam que toda vers
 ## 17. Opções de disco, falhas por job e links simbólicos — 0.8.0
 
 `check_source_disk` e `check_destination_disk` são opções por job com padrão true. A segunda também controla a saída da restauração; temporários continuam verificados. `continue_on_job_error` é por job, padrão true, e o job que falhou decide se os seguintes executam. Erros identificam o job, inclusive no preflight. Ignorar sempre links simbólicos da origem/destino, sem seguir, copiar ou traduzir; proteger cópias/históricos existentes enquanto esses caminhos forem ignorados. Manter as proteções de metadados/restauração e detecção de mudanças concorrentes. READMEs resumidos apontam para guias completos bilíngues.
+
+## 18. Jobs sequenciais independentes — 0.9.0
+
+Cada job conclui exclusões, preflight, inventário/cache próprios, transferências/retenção, estado, verificação devida e resumo antes de o próximo começar. Permitir sobreposição entre origens/destinos e destinos de jobs diferentes, inclusive prefixos S3. Manter proteções da própria origem/destino e de diretórios internos. Resultados bem-sucedidos de cópia/verificação devem equivaler a comandos separados na mesma ordem; falhas posteriores no preflight preservam os jobs anteriores concluídos. Alertas de exclusão contam por job e progresso usa faixas iguais. O compartilhamento de inventários entre jobs deixa de valer. Documentar substituição/remoção, índices desatualizados, controles compartilhados de recuperação, metadados reservados na raiz e dependências de simulações. Validar encadeamentos locais simples/lotes nos dois modos, atualização de estado/cache, exclusões produzidas anteriormente, destinos locais/S3 sobrepostos, restauração e verificação agendada/manual. Executar toda a suíte e publicar 0.9.0 com fonte, wheel e checksums.

@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## 0.9.0 — 2026-10-12
+
+Executar todo o ciclo de cada job sequencialmente na ordem do TOML: congelar exclusões, preflight, inventário, transferências/retenção, confirmação do estado, verificação agendada e resumo. Jobs posteriores observam gravações anteriores, inclusive origens e arquivos de exclusão recém-criados. Retirar restrições de sobreposição entre origem/destino e destinos de jobs diferentes, localmente e no S3; manter as proteções da própria origem/destino e de estado/logs. Falhas posteriores no preflight não impedem jobs já concluídos.
+
+Retirar inventários compartilhados e tornar os limites de alerta de exclusão independentes por job, como em comandos separados. Usar faixas iguais de progresso por job, com trabalho interno ponderado por bytes. Adicionar integração local/S3 real comparando comandos combinados e separados, caches atualizados, destinos sobrepostos, verificação agendada/manual, restauração e falhas. Documentar remoção/substituição em destinos compartilhados, índices desatualizados, controle remoto de lotes do último escritor, metadados reservados na raiz e dependências de simulações.
+
 ## 0.8.0 — 2026-10-12
 
 Ignora links simbólicos na origem/destino sem seguir, copiar ou traduzir seus alvos. Protege cópias e históricos existentes enquanto o caminho correspondente for um link na origem ou no destino. Opções explícitas do rclone mantêm essa decisão mesmo com configurações de ambiente para seguir links. Resume ambos os READMEs e preserva as instruções detalhadas no guia completo de configuração.

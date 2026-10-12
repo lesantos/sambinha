@@ -115,8 +115,7 @@ class ConfigurationTests(Sandbox):
         first = self.config.jobs[0]
         second = replace(first, name="batch", logic="batch", destination=str(self.root / "second"))
         self.assertEqual(len(validate(replace(self.config, jobs=(first, second))).jobs), 2)
-        with self.assertRaises(ConfigError):
-            validate(replace(self.config, jobs=(first, replace(second, destination=first.destination + "/nested"))))
+        validate(replace(self.config, jobs=(first, replace(second, destination=first.destination + "/nested"))))
         with self.assertRaises(ConfigError):
             validate(replace(self.config, jobs=(first, replace(second, name=first.name))))
 
@@ -127,6 +126,15 @@ class ConfigurationTests(Sandbox):
             with self.subTest(changes=changes), self.assertRaises(ConfigError):
                 validate(replace(self.config, jobs=(replace(job, **changes),)))
         validate(replace(self.config, jobs=(replace(job, logic="batch", storage_class="DEEP_ARCHIVE"),)))
+
+    def test_jobs_can_write_into_other_sources_and_local_or_s3_destinations(self):
+        first = self.config.jobs[0]
+        for destination in (first.destination, first.destination + '/nested', str(first.source)):
+            second = replace(first, name='second', source=self.root / 'other-source', destination=destination)
+            validate(replace(self.config, jobs=(first, second)))
+        first = replace(first, type='s3', destination='aws:bucket/prefix')
+        for destination in (first.destination, first.destination + '/nested'):
+            validate(replace(self.config, jobs=(first, replace(first, name='second', destination=destination))))
 
     def test_unknown_options_and_malformed_toml(self):
         for text in ('[backup]\nunknown=1', '[backup', 'jobs="bad"',

@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.8.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.9.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -11,7 +11,7 @@ This document consolidates the original backup requirements and all product chan
 - Maintain the project in the private `lesantos/sambinha` GitHub repository, with a README, usage/recovery guides, public configuration examples, tests and release notes.
 - Validate dependencies, configured sources, mounts and local disk occupancy before transfers. Independent jobs must continue after a per-job failure; a global preflight failure can stop the invocation before transfers.
 - Use TOML configuration with global `[backup]` settings and independent `[[jobs]]`. Support an alternative configuration file and CLI overrides; omitted CLI arguments inherit the file's values.
-- Allow one source to have multiple independent jobs, destinations and backup strategies. Reject overlapping source/destination/state/log paths and overlapping destinations managed by different jobs.
+- Allow one source to have multiple independent jobs, destinations and backup strategies. Reject overlap within a job's own source/destination and with state/logs; allow overlap between different jobs' sources and destinations.
 - Resolve relative configuration paths from the TOML directory, and support home-directory and environment-variable references.
 - Provide bounded timeouts and one initial transfer attempt plus at most three retries, two seconds apart.
 
@@ -99,7 +99,7 @@ Acceptance: test below/exactly/above 95%, reserved space, nonexistent destinatio
 - Provide dry-run execution that reports planned work and writes its report, without creating backup state/archives, transferring/deleting backup objects or notifying Cronitor.
 - Emit a per-job `summary` for execution and simulation with success, dry-run status, total/new/modified/unchanged/removed files, reused/rebuilt batches, planned original bytes, actually transferred payload bytes and pending historical deletions.
 - Exclude control/recovery-index overhead from transferred payload bytes. Distinguish original planned bytes from compressed transmitted bytes. Partial transfers on failure must not be reported as a completed transaction.
-- Preserve `deletion_alert_threshold`, default 1000: strictly exceeding it triggers an advisory warning about impending permanent deletions. Aggregate across jobs and count original files/versions within archives, excluding protected history.
+- Preserve `deletion_alert_threshold`, default 1000: strictly exceeding it triggers an advisory warning about impending permanent deletions. Count independently per job and include original files/versions within archives, excluding protected history.
 - Use a warning window of two days, one day for one-day retention and immediate warning for zero-day retention. This warning must not stop backup, change deadlines or turn an otherwise successful backup into a failed exit code.
 
 Acceptance: summaries must account correctly for added/edited/deleted/unchanged files, archive reuse/rebuild and simulation's zero transferred bytes; existing retention notifications must retain their advisory behavior.
@@ -127,7 +127,7 @@ All six improvements were selected for implementation, in priority order P1 thro
 | --- | --- | --- |
 | P1 | Cache fingerprints of unchanged files. | `fingerprint_cache = true`; reuse requires equal device, inode, size, nanosecond mtime/ctime and permissions. `fingerprint_full_scan_days = 7` forces periodic full content reads; `--no-fingerprint-cache` disables reuse. A same-size edit with restored mtime must invalidate the cache through ctime. |
 | P2 | Group simple transfers into bounded rclone operations. | `transfer_group_size = 100`, `transfer_workers = 4`; use literal lists, save history first and preserve checksum/newer-destination/source-consistency checks. Confirm fewer process calls and exact recovered bytes. |
-| P3 | Share equivalent source inventories across independent jobs. | The same source, frozen selection and compatible full-scan requirement must share one scan in an invocation, including across different destinations. Different selections/scan requirements remain independent. |
+| P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Compress and upload batches with limited concurrency. | `batch_workers = 2`; each worker owns staging and subprocess reports. Commit only after all required uploads succeed. Test actual concurrent execution and the configured upper bound. |
 | P5 | Reuse filter results within an execution. | Cache immutable results for identical historical-path selections; continue using rclone's matcher and frozen rules. Do not carry stale filter results into later runs. |
 | P6 | Configure compression effort and threads by file type. | Separate per-job text/video/photo/other levels and thread counts, as defined below. Preserve intact existing archives; new settings apply when creating/rebuilding archives. |
@@ -177,7 +177,7 @@ Acceptance: every maintained guide must have a matching language companion with 
 
 ## 15. Overall progress, quiet terminal and exclusions — 0.6.2
 
-- Estimate completion for the entire backup, combining preflight, byte-weighted jobs and concurrent batches. Do not restart or decrease percentages when stages/directories/jobs change. Only successful completion may show 100%.
+- Estimate completion for the entire backup, combining per-job preflight, equally sized job ranges and byte-weighted concurrent batches. Do not restart or decrease percentages when stages/directories/jobs change. Only successful completion may show 100%.
 - Show the actual working subdirectory during scanning and copies. Keep bulk copy groups within a directory. Omit per-file events from the interactive terminal while retaining the complete JSON audit.
 - Document exclusion-file setup and native patterns in both READMEs. Include a path in both public TOML examples and ship matching UTF-8 templates without active exclusions. Configure the user's `~/sambinha/sambinha.toml` to use `./excludes.txt`, creating the initially inactive file.
 - Test monotonic global progress, out-of-order concurrent completions, multiple jobs, subdirectory display and terminal/audit separation. Rerun all tests and publish the 0.6.2 release with source/wheel artifacts.
@@ -207,3 +207,7 @@ These milestones record the requested scope and version decisions; they do not i
 ## 17. Disk options, job failures and symbolic links — 0.8.0
 
 Per-job `check_source_disk` and `check_destination_disk` default to true. The latter also controls restore output; temporary checks remain enabled. Per-job `continue_on_job_error` defaults to true and the failing job decides whether following jobs run. Errors identify the job, including preflight failures. Always ignore source/destination symbolic links without following, copying or translating them; protect existing copies/history while linked paths are ignored. Keep metadata/restore path protections and race checks. Short READMEs link to complete bilingual guides.
+
+## 18. Independent sequential jobs — 0.9.0
+
+Each job completes exclusions, preflight, a private inventory/cache, transfers/retention, state commit, due verification and summary before the next job starts. Allow cross-job source/destination and destination/destination overlap, including S3 prefixes. Preserve own source/destination and internal-directory protections. Match successful copy/verification results of separate commands in the same order; later preflight failures leave earlier completed jobs intact. Deletion warnings count per job and progress uses equal job ranges. Cross-job inventory sharing is superseded. Document overwrite/removal, stale indexes, shared batch recovery controls, reserved source-root metadata and dry-run dependencies. Validate local simple/batch chains in both modes, state/cache freshness, newly produced exclusions, overlapping local/S3 destinations, restoration and scheduled/manual verification. Run the full suite and publish 0.9.0 with source, wheel and checksums.

@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.8.0**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.9.0**.
 
 ## How it protects your files
 
@@ -57,7 +57,7 @@ type = "local"
 logic = "simple"
 ```
 
-Keep the destination outside the source. Use a destination managed exclusively by this job, and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
+Keep the destination outside the source. Jobs may overlap other jobs' sources or destinations; review the interactions below and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
 
 ```bash
 .venv/bin/sambinha --config sambinha.toml --dry-run
@@ -68,7 +68,7 @@ Simulation writes a report and reads inventories, but creates no backup state or
 
 ## Jobs and parallel execution
 
-Jobs execute sequentially in TOML order after preflight inventories. Concurrency settings apply inside each job. Normal backup and verification invocations acquire a nonblocking exclusive lock in `state_dir`: a second invocation using the same state directory exits with an error rather than waiting or modifying backup data. This also applies to different `--job` selections. Dry runs and restores do not acquire that writer lock. Independent state directories can run concurrently and should manage separate destinations.
+Jobs execute sequentially in TOML order. Each job reads its exclusions, checks its disks/mounts, inventories its source, transfers, applies retention, commits its state and completes any scheduled verification before the next job starts. Concurrency settings apply inside each job. Normal backup and verification invocations acquire a nonblocking exclusive lock in `state_dir`: a second invocation using the same state directory exits with an error rather than waiting or modifying backup data. This also applies to different `--job` selections. Dry runs and restores do not acquire that writer lock. Independent state directories can run concurrently and should manage separate destinations.
 
 
 ## Disk checks per job
@@ -106,7 +106,7 @@ destination = "/mnt/backup/optional"
 continue_on_job_error = true
 ```
 
-This applies to backup and manual verification. Preflight checks all selected jobs before backup changes; if a job with `false` fails during preflight, it prevents all transfers. A later failure in a job with `false` stops subsequent jobs without undoing completed work. Jobs with `true` can fail and be skipped while the remaining valid jobs run. Either policy returns a nonzero exit code if any job fails. Shared failures, such as an unavailable rclone executable or state lock, stop the invocation regardless of this setting. Errors include `Job NAME:` in their message and a `job` field in JSON logs, including preflight failures; job names also appear in failure notifications.
+This applies to backup and manual verification. Preflight belongs to each job. A failure in a job with `false`, including its preflight, stops subsequent jobs without undoing completed work. Jobs with `true` can fail and be skipped while the remaining valid jobs run. Either policy returns a nonzero exit code if any job fails. Shared failures, such as an unavailable rclone executable or state lock, stop the invocation regardless of this setting. Errors include `Job NAME:` in their message and a `job` field in JSON logs, including preflight failures; job names also appear in failure notifications.
 
 ## Log retention
 
@@ -137,7 +137,7 @@ Or select a mode for one invocation:
 
 The simple mode intentionally cannot detect a content edit that preserves both size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching from simple to hash computes fresh hashes; switching batch modes can rebuild archives because their indexed metadata changes. Hash verification of an index without hashes requires a hash-mode backup first. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
 
-During interactive execution, stderr displays one estimated percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate reserves 20% for preflight/inventories, 75% for jobs weighted by source bytes, and 5% for finalization. File/byte counters, directory queues and bounded elapsed-time estimates advance within those ranges. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
+During interactive execution, stderr displays one estimated percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate assigns equal ranges to the jobs and reserves 5% for finalization. Each job uses 20% of its range for preflight/inventory, 70% for transfers/retention and 10% for verification/completion. File/byte counters, directory queues and bounded elapsed-time estimates advance within those ranges. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
 
 ## Restore a file, folder or complete backup
 
@@ -165,7 +165,7 @@ Set `[backup].verify_interval_days = 7` to verify after a successful backup when
 
 ## Performance settings and separate file profiles
 
-All six performance improvements are implemented: fingerprint caching with periodic full scans; bounded bulk rclone copies; shared inventories for equivalent source/selection jobs; limited concurrent batch compression/uploads; per-run filter caching; and per-category compression levels and threads.
+Performance settings provide fingerprint caching with periodic full scans, bounded bulk rclone copies, limited concurrent batch compression/uploads, per-job filter caching and per-category compression levels and threads. From 0.9.0 inventories are independent per job; sharing them would hide changes made by earlier jobs.
 
 ```toml
 [backup]
@@ -194,7 +194,7 @@ In **hash mode**, cache reuse requires unchanged device, inode, size, nanosecond
 
 ## S3, credentials, exclusions and notifications
 
-Use [sambinha.example.toml](../sambinha.example.toml) for the complete configuration and [rclone.example.conf](../rclone.example.conf) for the `aws` S3 remote. Create the bucket first and match its region. Each job needs a separate prefix. The default `GLACIER_IR` class provides immediate retrieval but charges for retrieval and has minimum billing terms. JSON controls and the recovery index use STANDARD. [S3 setup and storage classes](s3.md).
+Use [sambinha.example.toml](../sambinha.example.toml) for the complete configuration and [rclone.example.conf](../rclone.example.conf) for the `aws` S3 remote. Create the bucket first and match its region. Prefer separate prefixes to avoid overlapping data or recovery controls. The default `GLACIER_IR` class provides immediate retrieval but charges for retrieval and has minimum billing terms. JSON controls and the recovery index use STANDARD. [S3 setup and storage classes](s3.md).
 
 Store credentials outside the repository in an AWS profile/IAM role or a private dotenv file:
 
@@ -240,7 +240,7 @@ Run a simulation to check the selected file count and planned work before the ba
 .venv/bin/sambinha --config sambinha.toml --dry-run
 ```
 
-Excluded files are not uploaded or considered removed. Files already in the backup are **not deleted merely because they become excluded**; their history also stays protected while the exclusion applies. Mixed legacy archives containing excluded paths are retained separately in `state.excluded`. Each job can use a different rule file. Missing, unreadable or invalid UTF-8 rule files stop the backup. Changes made to the file during a run apply on the next invocation. [Filtering and retention details](usage.md).
+Excluded files are not uploaded or considered removed. Files already in the backup are **not deleted merely because they become excluded**; their history also stays protected while the exclusion applies. Mixed legacy archives containing excluded paths are retained separately in `state.excluded`. Each job can use a different rule file. Missing, unreadable or invalid UTF-8 rule files stop the backup. Changes made after a job freezes its rules apply when that job next starts; later jobs read their own rules at their start. [Filtering and retention details](usage.md).
 
 ## Tests and documentation
 
@@ -253,3 +253,21 @@ SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest d
 Tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They do not require real AWS or Cronitor credentials. HTTP integration requires loopback networking. Results are recorded in [test results](test-results.md); GitHub runs [continuous tests](https://github.com/lesantos/sambinha/actions).
 
 English is the default documentation language. Every maintained Markdown guide and public commented configuration example has a `.pt-BR` counterpart. Code, configuration keys, dependency lists, backup data fixtures and license identifiers retain their stable names. See the [usage guide](usage.md), [architecture](architecture.md), [security notes](../SECURITY.md), [changelog](../CHANGELOG.md), and [configuration example](../sambinha.example.toml).
+
+## Sequential jobs and overlapping paths
+
+From 0.9.0, jobs run to completion in TOML order. Each job freezes its own exclusion file, checks mounts/disks, builds a fresh inventory using only its own persistent fingerprint cache, transfers and applies retention, commits its index, performs any due verification and writes its summary before the next job starts. A later preflight failure cannot prevent an earlier job from completing. `continue_on_job_error` still belongs to the failing job; there is no automatic dependency ordering or rollback.
+
+A destination may overlap another job's source or destination, locally or in S3. For example, jobs writing to `/mnt/capsule/LLLD/linux/leandro` and `/mnt/capsule/LLLD/seafile/conf` may precede a job backing up `/mnt/capsule/LLLD` to `/mnt/capsule/LLLDBKP`. Later jobs observe the completed changes, as when running the same jobs in separate commands. Each job still rejects overlap between its own source and destination, and all sources/destinations must remain separate from state/logs.
+
+Review these interactions when sharing paths:
+
+- Simple backups manage their entire selected destination tree. Files absent from that job's source can be moved to history and removed, even if another job created them. Exclude the other job's paths when they must be preserved; separate subdirectories are easier to manage.
+- A later job can overwrite earlier data or remove archives during retention. Verification records success at the time it runs; it cannot guarantee that later jobs leave the data intact. A subsequent verification of an earlier index can fail. Newer-destination and source-removal guards still apply.
+- Batch jobs with the same destination share `.sambinha/control.tar.gz`. The last writer replaces the remote recovery index. Preserve every local job index; remote-only recovery of earlier jobs may fail. Shared archives can also be retired by a job unaware that another job uses them.
+- `.sambinha` remains reserved at the source root. Copying an entire backup destination directly as another source can fail after history or batch controls appear there. Use a parent directory so the backup's metadata is below the source root, as in the `LLLD` example. Nested backup history is then part of the selected data unless excluded.
+- Dry runs do not create intermediate files or origins. A dependent job whose source would be created by an earlier real transfer can therefore fail in a dry run; separate dry-run commands behave the same way.
+
+Deletion-alert counts are independent per job, so combining commands does not change the threshold. Jobs with identical sources now perform independent scans, which can cost more IO; their persistent fingerprint caches still work. Progress assigns equal ranges to jobs because later source sizes are unknown until those jobs start. Internal file/batch progress remains weighted by bytes.
+
+One invocation retains a shared configuration, audit log, overall progress, Cronitor lifecycle and writer lock. It returns failure if any executed job fails. Separate commands have separate logs/notifications and release the lock between commands; a combined command keeps the lock for its full duration. Parsing/configuration errors and unavailable shared runtime dependencies still prevent execution. These invocation details do not change successful copy or verification results for the same jobs and order, without external intervening writes.

@@ -2,7 +2,9 @@
 
 [English](README.md)
 
-O Sambinha **0.8.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.9.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+
+Os jobs executam até o fim na ordem do TOML, com inventários e verificações independentes. Sobreposições entre origens/destinos de jobs diferentes são permitidas; confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos) antes de compartilhar caminhos.
 
 ## Instalar
 

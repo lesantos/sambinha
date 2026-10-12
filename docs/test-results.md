@@ -1,28 +1,29 @@
-# Sambinha 0.8.0 test results
+# Sambinha 0.9.0 test results
 
 [Português do Brasil](test-results.pt-BR.md)
 
-Run on 2026-10-12, Linux, Python 3.12.3: **287 tests passed, no failures or skips**, in **776.643 seconds**. Branch-inclusive coverage is **94%**, above the required 85%.
+Run on 2026-10-12, Linux, Python 3.12.3: **301 tests passed, no failures or skips**, in **349.296 seconds**. Branch-inclusive coverage is **94%**, above the required 85%.
 
 ## Verified behavior
 
-Verified source/destination disk options and restore output suppression while temporary-space/mount/path protections remain enabled. Mixed per-job continuation policies cover preflight, inventories, exclusions, invalid state, transfers and manual/scheduled verification; messages identify the failing job.
+Independent jobs complete exclusions, preflight, inventory, transfers/retention, committed state, scheduled verification and summary before the next inventory begins. Real local tests compare combined and separate commands for simple/batch chains in simple/hash modes after adding, changing and deleting files. They verify fresh origins and newly produced exclusions, persistent fingerprint-cache invalidation for same-size/same-mtime edits, byte-exact restores and manual/scheduled verification.
 
-Symbolic-link tests cover files, directories, broken links, cycles, ambient rclone link settings, source/destination collisions, protected previous copies/batches/expired history and redirection after inventory. Concise bilingual READMEs, complete guides, reciprocal links and equivalent public examples were checked.
+Overlapping exact/nested local and S3 destinations are accepted. Tests verify disjoint copies protected by exclusions, later overwrites and removals invalidating earlier indexes, and batch jobs sharing a destination whose remote recovery control belongs to the last writer. Reserved source-root metadata and unmaterialized dry-run dependencies fail consistently with separate commands. A later preflight failure preserves previous completed work; continuation policies and interruption handling remain covered. Deletion-alert thresholds are independent per job and global progress remains monotonic.
 
-All prior backup, retention, compression, filtering, concurrency, writer-lock, recovery, verification, secret-redaction and progress tests were rerun. Tests use temporary data, real rclone/7-Zip and Moto in-process and over localhost HTTP, without real AWS or Cronitor services.
+All prior backup, retention, compression, filtering, concurrency, disk/mount, symbolic-link, writer-lock, recovery, verification, secret-redaction and progress tests were rerun. Tests use temporary data, real rclone/7-Zip and Moto in-process and over localhost HTTP, without real AWS or Cronitor services. Public bilingual examples and reciprocal guide links also pass.
 
 ## Distribution
 
 | Suite | Passed |
 | --- | ---: |
 | `tests.test_batches` | 17 |
-| `tests.test_config` | 16 |
+| `tests.test_config` | 17 |
 | `tests.test_disks` | 10 |
 | `tests.test_examples` | 5 |
 | `tests.test_filtering` | 11 |
 | `tests.test_hardening` | 10 |
 | `tests.test_job_errors` | 10 |
+| `tests.test_job_independence` | 11 |
 | `tests.test_local_integration` | 28 |
 | `tests.test_log_retention` | 9 |
 | `tests.test_mounts` | 11 |
@@ -31,14 +32,14 @@ All prior backup, retention, compression, filtering, concurrency, writer-lock, r
 | `tests.test_protection` | 7 |
 | `tests.test_recovery` | 15 |
 | `tests.test_retention_alerts` | 10 |
-| `tests.test_s3_http` | 21 |
-| `tests.test_s3_integration` | 19 |
+| `tests.test_s3_http` | 22 |
+| `tests.test_s3_integration` | 20 |
 | `tests.test_secrets` | 25 |
 | `tests.test_security_examples` | 2 |
 | `tests.test_services` | 20 |
 | `tests.test_symlinks` | 7 |
 | `tests.test_verification_modes` | 13 |
-| **TOTAL** | **287** |
+| **TOTAL** | **301** |
 
 ## Reproduce
 
@@ -54,11 +55,11 @@ Name                     Stmts   Miss Branch BrPart  Cover   Missing
 sambinha/__init__.py         1      0      0      0   100%
 sambinha/batches.py         56      0     26      0   100%
 sambinha/cli.py             47      6      8      1    84%   52-54, 58-60
-sambinha/config.py         210      4    116      4    98%   144, 147, 192, 215
+sambinha/config.py         204      4    110      4    97%   143, 146, 184, 207
 sambinha/disks.py           26      0     14      0   100%
-sambinha/engine.py         549     12    198     20    96%   106, 134->124, 155->157, 167, 176->178, 182->184, 197->173, 203->205, 265->267, 285->287, 310->308, 313, 316, 469, 485-486, 490, 492->509, 502, 508, 620, 629
+sambinha/engine.py         538     11    194     19    96%   107, 135->125, 156->158, 168, 177->179, 183->185, 198->174, 204->206, 266->268, 286->288, 311->309, 314, 317, 482-483, 487, 489->506, 499, 505, 510, 577
 sambinha/errors.py          18      0      4      0   100%
-sambinha/filtering.py       93      6     34      2    92%   41-45, 74->76, 84
+sambinha/filtering.py       93      8     34      3    90%   24-25, 41-45, 74->76, 84
 sambinha/inventory.py      140      6     72      5    95%   39, 46, 54, 65, 101, 120
 sambinha/logging.py         79      1     26      2    97%   63->68, 71
 sambinha/mounts.py          19      1     12      1    94%   17
@@ -73,5 +74,5 @@ sambinha/secrets.py         22      0      6      0   100%
 sambinha/state.py          119     16     70     17    83%   25, 46, 52, 58, 63, 82, 90, 94, 106, 108, 109->114, 111, 117, 120, 123, 125, 131
 sambinha/storage.py        103     12     38      3    88%   75-76, 81-82, 83->85, 107, 109-110, 128-129, 132-134
 --------------------------------------------------------------------
-TOTAL                     1982     84    804     71    94%
+TOTAL                     1965     85    794     71    94%
 ```

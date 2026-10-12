@@ -215,6 +215,6 @@ class OverallProgressIntegrationTests(Sandbox):
         self.assertEqual(result, 0, stdout.getvalue())
         values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
-        self.assertIn(57.5, values)
+        self.assertIn(47.5, values)
         self.assertEqual(sum(p == 100 for p in values), 1)
         self.assertEqual(contents(self.destination), contents(self.root / 'second'))

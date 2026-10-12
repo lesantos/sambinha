@@ -28,13 +28,13 @@ class InventoryPerformanceTests(Sandbox):
             hash_file.assert_called_once()
         self.assertNotEqual(before[0].sha256, after[0].sha256)
 
-    def test_same_source_and_selection_are_scanned_once_for_independent_destinations(self):
+    def test_each_job_has_its_own_inventory_even_with_the_same_source(self):
         self.file('file')
         job = self.config.jobs[0]
         config = replace(self.config, jobs=(job, replace(job, name='second', destination=str(self.root / 'second'))))
         with patch('sambinha.engine.scan', wraps=scan) as inventory:
             result = preflight(validate(config), Mock(), now=1000)
-        self.assertEqual(inventory.call_count, 1)
+        self.assertEqual(inventory.call_count, 2)
         self.assertEqual(result['test'][0], result['second'][0])
 
     def test_filter_cache_reuses_rclone_results_and_does_not_leak_mutable_sets(self):

@@ -85,7 +85,8 @@ compression_other_threads = 2
 name = "documents-s3"
 source = "~/Documents"
 # aws é o remote de rclone.example.conf; crie o bucket primeiro.
-# Cada tarefa deve ter prefixo exclusivo. O nome do bucket deve ser globalmente único.
+# Prefira prefixos separados: jobs sobrepostos podem substituir dados/controles.
+# O nome do bucket deve ser globalmente único.
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"

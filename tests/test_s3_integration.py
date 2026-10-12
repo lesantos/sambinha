@@ -35,6 +35,33 @@ class S3IntegrationTests(Sandbox):
                       max_bytes=100 * 1024, max_files=3)
         self.config = replace(self.config, jobs=(job,))
 
+    def test_overlapping_job_destinations_have_independent_copies_and_verifications(self):
+        from contextlib import redirect_stdout
+        from sambinha.recovery import recover
+        self.file('first', b'first')
+        source = self.root / 'second-source'
+        source.mkdir()
+        (source / 'second').write_bytes(b'second')
+        first = self.config.jobs[0]
+        rules = self.root / 'second-rules.txt'
+        rules.write_text('first\n')
+        for suffix in ('', '/nested'):
+            with self.subTest(suffix=suffix):
+                second = replace(first, name='second', source=source, destination=first.destination + suffix,
+                                 exclude_files=rules)
+                config = replace(self.config, jobs=(first, second), verify_interval_days=1,
+                                 state_dir=self.root / ('nested-state' if suffix else 'shared-state'))
+                self.assertEqual(self.execute(config), 0, self.output.getvalue())
+                self.assertEqual([e['job'] for e in self.events if e['event'] == 'verification_complete'],
+                                 ['test', 'second'])
+                with redirect_stdout(io.StringIO()) as output:
+                    result = recover(config, 'verify', runner=self.runner)
+                self.assertEqual(result, 0, output.getvalue())
+                for job, name, expected in ((first, 'first', b'first'), (second, 'second', b'second')):
+                    key = job.destination.split(':', 1)[1].split('/', 1)[1] + '/' + name
+                    actual = self.client.get_object(Bucket='sambinha-tests', Key=key)['Body'].read()
+                    self.assertEqual(actual, expected)
+
     def execute(self, *args, **kwargs):
         kwargs['runner'] = self.runner
         return super().execute(*args, **kwargs)

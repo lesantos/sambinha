@@ -124,7 +124,7 @@ class RetentionAlertTests(Sandbox):
         self.assertEqual(self.notifications, [])
         self.assertEqual(len(self.state()['retired']), 3)
 
-    def test_global_warning_counts_multiple_jobs_before_cleanup(self):
+    def test_warning_threshold_is_per_job_like_separate_invocations(self):
         for name in ('a', 'b', 'c'):
             self.file(name)
         second = replace(self.config.jobs[0], name='second', destination=str(self.root / 'second'))
@@ -134,7 +134,11 @@ class RetentionAlertTests(Sandbox):
             (self.source / name).unlink()
         self.assertEqual(self.execute(now=2000), 0)
         self.assertEqual(self.execute(now=2000 + 8 * DAY), 0)
-        self.assertIn('6 arquivos/versões', self.notifications[-1][3])
+        self.assertEqual(self.notifications[-1][1], 'complete')
+        self.assertFalse(any(e['event'] == 'deletion_candidate' for e in self.events))
+        self.config = replace(self.config, deletion_alert_threshold=2)
+        self.assertEqual(self.execute(now=2000 + 8 * DAY), 0)
+        self.assertIn('3 arquivos/versões', self.notifications[-1][3])
         self.assertEqual({e['job'] for e in self.events if e['event'] == 'deletion_candidate'}, {'test', 'second'})
         self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
         self.assertEqual(self.state()['retired'], [])

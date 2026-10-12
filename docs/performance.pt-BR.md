@@ -2,13 +2,13 @@
 
 [English](performance.md) · [README](../README.pt-BR.md)
 
-P1–P6 foram implementadas na ordem solicitada. O ganho depende de quantidade de arquivos, discos, CPU e rede. Os testes conferem menos leituras/chamadas de processos e concorrência limitada, sem prometer um ganho fixo.
+P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhamento entre jobs de P3 por inventários independentes. O ganho depende de quantidade de arquivos, discos, CPU e rede. Os testes conferem menos leituras/chamadas de processos e concorrência limitada, sem prometer um ganho fixo.
 
 | Prioridade | Melhoria | Configuração e comportamento |
 | --- | --- | --- |
 | P1 | Cache de fingerprints | Em `verification_mode = "hash"`, `fingerprint_cache = true` reaproveita apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa; `--no-fingerprint-cache` desativa. O padrão `"simple"` usa tamanho/mtime e não calcula hashes do inventário. |
 | P2 | Transferência simples agrupada | `transfer_group_size = 100`; listas literais usam um rclone por grupo e `transfer_workers = 4`. Histórico é confirmado antes; validações de origem e destino mais novo permanecem. |
-| P3 | Inventário compartilhado | Mesma origem e conteúdo das regras congeladas compartilham uma leitura por execução, inclusive entre destinos diferentes. Seleções/prazos completos diferentes continuam separados. |
+| P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Lotes concorrentes | `batch_workers = 2`; staging separado por worker. A thread principal só confirma o índice depois de todos os uploads. |
 | P5 | Cache de filtros | Seleções repetidas de nomes históricos reaproveitam resultados imutáveis na execução; o rclone continua avaliando as regras congeladas. |
 | P6 | Perfis de compactação | Níveis/threads por tarefa para textos, vídeos, fotos e outros; novos lotes separam categorias. |

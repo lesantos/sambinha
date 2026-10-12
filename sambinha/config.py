@@ -106,7 +106,6 @@ def validate(config: Config) -> Config:
     if config.secrets_file is not None and not isinstance(config.secrets_file, Path):
         raise ConfigError("secrets_file deve indicar um caminho")
     seen = set()
-    destinations = []
     for job in config.jobs:
         if not isinstance(job.name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", job.name):
             raise ConfigError("Nome de job inválido; use letras, números, _ e -")
@@ -154,19 +153,12 @@ def validate(config: Config) -> Config:
                 raise ConfigError("Origem não pode sobrepor diretórios de estado ou logs")
         if job.type == "local":
             target = Path(job.destination).resolve()
-            for source in (j.source for j in config.jobs):
-                if overlap(source, target):
-                    raise ConfigError("Destino local não pode sobrepor nenhuma origem")
+            if overlap(job.source, target):
+                raise ConfigError(f"Destino local não pode sobrepor a própria origem: {job.name}")
             if any(overlap(target, p) for p in (config.state_dir, config.log_dir)):
                 raise ConfigError("Destino não pode sobrepor estado ou logs")
         elif not re.fullmatch(r"[\w-]+:[^/][^\n\r]*", job.destination):
             raise ConfigError("S3: use remote:bucket/prefixo configurado no rclone")
-        for kind, dest in destinations:
-            if kind == job.type and (overlap(Path(dest), Path(job.destination)) if kind == "local"
-                                    else dest == job.destination or dest.startswith(job.destination + "/")
-                                    or job.destination.startswith(dest + "/")):
-                raise ConfigError("Jobs precisam de destinos separados sem sobreposição")
-        destinations.append((job.type, job.destination))
     if overlap(config.state_dir, config.log_dir):
         raise ConfigError("Estado e logs devem ter diretórios separados")
     return config

@@ -2,6 +2,12 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.9.0 — 2026-10-12
+
+Run every job's full lifecycle sequentially in TOML order: freeze exclusions, preflight, inventory, transfers/retention, state commit, scheduled verification and summary. Later jobs observe earlier writes, including newly created origins and exclusion files. Remove cross-job source/destination and destination/destination overlap restrictions for local and S3 backups; keep each job's own source/destination and state/log protections. A later preflight failure no longer blocks already completed jobs.
+
+Remove shared inventories and make deletion-alert thresholds independent per job, matching separate invocations. Use equal per-job progress ranges with byte-weighted work inside each job. Add real local/S3 integration tests comparing combined and separate commands, fresh caches, overlapping destinations, scheduled/manual verification, restoration and failures. Document shared-destination removal/overwrite, stale indexes, last-writer remote batch controls, reserved source-root metadata and dry-run dependencies.
+
 ## 0.8.0 — 2026-10-12
 
 Ignore source/destination symbolic links without following, copying or translating them. Protect existing backed-up paths/history while the corresponding source or destination path is a symlink. Explicit rclone flags enforce this behavior even when environment settings enable link handling. Shorten both READMEs and preserve detailed instructions in the complete configuration guide.

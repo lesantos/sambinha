@@ -18,7 +18,7 @@ Todos os parâmetros operacionais têm overrides CLI; opções omitidas herdam o
 
 `--source`, `--destination`, `--type` e `--logic` exigem um único job selecionado. `--no-dry-run` sobrepõe simulação habilitada no TOML. Tipos: `local`, `s3`. Lógicas: `simple`, `batch`. Compactação: `7z` ou `zip`; `compressor` aceita `7z`, `7zz` ou outro executável compatível com a CLI do 7-Zip.
 
-Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2** configuração inválida, **130** interrupção. Jobs independentes continuam após falha de um job; o resultado global registra falha. Origens e dependências de todos os jobs são verificadas antes da primeira transferência.
+Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2** configuração inválida, **130** interrupção. Jobs independentes continuam após falha de um job; o resultado global registra falha. Cada job verifica suas origens e dependências somente depois que o anterior termina.
 
 ## Regras dos lotes
 
@@ -47,7 +47,7 @@ Para recuperar `simple`, copie os arquivos atuais do destino, excluindo `.sambin
 
 `batch` confia no espelho local para evitar chamadas S3 de inventário. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. A cópia `simple` compara tamanho/data por padrão; no modo hash, consulta checksums do destino e repara divergências de conteúdo. No modo hash, destinos sem MD5 disponível falham explicitamente. O rclone verifica transferências conforme o modo escolhido e as garantias do backend.
 
-Links simbólicos são ignorados. Arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Origens, destinos, estado e logs não podem se sobrepor; jobs não podem compartilhar destinos. `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
+Links simbólicos são ignorados. Arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Cada job deve manter sua própria origem/destino separados, e todos devem ficar fora dos diretórios de estado/logs. Sobreposições entre jobs são permitidas; veja [as regras de interação](configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos). `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
 
 
 ## Atualizando para a versão 0.2.0
@@ -89,7 +89,7 @@ Arquivos excluídos já existentes no destino simples são preservados. Históri
 
 Remover uma regra volta a incluir esses caminhos nas próximas execuções. Históricos já vencidos podem ser removidos ao voltar à seleção; seus prazos originais não são reiniciados. A simulação mostra somente arquivos selecionados e não altera estado ou destino. Sem `exclude_files`, o comportamento anterior permanece.
 
-As regras são copiadas para um arquivo temporário no início da execução, mantendo a mesma seleção na origem, no destino e no histórico. Editar o arquivo de regras enquanto o backup roda só muda a seleção da próxima execução.
+As regras são copiadas para um arquivo temporário no início de cada job, mantendo a mesma seleção na origem, no destino e no histórico daquele job. Uma alteração nas regras de um job posterior será observada quando ele começar.
 
 ## Alerta antecipado de exclusões definitivas
 
@@ -98,7 +98,7 @@ As regras são copiadas para um arquivo temporário no início da execução, ma
 deletion_alert_threshold = 1000
 ```
 
-A opção equivalente na linha de comando é `--deletion-alert-threshold`. O limite é estrito: exatamente 1000 não dispara; mais de 1000 dispara. A contagem soma as tarefas da execução e conta os arquivos/versões dentro dos lotes, não apenas a quantidade de arquivos compactados. É possível configurar 0 para avisar sobre qualquer exclusão definitiva prevista.
+A opção equivalente na linha de comando é `--deletion-alert-threshold`. O limite é estrito: exatamente 1000 não dispara; mais de 1000 dispara. A contagem é independente por job e conta os arquivos/versões dentro dos lotes, não apenas a quantidade de arquivos compactados. É possível configurar 0 para avisar sobre qualquer exclusão definitiva prevista.
 
 Cada histórico novo registra a data de criação, a retenção, os caminhos originais, o vencimento e o início do aviso. O período é de dois dias para retenções de dois ou mais dias, um dia para retenção de um dia e zero para retenção imediata. O programa precisa ser executado regularmente para avisar na janela: ele não envia eventos enquanto estiver parado e não adia exclusões para compensar uma execução perdida.
 

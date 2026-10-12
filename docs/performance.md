@@ -2,13 +2,13 @@
 
 [Português do Brasil](performance.pt-BR.md) · [README](../README.md)
 
-P1–P6 are implemented in the requested order. These settings improve different bottlenecks; gains depend on file count, disks, CPUs and network. Tests verify reduced reads/process calls and bounded concurrency, rather than promising a fixed speedup.
+P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sharing with independent inventories. These settings improve different bottlenecks; gains depend on file count, disks, CPUs and network. Tests verify reduced reads/process calls and bounded concurrency, rather than promising a fixed speedup.
 
 | Priority | Improvement | Setting and behavior |
 | --- | --- | --- |
 | P1 | Fingerprint cache | In `verification_mode = "hash"`, `fingerprint_cache = true` reuses hashes only if device, inode, size, mtime, ctime and mode match. `fingerprint_full_scan_days = 7` forces full reads periodically; `--no-fingerprint-cache` disables reuse. Default `"simple"` uses only size/mtime and never hashes the inventory. |
 | P2 | Bulk simple transfers | `transfer_group_size = 100`; raw literal file lists use one rclone process per group with `transfer_workers = 4`. Durable history is saved first; source validation and newer-destination protection remain. |
-| P3 | Shared inventories | Equivalent source and frozen exclusion content share one scan per execution, including when backing up to different destinations. Different selections or full-scan requirements remain independent. |
+| P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Batch concurrency | `batch_workers = 2`; each worker compresses and uploads in private staging. The main thread publishes the index only after every new batch finishes successfully. |
 | P5 | Filter cache | Repeated historical-name selections reuse immutable results within one execution. Rules are still evaluated by rclone and frozen before work. |
 | P6 | Compression profiles | Per-job levels and thread counts for text, videos, photos and other files; new batches do not mix categories. |

@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.8.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.9.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -70,7 +70,7 @@ type = "local"
 logic = "simple"
 ```
 
-Troque `source` pela pasta que deseja proteger e `destination` pela pasta onde a cópia será guardada. O destino deve ficar fora da pasta de origem. Se ele estiver em um disco externo, conecte e monte o disco antes de executar. Use uma pasta exclusiva para esta tarefa: o Sambinha administra seus arquivos e seu histórico.
+Troque `source` pela pasta que deseja proteger e `destination` pela pasta onde a cópia será guardada. O destino deve ficar fora da pasta de origem. Se ele estiver em um disco externo, conecte e monte o disco antes de executar. Prefira pastas separadas: o Sambinha administra os arquivos e históricos selecionados em cada destino; sobreposições entre jobs são permitidas, com as interações descritas abaixo.
 
 `state_dir` guarda o registro que permite ao programa acompanhar os backups. `log_dir` guarda os relatórios de execução. Mantenha essas pastas fora da origem e preserve a pasta de estado entre as execuções. Quando um caminho começa com `~`, ele aponta para sua pasta pessoal; os caminhos relativos, como `./state`, partem do local do arquivo de configuração.
 
@@ -154,7 +154,7 @@ Confira a quantidade de arquivos selecionados e o trabalho previsto com uma simu
 .venv/bin/sambinha --config sambinha.toml --dry-run
 ```
 
-Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino **não são apagadas só por passarem a ser excluídas**; seus históricos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. Cada tarefa pode usar um arquivo de regras diferente. Arquivo ausente, ilegível ou com UTF-8 inválido interrompe o backup. Alterações no arquivo durante uma execução só valem na próxima. O [guia de uso](usage.pt-BR.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
+Os arquivos excluídos não são enviados e não são tratados como arquivos apagados. Cópias já existentes no destino **não são apagadas só por passarem a ser excluídas**; seus históricos ficam protegidos enquanto a regra existir. Um lote antigo que misture arquivos incluídos e excluídos é mantido à parte, no índice `excluded`; os lotes atuais contêm somente a seleção atual. Cada tarefa pode usar um arquivo de regras diferente. Arquivo ausente, ilegível ou com UTF-8 inválido interrompe o backup. Alterações após o job congelar suas regras valem quando ele começar novamente; jobs posteriores leem suas próprias regras no início. O [guia de uso](usage.pt-BR.md#exclusões-por-arquivo-de-regras) detalha esse comportamento.
 
 ## Confirme que os discos estão disponíveis
 
@@ -202,7 +202,7 @@ As orientações e os resultados da auditoria de credenciais estão em [SECURITY
 
 ## Jobs e execuções em paralelo
 
-Os jobs executam sequencialmente, na ordem do TOML, depois dos inventários do preflight. As opções de concorrência atuam dentro de cada job. Backups e verificações normais obtêm uma trava exclusiva sem espera em `state_dir`: uma segunda execução usando o mesmo diretório de estado termina com erro, antes de alterar dados do backup. Isso também vale para seleções `--job` diferentes. Simulações e restaurações não obtêm essa trava de escrita. Diretórios de estado independentes podem executar em paralelo e devem administrar destinos separados.
+Os jobs executam sequencialmente, na ordem do TOML. Cada job lê suas exclusões, confere discos/montagens, inventaria a origem, transfere, aplica retenção, confirma o estado e conclui a verificação agendada antes de o próximo começar. As opções de concorrência atuam dentro de cada job. Backups e verificações normais obtêm uma trava exclusiva sem espera em `state_dir`: uma segunda execução usando o mesmo diretório de estado termina com erro, antes de alterar dados do backup. Isso também vale para seleções `--job` diferentes. Simulações e restaurações não obtêm essa trava de escrita. Diretórios de estado independentes podem executar em paralelo e devem administrar destinos separados.
 
 ## Retenção dos logs
 
@@ -249,7 +249,7 @@ destination = "/mnt/backup/opcional"
 continue_on_job_error = true
 ```
 
-Isso vale para backup e verificação manual. O preflight verifica todos os jobs selecionados antes de alterar os backups; se um job com `false` falhar nessa etapa, todas as transferências são impedidas. Uma falha posterior em um job com `false` interrompe os próximos jobs sem desfazer o trabalho concluído. Jobs com `true` podem falhar e ser ignorados enquanto os demais jobs válidos executam. Em ambos os casos, qualquer falha deixa o código de saída diferente de zero. Falhas compartilhadas, como ausência do executável rclone ou indisponibilidade da trava do estado, interrompem a execução independentemente dessa opção. Os erros incluem `Job NOME:` na mensagem e o campo `job` no log JSON, inclusive no preflight; as notificações de falha também identificam o job.
+Isso vale para backup e verificação manual. O preflight pertence a cada job. Uma falha em um job com `false`, inclusive no preflight, interrompe os próximos jobs sem desfazer o trabalho concluído. Jobs com `true` podem falhar e ser ignorados enquanto os demais jobs válidos executam. Em ambos os casos, qualquer falha deixa o código de saída diferente de zero. Falhas compartilhadas, como ausência do executável rclone ou indisponibilidade da trava do estado, interrompem a execução independentemente dessa opção. Os erros incluem `Job NOME:` na mensagem e o campo `job` no log JSON, inclusive no preflight; as notificações de falha também identificam o job.
 
 ## Escolha a verificação simples ou por hash
 
@@ -271,11 +271,11 @@ Também é possível escolher o modo para uma execução:
 
 O modo simples não detecta uma edição que preserve simultaneamente tamanho e data de modificação. O modo hash lê o conteúdo no primeiro inventário e periodicamente depois. Trocar de simples para hash calcula hashes novos; trocar o modo em backups por lotes pode reconstruir os arquivos compactados porque os metadados do índice mudam. Para verificar por hash um índice que ainda não os possui, faça primeiro um backup no modo hash. `logic = "simple"`/`"batch"` escolhe a estratégia de armazenamento, independentemente de `verification_mode`. Lotes e controles de recuperação mantêm checksums nos dois modos.
 
-Durante a execução interativa, o stderr exibe o percentual estimado do backup inteiro no começo da linha, seguido da etapa e do subdiretório em trabalho. A estimativa reserva 20% para verificações/inventários, 75% para tarefas ponderadas pelos bytes da origem e 5% para finalização. Contadores de arquivos/bytes, filas de diretórios e estimativas limitadas por tempo decorrido avançam dentro dessas faixas. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
+Durante a execução interativa, o stderr exibe o percentual estimado do backup inteiro no começo da linha, seguido da etapa e do subdiretório em trabalho. A estimativa atribui faixas iguais aos jobs e reserva 5% para finalização. Cada job usa 20% da sua faixa para verificações/inventário, 70% para transferências/retenção e 10% para verificação/conclusão. Contadores de arquivos/bytes, filas de diretórios e estimativas limitadas por tempo decorrido avançam dentro dessas faixas. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
 ## Recursos adicionais
 
-A versão atual é **0.8.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.9.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -311,7 +311,7 @@ Cada tarefa emite `summary`: arquivos novos, modificados, removidos e intactos, 
 
 ### Performance e perfis de compactação
 
-P1 a P6 estão implementadas: cache de fingerprints com leitura completa periódica; transferências simples agrupadas; inventário compartilhado para origens/seleções iguais; compactação e envio de lotes com concorrência limitada; cache dos filtros na execução; níveis e threads por categoria. Confira o [guia de performance](performance.pt-BR.md).
+As opções de performance incluem cache de fingerprints com leitura completa periódica, transferências simples agrupadas, compactação/envio de lotes com concorrência limitada, cache de filtros por job e níveis/threads por categoria. Desde 0.9.0 os inventários são independentes por job para observar alterações feitas pelos anteriores. Confira o [guia de performance](performance.pt-BR.md).
 
 ```toml
 [backup]
@@ -339,3 +339,21 @@ compression_other_threads = 2
 No **modo hash**, o cache exige dispositivo, inode, tamanho, datas de modificação/alteração em nanossegundos e permissões iguais. A leitura completa ocorre a cada sete dias por padrão; `--no-fingerprint-cache` desativa o reaproveitamento. No **modo simples**, essas opções não ativam hashes: as conferências usam tamanho e data de modificação. Arquivos alterados continuam validados antes/depois dos envios conforme o modo escolhido. Novos lotes separam categorias sem mudar a ordem por data dentro do diretório. Isso pode criar lotes individuais em categorias intercaladas. Lotes antigos intactos mantêm sua configuração; novos ajustes valem na criação/recriação. Nível 0 não compacta; 1–9 aumentam o esforço. Threads vão de 1 a 64 por arquivo compactado, dependendo do suporte do algoritmo.
 
 Metadados e logs têm permissões privadas. O índice é validado antes da retenção e restauração; caminhos inseguros, links e conflitos entre dados ativos e histórico são rejeitados. Credenciais conhecidas são ocultadas em erros, logs e telemetria. Consulte [segurança](../SECURITY.pt-BR.md).
+
+## Jobs sequenciais e caminhos sobrepostos
+
+Desde 0.9.0, os jobs executam até o fim na ordem do TOML. Cada job congela seu próprio arquivo de exclusões, confere montagens/discos, faz um inventário atualizado usando somente seu próprio cache persistente, transfere e aplica retenção, confirma o índice, realiza a verificação devida e grava o resumo antes de o próximo começar. Uma falha no preflight posterior não impede a conclusão anterior. `continue_on_job_error` continua pertencendo ao job que falhou; não há ordenação automática de dependências nem reversão.
+
+Um destino pode sobrepor a origem ou o destino de outro job, localmente ou no S3. Por exemplo, jobs que gravam em `/mnt/capsule/LLLD/linux/leandro` e `/mnt/capsule/LLLD/seafile/conf` podem preceder um job de `/mnt/capsule/LLLD` para `/mnt/capsule/LLLDBKP`. Os posteriores observam as alterações concluídas, como ao executar os mesmos jobs em comandos separados. Cada job ainda recusa sobreposição entre sua própria origem e destino, e todas as origens/destinos devem ficar separados de estado/logs.
+
+Confira estas interações ao compartilhar caminhos:
+
+- A cópia simples administra toda a árvore selecionada no destino. Arquivos ausentes na origem daquele job podem ir para o histórico e ser removidos, mesmo quando outro job os criou. Exclua os caminhos do outro job quando precisar preservá-los; subdiretórios separados facilitam a administração.
+- Um job posterior pode substituir dados anteriores ou remover lotes durante a retenção. A verificação registra sucesso no instante em que roda; não garante que jobs posteriores preservem os dados. Uma verificação posterior de um índice anterior pode falhar. Proteções de destino mais novo e remoções da origem continuam ativas.
+- Jobs por lotes no mesmo destino compartilham `.sambinha/control.tar.gz`. O último escritor substitui o índice remoto de recuperação. Preserve o índice local de cada job; recuperar os anteriores só pelo remoto pode falhar. Lotes compartilhados também podem ser removidos por um job que desconhece o uso por outro.
+- `.sambinha` continua reservado na raiz da origem. Copiar um destino inteiro diretamente como outra origem pode falhar depois que históricos ou controles de lotes aparecerem ali. Use um diretório pai para deixar os metadados abaixo da raiz da origem, como no exemplo `LLLD`. Históricos aninhados passam a fazer parte dos dados selecionados, salvo exclusão.
+- Simulações não criam arquivos ou origens intermediárias. Um job cuja origem seria criada pela transferência real anterior pode falhar na simulação; comandos separados de simulação se comportam da mesma forma.
+
+As contagens de alertas de exclusão são independentes por job, para que combinar comandos não altere o limite. Jobs com origens iguais agora fazem inventários independentes, o que pode aumentar o IO; os caches persistentes continuam funcionando. O progresso atribui faixas iguais aos jobs porque os tamanhos das origens posteriores só são conhecidos quando eles começam. Dentro de cada job, arquivos/lotes continuam ponderados por bytes.
+
+Uma execução mantém configuração, log, progresso global, ciclo Cronitor e trava compartilhados. Retorna falha se algum job executado falhar. Comandos separados têm logs/notificações separados e liberam a trava entre comandos; um comando combinado mantém a trava durante toda a execução. Erros de leitura/validação da configuração e dependências globais indisponíveis ainda impedem a execução. Esses detalhes não alteram os resultados bem-sucedidos de cópia ou verificação para os mesmos jobs e ordem, sem gravações externas entre eles.

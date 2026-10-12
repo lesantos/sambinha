@@ -1,28 +1,29 @@
-# Resultados dos testes do Sambinha 0.8.0
+# Resultados dos testes do Sambinha 0.9.0
 
 [English](test-results.md)
 
-Executado em 2026-10-12, Linux, Python 3.12.3: **287 testes passaram, sem falhas nem testes ignorados**, em **776.643 segundos**. Cobertura incluindo ramos: **94%**, acima do mínimo de 85%.
+Executados em 2026-10-12, Linux, Python 3.12.3: **301 testes passaram, sem falhas ou testes ignorados**, em **349.296 segundos**. A cobertura incluindo ramos é **94%**, acima dos 85% exigidos.
 
 ## Comportamento verificado
 
-Verificadas as opções de disco na origem/destino e na saída da restauração, mantendo proteções de temporários, montagens e caminhos. Políticas diferentes por job foram testadas no preflight, inventário, exclusões, estado inválido, transferências e verificação manual/agendada; as mensagens identificam o job que falhou.
+Jobs independentes concluem exclusões, preflight, inventário, transferências/retenção, confirmação do estado, verificação agendada e resumo antes do próximo inventário. Testes locais reais comparam comandos combinados e separados para encadeamentos simples/lotes nos modos simples/hash após adicionar, alterar e remover arquivos. Conferem origens e exclusões recém-produzidas, invalidação do cache persistente em edições com tamanho/mtime iguais, restauração exata e verificação manual/agendada.
 
-Os testes de links cobrem arquivos, diretórios, links quebrados, ciclos, variáveis do rclone para seguir links, colisões na origem/destino, proteção de cópias/lotes/históricos expirados e redirecionamento após o inventário. READMEs bilíngues resumidos, guias completos, links recíprocos e equivalência dos exemplos foram conferidos.
+Destinos locais/S3 iguais ou aninhados são aceitos. Os testes validam cópias distintas protegidas por exclusões, substituições/remoções posteriores que invalidam índices anteriores e jobs por lotes no mesmo destino cujo controle remoto pertence ao último escritor. Metadados reservados na raiz da origem e dependências não criadas por simulação falham como em comandos separados. Falhas posteriores no preflight preservam trabalho já concluído; políticas de continuação e interrupção continuam cobertas. Limites de alertas contam por job e o progresso global permanece crescente.
 
-Todos os testes anteriores de backup, retenção, compactação, filtros, concorrência, trava de escrita, restauração, verificação, ocultação de segredos e progresso foram repetidos. Usam dados temporários, rclone/7-Zip reais e Moto em processo e por HTTP local, sem serviços reais AWS ou Cronitor.
+Todos os testes anteriores de backup, retenção, compactação, filtros, concorrência, discos/montagens, links simbólicos, trava, recuperação, verificação, ocultação de segredos e progresso foram repetidos. Usam dados temporários, rclone/7-Zip reais e Moto em processo e por HTTP local, sem serviços AWS ou Cronitor reais. Exemplos bilíngues públicos e links recíprocos dos guias também passaram.
 
 ## Distribuição
 
-| Suíte | Aprovados |
+| Suíte | Passaram |
 | --- | ---: |
 | `tests.test_batches` | 17 |
-| `tests.test_config` | 16 |
+| `tests.test_config` | 17 |
 | `tests.test_disks` | 10 |
 | `tests.test_examples` | 5 |
 | `tests.test_filtering` | 11 |
 | `tests.test_hardening` | 10 |
 | `tests.test_job_errors` | 10 |
+| `tests.test_job_independence` | 11 |
 | `tests.test_local_integration` | 28 |
 | `tests.test_log_retention` | 9 |
 | `tests.test_mounts` | 11 |
@@ -31,14 +32,14 @@ Todos os testes anteriores de backup, retenção, compactação, filtros, concor
 | `tests.test_protection` | 7 |
 | `tests.test_recovery` | 15 |
 | `tests.test_retention_alerts` | 10 |
-| `tests.test_s3_http` | 21 |
-| `tests.test_s3_integration` | 19 |
+| `tests.test_s3_http` | 22 |
+| `tests.test_s3_integration` | 20 |
 | `tests.test_secrets` | 25 |
 | `tests.test_security_examples` | 2 |
 | `tests.test_services` | 20 |
 | `tests.test_symlinks` | 7 |
 | `tests.test_verification_modes` | 13 |
-| **TOTAL** | **287** |
+| **TOTAL** | **301** |
 
 ## Reproduzir
 
@@ -54,11 +55,11 @@ Name                     Stmts   Miss Branch BrPart  Cover   Missing
 sambinha/__init__.py         1      0      0      0   100%
 sambinha/batches.py         56      0     26      0   100%
 sambinha/cli.py             47      6      8      1    84%   52-54, 58-60
-sambinha/config.py         210      4    116      4    98%   144, 147, 192, 215
+sambinha/config.py         204      4    110      4    97%   143, 146, 184, 207
 sambinha/disks.py           26      0     14      0   100%
-sambinha/engine.py         549     12    198     20    96%   106, 134->124, 155->157, 167, 176->178, 182->184, 197->173, 203->205, 265->267, 285->287, 310->308, 313, 316, 469, 485-486, 490, 492->509, 502, 508, 620, 629
+sambinha/engine.py         538     11    194     19    96%   107, 135->125, 156->158, 168, 177->179, 183->185, 198->174, 204->206, 266->268, 286->288, 311->309, 314, 317, 482-483, 487, 489->506, 499, 505, 510, 577
 sambinha/errors.py          18      0      4      0   100%
-sambinha/filtering.py       93      6     34      2    92%   41-45, 74->76, 84
+sambinha/filtering.py       93      8     34      3    90%   24-25, 41-45, 74->76, 84
 sambinha/inventory.py      140      6     72      5    95%   39, 46, 54, 65, 101, 120
 sambinha/logging.py         79      1     26      2    97%   63->68, 71
 sambinha/mounts.py          19      1     12      1    94%   17
@@ -73,5 +74,5 @@ sambinha/secrets.py         22      0      6      0   100%
 sambinha/state.py          119     16     70     17    83%   25, 46, 52, 58, 63, 82, 90, 94, 106, 108, 109->114, 111, 117, 120, 123, 125, 131
 sambinha/storage.py        103     12     38      3    88%   75-76, 81-82, 83->85, 107, 109-110, 128-129, 132-134
 --------------------------------------------------------------------
-TOTAL                     1982     84    804     71    94%
+TOTAL                     1965     85    794     71    94%
 ```
