@@ -57,7 +57,7 @@ class Progress:
             # Paths can contain terminal control characters, including newlines.
             label = self.redact(f"{stage} | {directory}")
             label = "".join(c if c.isprintable() else "?" for c in label)
-            self.stream.write(f"\r\033[2K{label} | {root.percent:5.1f}% do backup (estimado)")
+            self.stream.write(f"\r\033[2K{root.percent:5.1f}% do backup (estimado) | {label}")
             self.stream.flush()
             root.stage, root.directory, root.last_time, root.visible = stage, directory, now, True
 

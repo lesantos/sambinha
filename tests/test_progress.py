@@ -26,7 +26,7 @@ class ProgressTests(Sandbox):
         progress = Progress(terminal, clock=clock)
         progress.update('Inventário simples', '/dados/pasta', 1, 4)
         first = terminal.getvalue()
-        self.assertIn('Inventário simples | /dados/pasta |  25.0% do backup (estimado)', first)
+        self.assertTrue(first.startswith('\r\033[2K 25.0% do backup (estimado) | Inventário simples | /dados/pasta'))
         progress.update('Inventário simples', '/dados/outra', 2, 4)
         self.assertIn('/dados/outra', terminal.getvalue())
         second = terminal.getvalue()
