@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.6.2**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.7.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -182,7 +182,14 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 - Documentar arquivo de exclusões e padrões nativos nos dois READMEs. Incluir o caminho nos exemplos TOML e modelos UTF-8 sem exclusões ativas. Configurar `~/sambinha/sambinha.toml` para `./excludes.txt`, criando o arquivo inicialmente sem regras ativas.
 - Testar progresso global crescente, conclusão concorrente fora de ordem, múltiplas tarefas, subdiretórios e separação terminal/auditoria. Repetir todos os testes e publicar a release 0.6.2 com fonte/wheel.
 
-## 16. Marcos de release solicitados
+## 16. Retenção de logs e consolidação da release — 0.7.0
+
+- Adicionar `log_retention_days = 14` em `[backup]`, nos exemplos TOML públicos e na configuração real; `0` desativa a limpeza e `--log-retention-days` substitui o valor para uma execução.
+- Backups, restaurações e verificações normais removem somente logs `.jsonl` regulares, reconhecidos e inativos do Sambinha, mais antigos que a idade configurada desde a última escrita. Preservar o limite exato, logs atuais/abertos, links, subdiretórios e arquivos de outros tipos. Simulações não removem logs.
+- Colocar o percentual global estimado no começo da linha de progresso, seguido da etapa e do subdiretório em trabalho.
+- Publicar 0.7.0 incluindo todos os commits posteriores a 0.6.2, metadados/relatórios bilíngues atualizados e fonte/wheel/checksums; confirmar envio de main e da tag ao GitHub.
+
+## 17. Marcos de release solicitados
 
 | Marco | Escopo solicitado |
 | --- | --- |
@@ -193,5 +200,6 @@ Aceitação: cada guia mantido deve ter versão correspondente e links recíproc
 | 0.6.0 | Documentação em inglês por padrão com versões pt-BR. A release publicada 0.6.0 contém as alterações acumuladas acima. |
 | 0.6.1 | Tamanho/mtime por padrão com hash opcional; progresso exclusivo do terminal, documentação bilíngue e repetição da suíte completa. |
 | 0.6.2 | Percentual global do backup, terminal conciso com subdiretórios, exclusões documentadas/configuradas e artefatos da release. |
+| 0.7.0 | Retenção configurável de 14 dias de logs e percentual no começo da linha; consolidar e publicar tudo desde 0.6.2. |
 
 Os marcos registram escopo e decisões de versão; não significam que toda versão intermediária foi publicada separadamente. Os detalhes operacionais estão no [guia de uso](usage.pt-BR.md), [guia de performance](performance.pt-BR.md), [guia de S3](s3.pt-BR.md), [segurança](../SECURITY.pt-BR.md) e [README](../README.pt-BR.md).

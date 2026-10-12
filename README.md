@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.6.2**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.7.0**.
 
 ## How it protects your files
 
@@ -66,6 +66,10 @@ Keep the destination outside the source. Use a destination managed exclusively b
 
 Simulation writes a report and reads inventories, but creates no backup state or archives, transfers or deletes no backup objects, and sends no Cronitor notifications. Each job ends with a `summary` record containing new, modified, unchanged and removed files, batches reused/rebuilt, planned original bytes, transferred payload bytes, pending history entries and success. Compression can make transferred bytes differ from planned bytes. Empty source directories are preserved by local simple backups.
 
+## Jobs and parallel execution
+
+Jobs execute sequentially in TOML order after preflight inventories. Concurrency settings apply inside each job. Normal backup and verification invocations acquire a nonblocking exclusive lock in `state_dir`: a second invocation using the same state directory exits with an error rather than waiting or modifying backup data. This also applies to different `--job` selections. Dry runs and restores do not acquire that writer lock. Independent state directories can run concurrently and should manage separate destinations.
+
 ## Log retention
 
 `[backup].log_retention_days = 14` keeps Sambinha audit logs written within the last 14 days. Set a different number of days, or `0` to keep logs indefinitely. `--log-retention-days 30` overrides the setting for one invocation. Non-simulated backup, restore and verification runs remove only inactive regular log files matching Sambinha's timestamp/UUID `.jsonl` naming format in `log_dir`. The age is measured from the last write, not the filename date. The current log, logs held open by other invocations, symlinks, subdirectories and unrelated files are preserved. Dry runs do not remove logs. No separate cleanup timer is installed.
@@ -95,7 +99,7 @@ Or select a mode for one invocation:
 
 The simple mode intentionally cannot detect a content edit that preserves both size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching from simple to hash computes fresh hashes; switching batch modes can rebuild archives because their indexed metadata changes. Hash verification of an index without hashes requires a hash-mode backup first. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
 
-During interactive execution, stderr displays the current stage, working subdirectory and one estimated percentage for the entire backup. The estimate reserves 20% for preflight/inventories, 75% for jobs weighted by source bytes, and 5% for finalization. File/byte counters, directory queues and bounded elapsed-time estimates advance within those ranges. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
+During interactive execution, stderr displays one estimated percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate reserves 20% for preflight/inventories, 75% for jobs weighted by source bytes, and 5% for finalization. File/byte counters, directory queues and bounded elapsed-time estimates advance within those ranges. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
 
 ## Restore a file, folder or complete backup
 

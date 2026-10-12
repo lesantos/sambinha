@@ -1,29 +1,30 @@
-# Sambinha 0.6.2 test results
+# Sambinha 0.7.0 test results
 
 [Português do Brasil](test-results.pt-BR.md)
 
-Run on 2026-10-11, Linux, Python 3.12.3: **250 tests passed, no failures or skips**, in **397.585 seconds**. Branch-inclusive coverage is **93%**, above the required 85%.
+Run on 2026-10-11, Linux, Python 3.12.3: **260 tests passed, no failures or skips**, in **497.287 seconds**. Branch-inclusive coverage is **94%**, above the required 85%.
 
 ## Verified behavior
 
-- Default metadata-only inventories and copies compare size in bytes and nanosecond modification time without source hash reads or destination hash listings. Tests cover first/repeated backups, size-only and one-nanosecond edits, unchanged size/time edits deliberately skipped, and switches between simple and hash modes.
-- Local and real-rclone HTTP/S3 metadata-mode round trips, protected newer destinations, durable history, verification and restoration. Batch archives retain upload checksums and 7-Zip validation in both modes.
-- Global progress stays monotonic across stages/directories/jobs, aggregates concurrent batches by bytes and displays 100% only after success. The terminal hides per-file events and shows actual copy subdirectories; the audit preserves all details. It is throttled, disabled outside terminals and absent from stdout/JSON logs. Interrupted backups log an unsuccessful end.
-- All previous planner, recovery, removal/disk safeguards, exclusions, mounts, retention, notifications, secrets, cache/concurrency/profile and bilingual example tests were rerun successfully. Existing content-verification tests explicitly choose hash mode.
+- Configurable 14-day audit-log retention, TOML/CLI overrides, zero disabling cleanup, exact age boundaries and protection of current/open logs, unrelated files, symlinks and subdirectories. Tests cover replacement/deletion races and backup/restore/verify cleanup; dry runs preserve old logs.
+- Percentage-first terminal progress stays monotonic across directories, stages, jobs and concurrent batches, showing 100% only after success. Copy groups display their actual subdirectory. Per-file details remain in the JSON audit and are hidden in the interactive console.
+- Default metadata-only inventories compare size and nanosecond modification time; hash mode, cache reuse/refresh, mode switching, local and HTTP/S3 round trips, integrity checks and restoration remain covered.
+- All previous packing, history, retention, disk/mount/removal safeguards, writer locking, newer-destination protection, filtering, secrets, notifications, concurrency/compression profiles and bilingual public-example tests were rerun.
 
-The tests use temporary data, real rclone and 7-Zip, and Moto in-process and over localhost HTTP. No real AWS or Cronitor services were used. A historical 0.6.1 read-only scan of `/mnt/dados` inventoried **1,031 files / 13,354,222,707 bytes in 3.784 seconds** in simple mode. A dry run with the actual configuration succeeded; these measurements do not include copying and are not general speed guarantees.
+Tests use temporary data, real rclone and 7-Zip, and Moto in-process and over localhost HTTP. No real AWS or Cronitor services were used. Release version and CLI/default-retention checks also passed using the built wheel in an isolated directory.
 
 ## Distribution
 
 | Suite | Passed |
 | --- | ---: |
 | `tests.test_batches` | 17 |
-| `tests.test_config` | 12 |
+| `tests.test_config` | 13 |
 | `tests.test_disks` | 5 |
 | `tests.test_examples` | 5 |
 | `tests.test_filtering` | 11 |
 | `tests.test_hardening` | 10 |
 | `tests.test_local_integration` | 28 |
+| `tests.test_log_retention` | 9 |
 | `tests.test_mounts` | 11 |
 | `tests.test_performance` | 8 |
 | `tests.test_progress` | 13 |
@@ -51,26 +52,24 @@ Name                     Stmts   Miss Branch BrPart  Cover   Missing
 sambinha/__init__.py         1      0      0      0   100%
 sambinha/batches.py         56      0     26      0   100%
 sambinha/cli.py             47      6      8      1    84%   52-54, 58-60
-sambinha/config.py         203      4    112      4    97%   136, 139, 184, 207
+sambinha/config.py         204      4    112      4    97%   138, 141, 186, 209
 sambinha/disks.py           22      1     12      1    94%   15
-sambinha/engine.py         527     14    186     20    95%   101, 129->119, 148->150, 160, 169->171, 175->177, 190->166, 196->198, 203-204, 254->256, 272->274, 297->295, 300, 303, 457, 469-470, 474, 480->482, 493, 499, 595, 604
+sambinha/engine.py         531     14    190     20    95%   101, 129->119, 148->150, 160, 169->171, 175->177, 190->166, 196->198, 203-204, 254->256, 272->274, 297->295, 300, 303, 457, 469-470, 474, 480->482, 493, 499, 599, 608
 sambinha/errors.py           2      0      0      0   100%
 sambinha/filtering.py       88      8     34      3    89%   22-23, 38-42, 70->72, 80
 sambinha/inventory.py      128      6     66      5    94%   37, 44, 52, 61, 84, 105
-sambinha/logging.py         39      0     10      0   100%
+sambinha/logging.py         79      1     26      2    97%   63->68, 71
 sambinha/mounts.py          19      1     12      1    94%   17
 sambinha/notify.py          22      1     10      2    91%   17->exit, 21
 sambinha/process.py         71      2     18      1    97%   52-53, 69->exit
 sambinha/profiles.py        11      0      2      0   100%
 sambinha/progress.py        88      0     14      0   100%
 sambinha/protection.py      21      0      8      0   100%
-sambinha/recovery.py       235     18    104     17    90%   36, 43, 76, 82, 89, 91, 94, 102, 124, 150->148, 168, 206, 222, 238->240, 248, 256, 263-266
+sambinha/recovery.py       239     17    108     15    91%   36, 43, 76, 82, 89, 91, 94, 102, 124, 150->148, 168, 206, 222, 248, 267-270
 sambinha/retention.py       41      2     12      0    96%   28-29
 sambinha/secrets.py         22      0      6      0   100%
 sambinha/state.py          119     16     70     17    83%   25, 46, 52, 58, 63, 82, 90, 94, 106, 108, 109->114, 111, 117, 120, 123, 125, 131
 sambinha/storage.py         96     12     34      3    87%   70-71, 76-77, 78->80, 102, 104-105, 121-122, 125-127
 --------------------------------------------------------------------
-TOTAL                     1858     91    744     75    93%
+TOTAL                     1907     91    768     75    94%
 ```
-
-Release 0.6.2 also validates exclusion-file paths in public and live configurations, UTF-8 templates with no active rules and README patterns using real rclone. Final checks reran subprocess, progress and example tests after release metadata updates.

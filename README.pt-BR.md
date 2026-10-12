@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.6.2**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.7.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -200,6 +200,10 @@ Todas as opções públicas de configuração estão em [sambinha.example.toml](
 
 As orientações e os resultados da auditoria de credenciais estão em [SECURITY.md](SECURITY.pt-BR.md). A CI também verifica o histórico completo para detectar novas credenciais no código.
 
+## Jobs e execuções em paralelo
+
+Os jobs executam sequencialmente, na ordem do TOML, depois dos inventários do preflight. As opções de concorrência atuam dentro de cada job. Backups e verificações normais obtêm uma trava exclusiva sem espera em `state_dir`: uma segunda execução usando o mesmo diretório de estado termina com erro, antes de alterar dados do backup. Isso também vale para seleções `--job` diferentes. Simulações e restaurações não obtêm essa trava de escrita. Diretórios de estado independentes podem executar em paralelo e devem administrar destinos separados.
+
 ## Retenção dos logs
 
 `[backup].log_retention_days = 14` mantém os logs de auditoria do Sambinha escritos nos últimos 14 dias. Escolha outro número de dias ou `0` para guardar os logs indefinidamente. `--log-retention-days 30` substitui a configuração para uma execução. Backups, restaurações e verificações sem simulação removem apenas arquivos de log regulares e inativos com o formato de nome timestamp/UUID `.jsonl` do Sambinha, diretamente em `log_dir`. A idade conta da última escrita, não da data no nome. O log atual, logs abertos por outras execuções, links simbólicos, subdiretórios e arquivos de outros tipos são preservados. Simulações não removem logs. A limpeza depende das execuções do programa; não instala um timer separado.
@@ -229,11 +233,11 @@ Também é possível escolher o modo para uma execução:
 
 O modo simples não detecta uma edição que preserve simultaneamente tamanho e data de modificação. O modo hash lê o conteúdo no primeiro inventário e periodicamente depois. Trocar de simples para hash calcula hashes novos; trocar o modo em backups por lotes pode reconstruir os arquivos compactados porque os metadados do índice mudam. Para verificar por hash um índice que ainda não os possui, faça primeiro um backup no modo hash. `logic = "simple"`/`"batch"` escolhe a estratégia de armazenamento, independentemente de `verification_mode`. Lotes e controles de recuperação mantêm checksums nos dois modos.
 
-Durante a execução interativa, o stderr exibe etapa, subdiretório em trabalho e um percentual estimado para o backup inteiro. A estimativa reserva 20% para verificações/inventários, 75% para tarefas ponderadas pelos bytes da origem e 5% para finalização. Contadores de arquivos/bytes, filas de diretórios e estimativas limitadas por tempo decorrido avançam dentro dessas faixas. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
+Durante a execução interativa, o stderr exibe o percentual estimado do backup inteiro no começo da linha, seguido da etapa e do subdiretório em trabalho. A estimativa reserva 20% para verificações/inventários, 75% para tarefas ponderadas pelos bytes da origem e 5% para finalização. Contadores de arquivos/bytes, filas de diretórios e estimativas limitadas por tempo decorrido avançam dentro dessas faixas. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
-## Novidades de 0.4.0 a 0.6.2
+## Novidades de 0.4.0 a 0.7.0
 
-A versão atual é **0.6.2**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.7.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

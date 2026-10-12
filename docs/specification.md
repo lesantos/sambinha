@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.6.2**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.7.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -182,7 +182,14 @@ Acceptance: every maintained guide must have a matching language companion with 
 - Document exclusion-file setup and native patterns in both READMEs. Include a path in both public TOML examples and ship matching UTF-8 templates without active exclusions. Configure the user's `~/sambinha/sambinha.toml` to use `./excludes.txt`, creating the initially inactive file.
 - Test monotonic global progress, out-of-order concurrent completions, multiple jobs, subdirectory display and terminal/audit separation. Rerun all tests and publish the 0.6.2 release with source/wheel artifacts.
 
-## 16. Requested release milestones
+## 16. Audit-log retention and release consolidation — 0.7.0
+
+- Add `log_retention_days = 14` in `[backup]`, both public TOML examples and the live configuration; `0` disables cleanup and `--log-retention-days` overrides one invocation.
+- Normal backup, restore and verification invocations remove only inactive, recognized regular Sambinha `.jsonl` logs older than the configured last-write age. Preserve the exact boundary, current/open logs, symlinks, subdirectories and unrelated files. Dry runs never remove logs.
+- Put the overall estimated backup percentage at the beginning of each progress line, followed by stage and working subdirectory.
+- Release version 0.7.0 with all post-0.6.2 commits, refreshed bilingual metadata/test reports and source/wheel/checksum artifacts; confirm main and the release tag are pushed to GitHub.
+
+## 17. Requested release milestones
 
 | Milestone | Requested scope |
 | --- | --- |
@@ -193,5 +200,6 @@ Acceptance: every maintained guide must have a matching language companion with 
 | 0.6.0 | English-default documentation with Brazilian Portuguese companions. The published 0.6.0 release contains the accumulated changes above. |
 | 0.6.1 | Default size/mtime verification with optional hash mode; terminal-only progress, bilingual documentation and full test rerun. |
 | 0.6.2 | Overall backup percentage, quiet terminal with working subdirectories, documented/configured exclusion files and release artifacts. |
+| 0.7.0 | Configurable 14-day log retention and percentage-first progress; consolidate and publish all changes since 0.6.2. |
 
 These milestones record the requested scope and version decisions; they do not imply that every intermediate version was separately published. Operational detail is in the [usage guide](usage.md), [performance guide](performance.md), [S3 guide](s3.md), [security notes](../SECURITY.md) and [README](../README.md).

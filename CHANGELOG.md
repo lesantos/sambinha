@@ -2,9 +2,9 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
-## Unreleased
+## 0.7.0 — 2026-10-11
 
-Add configurable audit-log retention: `log_retention_days = 14` by default, with `0` disabling cleanup and a CLI override. Normal backup, restore and verification invocations prune inactive, recognized log files by last-write age. Current/open logs, unrelated files, symlinks and nested directories remain protected; dry runs never prune logs. Bilingual configuration examples and READMEs document the setting. Validation: 260 tests passed, plus 50 final focused checks; combined branch-inclusive coverage is 94%.
+Add configurable audit-log retention: `log_retention_days = 14` by default, with `0` disabling cleanup and a CLI override. Normal backup, restore and verification invocations prune inactive, recognized log files by last-write age. Current/open logs, unrelated files, symlinks and nested directories remain protected; dry runs never prune logs. Progress lines now put the overall percentage first, before the stage and working subdirectory. Bilingual configuration examples and READMEs document log retention and exclusion files. This release includes all changes committed after 0.6.2.
 
 ## 0.6.2 — 2026-10-11
 

@@ -2,10 +2,9 @@
 
 [English](CHANGELOG.md)
 
-## Ainda não publicado
+## 0.7.0 — 2026-10-11
 
-Retenção configurável de logs de auditoria: `log_retention_days = 14` por padrão; `0` desativa a limpeza, com override na CLI. Backups, restaurações e verificações normais removem logs reconhecidos e inativos pela idade da última escrita. Logs atuais/abertos, arquivos de outros tipos, links e subdiretórios são protegidos; simulações não limpam logs. Exemplos e READMEs bilíngues documentam a opção. Validação: 260 testes passaram, mais 50 checks focados finais; cobertura combinada com branches de 94%.
-
+Retenção configurável de logs de auditoria: `log_retention_days = 14` por padrão; `0` desativa a limpeza, com override na CLI. Backups, restaurações e verificações normais removem logs reconhecidos e inativos pela idade da última escrita. Logs atuais/abertos, arquivos de outros tipos, links e subdiretórios são protegidos; simulações não limpam logs. O percentual global agora aparece no começo da linha de progresso, antes da etapa e do subdiretório. Exemplos e READMEs bilíngues documentam retenção e exclusões. Esta release inclui todas as mudanças commitadas depois de 0.6.2.
 
 ## 0.6.2 — 2026-10-11
 
