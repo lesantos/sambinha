@@ -10,7 +10,7 @@ from sambinha.errors import BackupError, JobError, job_errors
 from sambinha.inventory import scan
 from sambinha.recovery import recover, verify_job
 from sambinha.storage import Storage
-from tests.helpers import REAL_TOOLS, Sandbox, contents
+from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.test_disks import Usage
 
 
@@ -43,7 +43,7 @@ class JobFailurePolicyTests(Sandbox):
         second_source = self.root / 'second-source'
         second_source.mkdir(exist_ok=True)
         (second_source / 'file').write_bytes(b'second')
-        first = replace(self.config.jobs[0], destination=str(self.root / ('first-' + suffix)),
+        first = replace(self.config.jobs[0], logic='batch', destination=str(self.root / ('first-' + suffix)),
                         continue_on_job_error=policy)
         second = replace(first, name='second', source=second_source, continue_on_job_error=not policy,
                          destination=str(self.root / ('second-' + suffix)))
@@ -60,7 +60,9 @@ class JobFailurePolicyTests(Sandbox):
         self.assertFalse(self.events[-1]['success'])
         second = config.jobs[1]
         if config.jobs[0].continue_on_job_error:
-            self.assertEqual(contents(Path(second.destination)), contents(second.source))
+            state = json.loads((config.state_dir / 'second' / 'state.json').read_text())
+            restored = self.root / ('restored-' + second.name)
+            self.assertEqual(restore_batches(state, Path(second.destination), restored), contents(second.source))
         else:
             self.assertFalse(Path(second.destination).exists())
             self.assertFalse((config.state_dir / 'second' / 'state.json').exists())
@@ -135,7 +137,12 @@ class JobFailurePolicyTests(Sandbox):
                 self.assertEqual(self.execute(config), 0)
                 (config.state_dir / 'test' / 'state.json').unlink()
                 output, notifications = io.StringIO(), []
-                with redirect_stdout(output):
+                original = Storage.get
+                def fail_index(storage, key, target):
+                    if storage.job.name == 'test' and key == '.sambinha/control.tar.gz':
+                        raise BackupError('índice inválido')
+                    return original(storage, key, target)
+                with patch.object(Storage, 'get', fail_index), redirect_stdout(output):
                     result = recover(config, 'verify', notifier=lambda *args: notifications.append(args))
                 self.assertEqual(result, 1)
                 events = [json.loads(line) for line in output.getvalue().splitlines()]

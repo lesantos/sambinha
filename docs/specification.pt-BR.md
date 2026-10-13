@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.9.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.10.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -11,7 +11,7 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 - Manter o projeto no repositório privado `lesantos/sambinha` do GitHub, com README, guias de uso/recuperação, exemplos públicos de configuração, testes e notas de release.
 - Validar dependências, origens configuradas, montagens e ocupação dos discos locais antes das transferências. Tarefas independentes devem continuar após uma falha por tarefa; uma falha global de preflight pode interromper a execução antes dos envios.
 - Usar configuração TOML com opções globais em `[backup]` e tarefas independentes em `[[jobs]]`. Aceitar arquivo alternativo e sobreposições pela CLI; argumentos omitidos herdam os valores do arquivo.
-- Permitir que uma origem tenha várias tarefas, destinos e estratégias independentes. Recusar sobreposição entre a própria origem/destino de um job e com estado/logs; permitir sobreposição entre origens e destinos de jobs diferentes.
+- Permitir que uma origem tenha várias tarefas, destinos e estratégias independentes. Recusar destinos sobrepostos entre jobs e sobreposição entre origem/destino do próprio job ou com estado/logs. Permitir que o destino de um job anterior seja a origem de outro posterior.
 - Resolver caminhos relativos a partir da pasta do TOML e aceitar referências ao diretório pessoal e a variáveis de ambiente.
 - Limitar timeouts e fazer uma tentativa inicial de transferência mais, no máximo, três retentativas, com dois segundos entre elas.
 
@@ -19,10 +19,10 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 
 - Suportar pastas locais, inclusive volumes montados, e Amazon S3. Ambos os destinos devem aceitar as estratégias `simple` e `batch`.
 - Copiar somente arquivos ausentes ou diferentes no destino. Usar checksums, sem reduzir a comparação ao tamanho quando um checksum necessário estiver indisponível.
-- A cópia simples deve preservar caminhos e atributos/permissões quando suportados. A cópia simples local deve preservar diretórios vazios. S3 não oferece permissões POSIX nativas; metadados originais ficam disponíveis no índice.
+- Backups simples delegam sincronização e exclusões ao rclone; sync local preserva metadados e diretórios vazios quando suportado. S3 não oferece permissões POSIX nativas.
 - Se o destino tiver um arquivo mais novo, preservá-lo, registrar o conflito e falhar aquela tarefa. Nos lotes, comparar datas originais do índice confirmado, não as datas de upload dos arquivos compactados.
-- Reter arquivos apagados na origem por 10 dias e versões anteriores de arquivos editados por 2 dias por padrão, com prazos configuráveis. Limpar histórico em execuções seguintes, inclusive no instante exato do prazo; retenção zero permite limpeza imediata.
-- Preservar os bytes históricos da cópia simples e confirmar o registro de aposentadoria antes de substituir ou apagar o arquivo atual no destino. Lotes aposentados devem ficar nas chaves imutáveis até expirar. Um lote com arquivos editados e apagados usa o maior prazo aplicável.
+- Jobs simples usam `--backup-dir` para guardar arquivos substituídos/apagados e expiram o histórico pelo maior valor entre `deleted_days` e `version_days`, pois o rclone não distingue esses motivos. Jobs batch retêm arquivos apagados por 10 dias e versões editadas por 2 dias por padrão, com prazos configuráveis.
+- Lotes aposentados devem ficar nas chaves imutáveis até expirar. Um lote com arquivos editados e apagados usa o maior prazo aplicável.
 - Lotes reativados não podem ser apagados por registros antigos de aposentadoria. Registrar nova tentativa quando a limpeza de retenção terminar localmente, mas a atualização do índice remoto falhar.
 - Usar `GLACIER_IR` como padrão S3, com classes configuráveis. Documentar acesso e características de cobrança no código/exemplos/guias, sem preços fixos. A cópia simples S3 exige uma classe legível sem restore assíncrono.
 - Guardar controles JSON e `.sambinha/control.tar.gz` em `STANDARD`, mesmo quando os lotes de dados usam classes mais frias.
@@ -73,11 +73,10 @@ Aceitação: executar rclone real contra servidor HTTP que permite HEAD e recusa
 
 ## 6. Proteção contra remoções em massa — funcionalidade selecionada 3 / 0.4.0
 
-- Comparar a seleção atual da origem com o inventário selecionado confirmado anterior, retirando caminhos excluídos pelas regras atuais.
-- Bloquear a tarefa antes de alterar histórico, enviar, substituir ou limpar retenção quando a quantidade anterior atingir `deletion_min_files` e a remoção superar `max_delete_percent`.
-- Usar como padrão pelo menos 20 arquivos anteriores selecionados e remoção estritamente acima de 50%. Exatamente o limite é permitido; o primeiro backup não tem referência anterior e é permitido.
-- Aceitar limites configuráveis e `--allow-mass-deletion` para autorizar remoções intencionais em uma única execução. Não persistir essa autorização na configuração ou no estado da tarefa.
-- Registrar caminhos removidos, contagens e limite, retornar falha e notificar o Cronitor quando configurado. Outras tarefas independentes podem continuar.
+- Aplicar `max_delete` absoluto por job aos jobs simples via rclone; manter o limite percentual para batches usando o índice confirmado anterior.
+- Usar `--allow-mass-deletion` para ignorar o limite aplicável em uma única execução.
+- Limites batch configuráveis retêm os padrões anteriores de 20 arquivos e 50%; `max_delete` simples tem padrão absoluto 100.
+- Retornar falha e notificar Cronitor quando rclone exceder o limite; outras tarefas independentes podem continuar.
 - Manter este bloqueio de remoção na origem separado do alerta consultivo de exclusão definitiva do histórico.
 
 Aceitação: tarefas simples e por lotes bloqueadas devem manter destino e estado confirmado sem alterações. Casos no limite exato e autorização explícita de uma execução devem obedecer à configuração.
@@ -126,7 +125,7 @@ As seis melhorias foram selecionadas para implementação, na prioridade de P1 a
 | Prioridade | Melhoria exigida | Configuração e aceitação |
 | --- | --- | --- |
 | P1 | Cache de fingerprints de arquivos intactos. | `fingerprint_cache = true`; reutilização exige dispositivo, inode, tamanho, mtime/ctime em nanossegundos e permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa periódica; `--no-fingerprint-cache` desativa. Editar com tamanho igual e mtime restaurado deve invalidar o cache pelo ctime. |
-| P2 | Transferências simples agrupadas em operações limitadas do rclone. | `transfer_group_size = 100`, `transfer_workers = 4`; usar listas literais, confirmar histórico antes e manter checksums/proteção de destino mais novo/consistência da origem. Conferir menos processos e bytes recuperados exatos. |
+| P2 | Delegar backups simples ao rclone sync nativo. | Um `rclone sync` percorre a origem, aplica exclusões nativas, controla concorrência e remoções. `max_delete` é absoluto por job; `--backup-dir` guarda arquivos deslocados. |
 | P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Compactação e envio de lotes com concorrência limitada. | `batch_workers = 2`; cada worker tem staging e relatórios de subprocesso próprios. Confirmar somente após todos os envios necessários. Testar concorrência real e limite configurado. |
 | P5 | Reutilização dos resultados de filtros na execução. | Guardar resultados imutáveis de seleções iguais de caminhos históricos; manter matcher do rclone e regras congeladas. Não levar resultados desatualizados a execuções seguintes. |
@@ -210,4 +209,8 @@ Os marcos registram escopo e decisões de versão; não significam que toda vers
 
 ## 18. Jobs sequenciais independentes — 0.9.0
 
-Cada job conclui exclusões, preflight, inventário/cache próprios, transferências/retenção, estado, verificação devida e resumo antes de o próximo começar. Permitir sobreposição entre origens/destinos e destinos de jobs diferentes, inclusive prefixos S3. Manter proteções da própria origem/destino e de diretórios internos. Resultados bem-sucedidos de cópia/verificação devem equivaler a comandos separados na mesma ordem; falhas posteriores no preflight preservam os jobs anteriores concluídos. Alertas de exclusão contam por job e progresso usa faixas iguais. O compartilhamento de inventários entre jobs deixa de valer. Documentar substituição/remoção, índices desatualizados, controles compartilhados de recuperação, metadados reservados na raiz e dependências de simulações. Validar encadeamentos locais simples/lotes nos dois modos, atualização de estado/cache, exclusões produzidas anteriormente, destinos locais/S3 sobrepostos, restauração e verificação agendada/manual. Executar toda a suíte e publicar 0.9.0 com fonte, wheel e checksums.
+Cada job conclui exclusões, preflight, inventário/cache próprios, transferências/retenção, estado, verificação devida e resumo antes de o próximo começar. O compartilhamento de inventários entre jobs deixa de valer. Em 0.9.0, sobreposições entre destinos de jobs eram permitidas; essa permissão foi substituída em 0.10.0.
+
+## 19. Histórico simples, conflitos e restauração seletiva — 0.10.0
+
+Recusar destinos sobrepostos entre jobs e permitir que o destino de um job anterior seja origem de um posterior. No final de cada job simples, expirar históricos `--backup-dir` pelo maior prazo de exclusão/versão, pois o rclone não identifica por que cada caminho foi deslocado. Preservar arquivos mais novos no destino, informar os caminhos e falhar o job para revisão manual. Permitir que o rclone substitua conflitos de tipo arquivo/diretório, preservando os itens deslocados no histórico. Aceitar seletores `restore --path` repetidos para arquivos/diretórios atuais de jobs simples. Cobrir comportamento local e S3 e executar toda a suíte antes de publicar 0.10.0.

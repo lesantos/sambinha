@@ -2,6 +2,12 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.10.0 — 2026-10-12
+
+Keep simple jobs on native `rclone sync` and `--backup-dir`, and purge expired run histories as the final job step using the longer of `deleted_days` and `version_days` (rclone history does not distinguish deletions from replacements). Preserve destination files newer than the source, report their paths and fail the job for manual review. Automatically replace file/directory type conflicts while retaining the displaced data in history. Add `restore --path` for selected current files and directories in simple jobs. Reject overlapping destinations across jobs while allowing an earlier destination to feed a later source. Keep the per-job absolute `max_delete` limit and rclone native exclusions.
+
+Update bilingual guidance and tests for local/S3 history expiry, newer destinations, replacements, overlapping destinations, selected restores and batch retention alerts.
+
 ## 0.9.1 — 2026-10-12
 
 Show rclone's live transfer percentage during interactive bulk copies, so the overall backup progress follows the active transfer instead of a time-based estimate. Keep elapsed-time estimates for other opaque subprocess work. Update bilingual usage/configuration documentation and release metadata.

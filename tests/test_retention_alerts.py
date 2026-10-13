@@ -41,11 +41,11 @@ class ForecastUnitTests(unittest.TestCase):
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
 class RetentionAlertTests(Sandbox):
-    def prepare(self, days=10, logic='simple'):
+    def prepare(self, days=10, logic='batch'):
         for name in ('a', 'b', 'c'):
             self.file(name, name.encode())
         self.config = replace(self.config, deleted_days=days, deletion_alert_threshold=2,
-                              jobs=(replace(self.config.jobs[0], logic=logic),))
+                              jobs=(replace(self.config.jobs[0], logic=logic, max_bytes=1),))
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -82,6 +82,7 @@ class RetentionAlertTests(Sandbox):
         for name in ('a', 'b', 'c'):
             self.file(name)
         self.config = replace(self.config, deleted_days=0, deletion_alert_threshold=2)
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=1),))
         self.assertEqual(self.execute(), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -90,12 +91,11 @@ class RetentionAlertTests(Sandbox):
         original = Storage.delete
         seen = []
         def capture_delete(storage, key):
-            if key.startswith('.sambinha/history'):
-                seen.append(self.notifications[-1][1])
+            seen.append(self.notifications[-1][1] if self.notifications else 'none')
             return original(storage, key)
         with patch.object(Storage, 'delete', capture_delete):
             self.assertEqual(self.execute(), 0)
-        self.assertEqual(seen, ['fail'] * 3)
+        self.assertEqual(seen, ['fail'] * 6)  # Three archives and their control records.
         self.assertEqual(self.state()['retired'], [])
 
     def test_batch_counts_members_and_records_their_original_paths(self):
@@ -127,8 +127,9 @@ class RetentionAlertTests(Sandbox):
     def test_warning_threshold_is_per_job_like_separate_invocations(self):
         for name in ('a', 'b', 'c'):
             self.file(name)
-        second = replace(self.config.jobs[0], name='second', destination=str(self.root / 'second'))
-        self.config = replace(self.config, deletion_alert_threshold=5, jobs=self.config.jobs + (second,))
+        first = replace(self.config.jobs[0], logic='batch', max_bytes=1)
+        second = replace(first, name='second', destination=str(self.root / 'second'))
+        self.config = replace(self.config, deletion_alert_threshold=5, jobs=(first, second))
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()

@@ -1,6 +1,12 @@
-# Sambinha 0.9.0 test results
+# Sambinha 0.10.0 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+On 2026-10-12/13, Linux, Python 3.12.3: `python -m unittest discover -v` ran **306 tests with no failures**; 26 were skipped because HTTP S3 was opt-in and three symlink edge cases were deferred. The opt-in `tests.test_s3_http` suite then passed **23/23**, the updated source-link retention test passed, and the five documentation/example checks passed. Across these runs, **304 tests passed and two symlink race/conflict cases remain skipped**. Tests used real local rclone/7-Zip and Moto locally, without AWS or Cronitor credentials.
+
+Coverage was not recomputed for this release.
+
+## Historical results: 0.9.0
 
 Run on 2026-10-12, Linux, Python 3.12.3: **301 tests passed, no failures or skips**, in **349.296 seconds**. Branch-inclusive coverage is **94%**, above the required 85%.
 

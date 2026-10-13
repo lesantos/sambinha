@@ -2,6 +2,7 @@
 from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import datetime, timezone
 import copy
 import json
 import os
@@ -10,8 +11,6 @@ import shutil
 import tarfile
 import tempfile
 import time
-import uuid
-from itertools import groupby
 
 from .batches import plan
 from .config import Config, Job
@@ -21,7 +20,7 @@ from .inventory import fingerprint, scan, verify, path_has_symlink
 from .logging import RunLog
 from .notify import notify
 from .process import Runner, credential_values
-from .protection import protect_newer, timestamp_ns
+from .protection import protect_newer
 from .retention import DeletionForecast, retirement, alert_time, date
 from .mounts import check_mounts
 from .state import atomic_json, load_state, lock
@@ -65,6 +64,7 @@ class Context:
                              {f["path"]: f for c in self.state["active"].values() for f in c["files"]})
         self.removed = []
         self.inventory_changed = False
+        self.max_delete = -1
 
     def event(self, event, **values):
         if event in {"batch_start", "would_batch"}:
@@ -82,8 +82,9 @@ class Context:
     def protect_deletions(self, allowed=False):
         included = self.selection.include_paths(self.before_files)
         self.removed = sorted(included - self.file_sizes.keys())
-        if (not allowed and len(included) >= self.job.deletion_min_files
-                and len(self.removed) * 100 > len(included) * self.job.max_delete_percent):
+        if not allowed and len(included) >= self.job.deletion_min_files:
+            self.max_delete = int(len(included) * self.job.max_delete_percent / 100)
+        if not allowed and self.max_delete >= 0 and len(self.removed) > self.max_delete:
             self.event("mass_deletion_blocked", removed_files=len(self.removed),
                        previous_files=len(included), threshold_percent=self.job.max_delete_percent,
                        paths=self.removed)
@@ -138,144 +139,6 @@ class Context:
                     self.storage.delete(entry["control"])
                     (self.directory / "controls" / entry["control"]).unlink(missing_ok=True)
         self.state["retired"] = remaining
-
-
-def preserve_metadata(ctx, item):
-    if ctx.job.type == "local" and not ctx.config.dry_run:
-        check_mounts(ctx.job, ctx.runner)
-        target = Path(ctx.storage.path(item.path))
-        shutil.copystat(ctx.job.source / item.path, target, follow_symlinks=False)
-
-
-def simple(ctx: Context):
-    reading = ctx.progress.scope(0, 0.1) if ctx.progress else None
-    show_progress(ctx.runner, reading)
-    destination = ctx.storage.inventory()
-    included = ctx.selection.include_paths(destination)
-    destination = {p: item for p, item in destination.items() if p in included}
-    if reading:
-        reading.update("Lendo destino", ctx.job.destination, 1, 1)
-    comparing = ctx.progress.scope(0.1, 0.25) if ctx.progress else None
-    source = {f.path: f for f in ctx.files}
-    def identical(item, remote):
-        if item is None or not remote:
-            return False
-        if ctx.config.verification_mode == "simple":
-            return remote.get("Size") == item.size and timestamp_ns(remote.get("ModTime")) == item.mtime_ns
-        hashes = remote.get("Hashes", {})
-        md5 = hashes.get("md5") or hashes.get("MD5")
-        if not md5:
-            raise BackupError(f"Destino não fornece checksum MD5: {item.path}; comparação segura impossível")
-        return remote.get("Size") == item.size and md5 == item.md5
-    protect_newer(ctx.files, {key: timestamp_ns(item.get("ModTime"))
-                             for key, item in destination.items() if key in source}, ctx.event)
-    # Before deleting or replacing a current file, preserve its previous bytes
-    # and persist the retirement record. Interrupted retries cannot lose it.
-    for index, (key, remote) in enumerate(sorted(destination.items())):
-        operation = comparing.scope(index / len(destination), (index + 1) / len(destination)) if comparing else None
-        show_progress(ctx.runner, operation)
-        if operation:
-            operation.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent)
-        item = source.get(key)
-        if identical(item, remote):
-            ctx.event("identical", path=key)
-            preserve_metadata(ctx, item)
-            if operation:
-                operation.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent, 1, 1)
-            continue
-        reason = "version" if item else "deleted"
-        days = ctx.config.version_days if item else ctx.config.deleted_days
-        history = f".sambinha/history/{reason}/{uuid.uuid4().hex}/{key}"
-        ctx.event("would_preserve" if ctx.config.dry_run else "preserve", path=key, reason=reason)
-        if not ctx.config.dry_run:
-            ctx.storage.preserve(key, history)
-            entry = retirement(history, [key], reason, ctx.now, days)
-            ctx.state["retired"].append(entry)
-            ctx.scheduled(entry)
-            ctx.save()
-            if not item:
-                ctx.storage.delete(key)
-        if operation:
-            operation.update("Comparando destino", Path(ctx.job.destination) / Path(key).parent, 1, 1)
-    cleanup = ctx.progress.scope(0.25, 0.27) if ctx.progress else None
-    if ctx.job.type == "local" and not ctx.config.dry_run and not ctx.job.exclude_files:
-        check_mounts(ctx.job, ctx.runner)
-        for directory, _, _ in os.walk(ctx.job.destination, topdown=False):
-            if cleanup:
-                cleanup.update("Conferindo diretórios do destino", directory)
-            path = Path(directory)
-            relative = path.relative_to(ctx.job.destination)
-            if ".sambinha" not in relative.parts and not (ctx.job.source / relative).is_dir():
-                try:
-                    path.rmdir()
-                except OSError:
-                    pass
-    pending = []
-    for item in ctx.files:
-        remote = destination.get(item.path, {})
-        if identical(item, remote):
-            continue
-        ctx.event("would_transfer" if ctx.config.dry_run else "transfer_start", path=item.path)
-        if not ctx.config.dry_run:
-            pending.append(item)
-    # Keep each copy group inside one directory so its progress names the
-    # directory actually being copied rather than the entire source root.
-    groups = []
-    ordered = sorted(pending, key=lambda item: (str(Path(item.path).parent), item.path))
-    for _, members in groupby(ordered, key=lambda item: Path(item.path).parent):
-        members = list(members)
-        for start in range(0, len(members), ctx.config.transfer_group_size):
-            groups.append(members[start:start + ctx.config.transfer_group_size])
-    weights = [sum(max(1, item.size) for item in group) for group in groups]
-    total, completed = sum(weights), 0
-    transfers = ctx.progress.scope(0.27, 0.85) if ctx.progress else None
-    for group, weight in zip(groups, weights):
-        operation = transfers.scope(completed / total, (completed + weight) / total) if transfers else None
-        before = operation.scope(0, 0.1) if operation else None
-        copying = operation.scope(0.1, 0.9) if operation else None
-        after = operation.scope(0.9, 1) if operation else None
-        verify(ctx.job.source, group, mode=ctx.config.verification_mode, progress=before)
-        show_progress(ctx.runner, copying)
-        if len(group) == 1:
-            item = group[0]
-            copied = {item.path} if ctx.storage.put(ctx.job.source / item.path, item.path,
-                                                   protected_mtime_ns=item.mtime_ns) else set()
-        else:
-            copied = ctx.storage.put_many(ctx.job.source, group)
-        verify(ctx.job.source, group, mode=ctx.config.verification_mode, progress=after)
-        completed += weight
-        for item in group:
-            preserve_metadata(ctx, item)
-            ctx.event("transferred" if item.path in copied else "identical", path=item.path,
-                      bytes=item.size if item.path in copied else 0)
-    # rclone transfers bytes; local copystat additionally preserves permissions
-    # and modification times, including empty directories (without root).
-    if ctx.job.type == "local" and not ctx.config.dry_run:
-        check_mounts(ctx.job, ctx.runner)
-        listing = ctx.progress.scope(0.85, 0.87) if ctx.progress else None
-        metadata = ctx.progress.scope(0.87, 0.95) if ctx.progress else None
-        with listing.task("Listando diretórios", ctx.job.source) if listing else nullcontext():
-            directories = []
-            for directory, dirs, _ in os.walk(ctx.job.source, followlinks=False):
-                dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()
-                           and (ctx.selected_dirs is None or
-                                (Path(directory) / name).relative_to(ctx.job.source).as_posix() in ctx.selected_dirs)]
-                directories.append(Path(directory))
-            directories.sort()
-        for index, directory in enumerate(reversed(directories)):
-            if metadata:
-                metadata.update("Preservando metadados", directory, index + 1, len(directories))
-            relative = directory.relative_to(ctx.job.source)
-            if directory.is_symlink() or (relative.parts and path_has_symlink(ctx.job.destination, relative.as_posix())):
-                continue
-            target = Path(ctx.job.destination) / relative
-            target.mkdir(parents=True, exist_ok=True)
-            shutil.copystat(directory, target, follow_symlinks=False)
-    ctx.state["active"] = {f.path: f.metadata() for f in ctx.files}
-    show_progress(ctx.runner, ctx.progress.scope(0.95, 1) if ctx.progress else None)
-    ctx.expire()
-    if not ctx.config.dry_run:
-        ctx.save()
 
 
 def compress(ctx, batch, work: Path):
@@ -459,7 +322,7 @@ def batch(ctx: Context):
         ctx.save()
 
 
-STRATEGIES = {"simple": simple, "batch": batch}
+STRATEGIES = {"batch": batch}
 
 
 def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
@@ -506,7 +369,7 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
             checked.add(job.name)
     inventories = {}
     for index, job in enumerate(config.jobs):
-        if job.name not in checked:
+        if job.name not in checked or job.logic == "simple":
             continue
         with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
             reading = progress.scope(0.2 + 0.8 * index / len(config.jobs),
@@ -589,35 +452,56 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                     with frozen_rules(replace(config, jobs=(job,))) as effective:
                         job = effective.jobs[0]
                         inventories = preflight(effective, runner, clock(), progress=job_progress.scope(0, 0.2))
-                        files, selected_dirs, fingerprints, last_full_scan = inventories[job.name]
-                        context = Context(effective, job, runner, log, files, clock(), selected_dirs, forecast,
-                                          job_progress.scope(0.2, 0.9))
-                        cached_inventory = fingerprints if config.fingerprint_cache else {}
-                        context.inventory_changed = (context.state.get("fingerprints") != cached_inventory or
-                                                     context.state.get("last_full_scan") != last_full_scan)
-                        context.state["fingerprints"] = cached_inventory
-                        context.state["last_full_scan"] = last_full_scan
-                        context.forecast_deletions()
-                        check_disks(context.job, context.event)
-                        context.protect_deletions(allow_mass_deletion)
-                        STRATEGIES[context.job.logic](context)
-                        check_disks(context.job, context.event)
-                        interval = config.verify_interval_days * DAY
-                        if interval and ("last_verified" not in context.state or
-                                         context.now - context.state["last_verified"] >= interval):
-                            if config.dry_run:
-                                context.event("would_verify", mode="s3_metadata" if context.job.type == "s3" else "contents")
-                            else:
-                                from .recovery import verify_job
-                                checking = job_progress.scope(0.9, 1)
-                                show_progress(runner, checking)
-                                verify_job(effective, context.job, runner, log, context.state, progress=checking)
-                                verified = copy.deepcopy(context.state)
-                                verified["last_verified"] = context.now
-                                if context.job.logic == "batch":
-                                    upload_index(context, verified)
-                                context.state = verified
-                                context.save()
+                        if job.logic == "simple":
+                            job_now = clock()
+                            history_id = (datetime.fromtimestamp(job_now, timezone.utc).strftime("%Y%m%dT%H%M%S")
+                                          + "-" + log.id)
+                            backup_dir = f".sambinha/history/{history_id}"
+                            max_delete = -1 if allow_mass_deletion else job.max_delete
+                            log.event("sync_start", job=job.name, max_delete=max_delete,
+                                      backup_dir=backup_dir)
+                            show_progress(runner, job_progress.scope(0.2, 0.95))
+                            storage = Storage(job, effective, runner)
+                            newer = storage.sync_simple(
+                                job.source, backup_dir, max_delete=max_delete, dry_run=config.dry_run)
+                            retention_days = max(config.deleted_days, config.version_days)
+                            expired = storage.expire_simple_history(
+                                job_now, retention_days, dry_run=config.dry_run)
+                            for history in expired:
+                                log.event("would_expire" if config.dry_run else "expire_history",
+                                          job=job.name, path=history, retention_days=retention_days)
+                            if newer:
+                                paths = ", ".join(newer)
+                                raise BackupError("Arquivos mais novos preservados no destino; job marcado como falho "+
+                                                  "para revisão manual: " + paths)
+                        else:
+                            files, selected_dirs, fingerprints, last_full_scan = inventories[job.name]
+                            context = Context(effective, job, runner, log, files, clock(), selected_dirs, forecast,
+                                              job_progress.scope(0.2, 0.9))
+                            cached_inventory = fingerprints if config.fingerprint_cache else {}
+                            context.inventory_changed = (context.state.get("fingerprints") != cached_inventory or
+                                                         context.state.get("last_full_scan") != last_full_scan)
+                            context.state["fingerprints"] = cached_inventory
+                            context.state["last_full_scan"] = last_full_scan
+                            context.forecast_deletions()
+                            check_disks(context.job, context.event)
+                            context.protect_deletions(allow_mass_deletion)
+                            STRATEGIES[context.job.logic](context)
+                            check_disks(context.job, context.event)
+                            interval = config.verify_interval_days * DAY
+                            if interval and ("last_verified" not in context.state or
+                                             context.now - context.state["last_verified"] >= interval):
+                                if config.dry_run:
+                                    context.event("would_verify", mode="s3_metadata" if context.job.type == "s3" else "contents")
+                                else:
+                                    from .recovery import verify_job
+                                    checking = job_progress.scope(0.9, 1)
+                                    show_progress(runner, checking)
+                                    verify_job(effective, context.job, runner, log, context.state, progress=checking)
+                                    verified = copy.deepcopy(context.state)
+                                    verified["last_verified"] = context.now
+                                    context.state = verified
+                                    context.save()
                     success = True
                 except (BackupError, OSError, ValueError, KeyError, TypeError) as exc:
                     report_job_error(exc if isinstance(exc, JobError) else JobError(job.name, exc))
@@ -626,6 +510,9 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                         deletion_alerts.append(forecast.message)
                     if context is not None:
                         context.summary(success)
+                    elif job.logic == "simple":
+                        log.event("summary", job=job.name, success=success, dry_run=config.dry_run,
+                                  strategy="rclone_sync", max_delete=-1 if allow_mass_deletion else job.max_delete)
                     if success:
                         job_progress.update("Concluindo tarefa", progress.directory, 1, 1)
                 if not success and not job.continue_on_job_error:

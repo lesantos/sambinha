@@ -7,7 +7,8 @@ P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sha
 | Priority | Improvement | Setting and behavior |
 | --- | --- | --- |
 | P1 | Fingerprint cache | In `verification_mode = "hash"`, `fingerprint_cache = true` reuses hashes only if device, inode, size, mtime, ctime and mode match. `fingerprint_full_scan_days = 7` forces full reads periodically; `--no-fingerprint-cache` disables reuse. Default `"simple"` uses only size/mtime and never hashes the inventory. |
-| P2 | Bulk simple transfers | `transfer_group_size = 100`; raw literal file lists use one rclone process per group with `transfer_workers = 4`. Durable history is saved first; source validation and newer-destination protection remain. |
+| P2 | Native simple sync | Simple jobs use one `rclone sync` operation for traversal, exclusions, updates and deletions; replaced/deleted files go to `--backup-dir`. `transfer_workers = 4` controls rclone concurrency. No Sambinha recursive inventory is built for simple jobs. |
+| P2 | Batch discovery with exclusions | `lsjson` lists one directory per non-recursive call to limit each response size. Sambinha still combines the results into one global inventory before planning batches. |
 | P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Batch concurrency | `batch_workers = 2`; each worker compresses and uploads in private staging. The main thread publishes the index only after every new batch finishes successfully. |
 | P5 | Filter cache | Repeated historical-name selections reuse immutable results within one execution. Rules are still evaluated by rclone and frozen before work. |
@@ -29,7 +30,6 @@ Classification uses case-insensitive extensions and known extensionless document
 verification_mode = "simple" # Default; use "hash" for content comparisons.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
-transfer_group_size = 100
 transfer_workers = 4
 batch_workers = 2
 
@@ -52,8 +52,8 @@ Keep the oldest-first order within a directory. A category boundary starts a new
 
 Concurrency increases temporary space, CPU and memory use. A batch worker stages original bytes and an archive; two workers can need roughly twice the staging space of one. Disk checks fail above 95% occupancy. Measure total backup time and uploaded size before raising worker/thread counts; increasing CPU concurrency can hurt a slow shared disk.
 
-The default simple inventory reads size and nanosecond modification time without opening file contents. It cannot detect content edits that preserve both. The hash cache is an optimization based on filesystem metadata, not a cryptographic proof of unchanged contents; periodic full scans detect divergence that reuse might miss. Full-scan/cache switches only apply to hash mode. Modified files are validated before and after transfers in the selected mode, and batch source consistency is checked before commit. S3 integrity checks never download object bodies. Archives and their controls retain checksums in both modes.
+Simple jobs delegate comparison behavior to rclone and do not build a Sambinha fingerprint inventory. `verification_mode = "simple"` uses rclone size/time comparison; `"hash"` passes `--checksum`. `max_delete` sets an absolute per-job deletion limit; rclone aborts when the limit is exceeded. Batch jobs continue to use the inventory cache, selected verification mode, and source consistency checks. S3 integrity checks never download object bodies. Archives and their controls retain checksums in both modes.
 
-Interactive terminal progress shows stage, working subdirectory and one overall estimated backup percentage on stderr, never in JSON logs or stdout. Weighted phases/jobs and concurrent batches combine file/byte counters and bounded subprocess estimates without restarting or decreasing the percentage. Only successful completion displays 100%. Per-file events are retained in the audit and hidden in the interactive console; summaries/errors remain visible. Copy groups stay within one directory. Redirected/nonterminal stderr disables progress. See [verification modes](../README.md#choose-simple-or-hash-verification).
+Interactive terminal progress shows stage, working subdirectory and one overall estimated backup percentage on stderr, never in JSON logs or stdout. Simple sync progress follows rclone's reported transfer statistics; batch phases and concurrent batches use weighted counters and bounded subprocess estimates. Only successful completion displays 100%. Per-file events are retained in the audit and hidden in the interactive console; summaries/errors remain visible. Redirected/nonterminal stderr disables progress. See [verification modes](../README.md#choose-simple-or-hash-verification).
 
 References: [restic change detection](https://restic.readthedocs.io/en/stable/040_backup.html), [rclone concurrency](https://rclone.org/docs/).

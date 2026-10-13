@@ -103,22 +103,16 @@ class VerificationModeTests(Sandbox):
         self.assertIn('--ignore-checksum', args)
         self.assertEqual(args[args.index('--modify-window') + 1], '1ns')
 
-    def test_simple_s3_verification_uses_size_and_modtime_without_download(self):
+    def test_simple_s3_verification_delegates_to_rclone_check(self):
         self.file('file')
         item = scan(self.source, mode='simple')[0].metadata()
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket')
         config = replace(self.config, jobs=(job,), verification_mode='simple')
-        from datetime import datetime, timezone
-        seconds, ns = divmod(item['mtime_ns'], 10**9)
-        stamp = datetime.fromtimestamp(seconds, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + f'.{ns:09d}Z'
-        remote = {'Size': item['size'], 'ModTime': stamp}
-        with patch.object(Storage, 'stat', return_value=remote) as stat, \
+        with patch.object(Storage, 'check_simple') as check, \
              patch.object(Storage, 'get', side_effect=AssertionError('download')):
-            verify_job(config, job, Mock(), Mock(), {'active': {'file': item}})
-        stat.assert_called_once_with('file', hashes=False)
-        for change in ({'Size': item['size'] + 1}, {'ModTime': '2000-01-01T00:00:00Z'}):
-            with patch.object(Storage, 'stat', return_value={**remote, **change}), self.assertRaises(BackupError):
-                verify_job(config, job, Mock(), Mock(), {'active': {'file': item}})
+            result = verify_job(config, job, Mock(), Mock())
+        self.assertEqual(result['mode'], 'rclone_check')
+        check.assert_called_once()
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
@@ -144,7 +138,8 @@ class SimpleModeIntegrationTests(Sandbox):
             os.utime(path, ns=(stamp + 1, stamp + 1))
             self.assertEqual(self.execute(now=1003), 0, self.output.getvalue())
             self.assertEqual((self.destination / 'dir/file').read_bytes(), b'longer')
-        self.assertEqual(len(self.state()['retired']), 2)
+        history = list(self.destination.glob('.sambinha/history/*/dir/file'))
+        self.assertEqual(len(history), 2)
 
     def test_hidden_edit_is_skipped_in_simple_and_found_after_switching_to_hash(self):
         path = self.file('file', b'old')
@@ -157,11 +152,12 @@ class SimpleModeIntegrationTests(Sandbox):
         self.config = replace(self.config, verification_mode='hash')
         self.assertEqual(self.execute(now=1002), 0, self.output.getvalue())
         self.assertEqual((self.destination / 'file').read_bytes(), b'new')
-        self.assertTrue(self.state()['active']['file']['sha256'])
+        history = list(self.destination.glob('.sambinha/history/*/file'))
+        self.assertEqual([path.read_bytes() for path in history], [b'old'])
         self.config = replace(self.config, verification_mode='simple')
         with patch('sambinha.inventory.fingerprint', side_effect=AssertionError('hash read')):
             self.assertEqual(self.execute(now=1003), 0, self.output.getvalue())
-        self.assertEqual(self.state()['active']['file']['sha256'], '')
+        self.assertEqual((self.destination / 'file').read_bytes(), b'new')
 
     def test_simple_verify_and_restore_and_hash_verify_without_index_hashes(self):
         self.file('file', b'original')
@@ -172,10 +168,9 @@ class SimpleModeIntegrationTests(Sandbox):
             self.assertEqual(recover(self.config, 'restore', output=restored), 0)
         self.assertEqual(contents(restored), contents(self.source))
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(recover(replace(self.config, verification_mode='hash'), 'verify'), 1)
+            self.assertEqual(recover(replace(self.config, verification_mode='hash'), 'verify'), 0)
         target = self.destination / 'file'
-        stamp = target.stat().st_mtime_ns
-        os.utime(target, ns=(stamp + 1, stamp + 1))
+        target.write_bytes(b'corrupt!')
         with redirect_stdout(io.StringIO()):
             self.assertEqual(recover(self.config, 'verify'), 1)
 

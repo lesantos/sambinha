@@ -7,6 +7,7 @@ log_dir = "./logs"
 # Manter logs escritos nos últimos 14 dias; 0 desativa a limpeza automática.
 # Logs antigos inativos do Sambinha são removidos em execuções sem simulação.
 log_retention_days = 14
+# Retenção do histórico de lotes; jobs simples mantêm indefinidamente os arquivos do backup-dir.
 deleted_days = 10
 version_days = 2
 # Aviso consultivo do Cronitor acima desta quantidade de exclusões definitivas previstas.
@@ -23,7 +24,6 @@ verification_mode = "simple"
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 # P2: listas literais limitadas e transferências concorrentes em um processo rclone.
-transfer_group_size = 100
 transfer_workers = 4
 # P4: cada worker tem temporários, estado de subprocesso e uploads próprios.
 batch_workers = 2
@@ -68,9 +68,8 @@ exclude_files = "./excludes.example.txt"
 # Fixe os volumes esperados (montados e não vazios), quando aplicável.
 # source_mount = "/mnt/dados"
 # destination_mount = "/mnt/backup"
-# Bloqueia remoções >50% quando o índice anterior selecionado tem pelo menos 20 arquivos.
-max_delete_percent = 50
-deletion_min_files = 20
+# Limite absoluto de remoções do rclone nesta tarefa; versões antigas vão ao backup-dir.
+max_delete = 100
 # P6 separado por categoria. Níveis 0..9; threads 1..64. Aplica a lotes novos.
 compression_text_level = 3
 compression_text_threads = 2

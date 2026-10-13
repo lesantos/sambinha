@@ -7,6 +7,7 @@ log_dir = "./logs"
 # Keep logs written in the last 14 days; 0 disables automatic cleanup.
 # Old inactive Sambinha logs are removed during non-simulated invocations.
 log_retention_days = 14
+# Batch history retention; simple jobs keep rclone backup-dir files indefinitely.
 deleted_days = 10
 version_days = 2
 # Soft Cronitor alert for more than this many impending permanent deletions.
@@ -23,7 +24,6 @@ verification_mode = "simple"
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 # P2: bounded raw file lists and concurrent transfers in one rclone process.
-transfer_group_size = 100
 transfer_workers = 4
 # P4: each worker has separate staging, subprocess state and uploads.
 batch_workers = 2
@@ -68,9 +68,8 @@ exclude_files = "./excludes.example.txt"
 # Pin expected mounted volumes (must be mounted and nonempty), if applicable.
 # source_mount = "/mnt/dados"
 # destination_mount = "/mnt/backup"
-# Block >50% removals when the previous selected index has at least 20 files.
-max_delete_percent = 50
-deletion_min_files = 20
+# Absolute rclone deletion limit for this job; old versions go to backup-dir.
+max_delete = 100
 # Separate P6 settings. Levels 0..9; threads 1..64. Apply to newly built lots.
 compression_text_level = 3
 compression_text_threads = 2

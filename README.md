@@ -2,9 +2,9 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.9.1** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
+Sambinha **0.10.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
 
-Jobs run to completion in TOML order, with independent inventories and verification. Overlapping sources/destinations between jobs are allowed; review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths) before sharing paths.
+Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
 ## Install
 
@@ -27,8 +27,6 @@ Create `sambinha.toml`. Paths are relative to this file; `~` and environment var
 state_dir = "./state"
 log_dir = "./logs"
 log_retention_days = 14
-deleted_days = 10
-version_days = 2
 verification_mode = "simple"
 
 [[jobs]]
@@ -37,6 +35,7 @@ source = "~/Documents"
 destination = "/mnt/backup/documents"
 type = "local"
 logic = "simple"
+max_delete = 100 # Absolute per-job limit passed to rclone sync.
 check_source_disk = true
 check_destination_disk = true
 continue_on_job_error = true
@@ -51,16 +50,16 @@ continue_on_job_error = true
 .venv/bin/sambinha restore --config sambinha.toml --job documents --output /mnt/recovered
 ```
 
-Simulation reads inventories and writes a log without changing backups/state or sending notifications. Restore uses a separate new or empty directory. The [complete example](sambinha.example.toml) includes all options.
+Simulation runs `rclone sync --dry-run` and writes a log without changing backup data. Simple jobs no longer build a Sambinha file index; `max_delete` is an absolute per-job rclone limit. `--backup-dir` history expires at the larger of `deleted_days` and `version_days`; since rclone does not label saved items as deletions or replacements, both use this conservative retention. Restore accepts `--path` for files and directories. The [complete example](sambinha.example.toml) includes all options.
 
 ## Essential behavior
 
-- **Storage and verification:** `logic = "simple"` preserves the tree; `"batch"` creates compressed archives. Default `verification_mode = "simple"` compares size in bytes and nanosecond modification time; `"hash"` checks contents.
-- **Symbolic links are always ignored:** links are not copied, followed or translated, and linked directories are not traversed. Existing copies/history for linked paths remain protected while the link exists. [Decision and limits](docs/usage.md#symbolic-links).
-- **Retention:** deleted files stay for 10 days and previous versions for 2 days by default. Logs retain 14 days; `log_retention_days = 0` disables log cleanup.
+- **Storage and verification:** `logic = "simple"` delegates tree sync and exclusions to rclone; `"batch"` creates indexed compressed archives. `sambinha verify` uses `rclone check` for simple jobs; batch jobs retain index-based verification.
+- **Symbolic links are always ignored:** links are not copied, followed or translated, and linked directories are not traversed. In simple jobs, a destination file at a linked source path is treated as removed and moved into expiring history; batch jobs protect indexed paths while linked. [Decision and limits](docs/usage.md#symbolic-links).
+- **Retention:** simple-job backups in `.sambinha/history/<run-id>` expire after the larger of `deleted_days` and `version_days`; batch jobs keep separate deletion/version deadlines. Logs retain 14 days; `log_retention_days = 0` disables log cleanup.
 - **Jobs:** run sequentially. Each job's `continue_on_job_error` defaults to `true`; set it to `false` to stop when that job fails. Any job failure returns a nonzero exit code, and errors identify the job.
 - **Disks:** source/local destination checks default to `true` and fail above 95% occupancy. Use `false` on the corresponding per-job option to skip the check, such as `check_source_disk = false` for Seafile/FUSE. Temporary space stays checked.
-- **Protection and progress:** abnormal removals are blocked by default. Concurrent normal backups/verifications sharing `state_dir` are refused. Terminal progress begins with the overall estimated percentage and shows stage/subdirectory; file details remain in JSON logs.
+- **Protection and progress:** each simple job has an absolute `max_delete` limit; `--allow-mass-deletion` bypasses it for one run. Rclone's native filters protect excluded files. Concurrent normal backups/verifications sharing `state_dir` are refused. Terminal progress begins with the overall estimated percentage and follows rclone's sync stats.
 
 ## More information
 

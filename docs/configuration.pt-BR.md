@@ -3,7 +3,7 @@
 [English](configuration.md) · [README](../README.pt-BR.md)
 
 
-O Sambinha guarda cópias dos seus arquivos em outra pasta, em um disco externo ou no Amazon S3, um serviço de armazenamento na nuvem. Você escolhe o que quer proteger e onde quer guardar a cópia; o programa cuida de comparar os arquivos, enviar o que mudou e manter um histórico por algum tempo.
+O Sambinha guarda cópias dos seus arquivos em outra pasta, em um disco externo ou no Amazon S3 e registra cada execução. Jobs simples delegam comparação, exclusões e sincronização ao `rclone sync`; arquivos substituídos ou apagados vão para `--backup-dir`. Jobs batch mantêm o fluxo de arquivos compactados com índice.
 
 ## Por que ele existe
 
@@ -21,9 +21,9 @@ Ao formar novos lotes, o Sambinha agrupa os arquivos de cada diretório pela dat
 
 As duas maneiras funcionam tanto com uma pasta local quanto com o S3. Também é possível proteger a mesma pasta de duas formas: por exemplo, manter uma cópia simples em um disco externo e uma cópia compactada na nuvem.
 
-Se um arquivo no destino tiver uma data de modificação mais recente que o arquivo da origem, o Sambinha preserva a cópia do destino e interrompe aquela tarefa com erro. O relatório lista os arquivos envolvidos, e o Cronitor recebe um evento de falha com a descrição. Outros backups independentes continuam. Nos lotes, a comparação usa as datas originais registradas no índice confirmado, não a data de envio do arquivo compactado.
+Nos jobs batch, um arquivo mais novo no destino causa erro antes da substituição. Nos jobs simples, `--update` do rclone preserva arquivos que ele considera mais novos. Outros backups independentes continuam.
 
-Por padrão, arquivos apagados na origem ficam no histórico por **10 dias**, e versões anteriores de arquivos editados ficam por **2 dias**. Esses prazos podem ser alterados. A remoção do histórico vencido acontece nas execuções seguintes; deixar o programa parado não faz a limpeza acontecer sozinha.
+Jobs batch mantêm arquivos apagados por **10 dias** e versões substituídas por **2 dias**. Jobs simples removem diretórios expirados de `--backup-dir` após o maior valor entre `deleted_days` e `version_days`, pois o rclone não identifica se cada arquivo foi apagado ou substituído. A limpeza lista somente diretórios imediatos do histórico e apaga os diretórios de execução expirados.
 
 Antes de começar, o Sambinha verifica se as ferramentas necessárias estão disponíveis. Durante o envio, tenta novamente até três vezes se uma operação falhar, esperando dois segundos entre as tentativas. Ao terminar, grava um relatório. Se você configurar o Cronitor, um serviço de acompanhamento, ele também pode receber um aviso de sucesso ou erro.
 
@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.9.1**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.10.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -70,7 +70,7 @@ type = "local"
 logic = "simple"
 ```
 
-Troque `source` pela pasta que deseja proteger e `destination` pela pasta onde a cópia será guardada. O destino deve ficar fora da pasta de origem. Se ele estiver em um disco externo, conecte e monte o disco antes de executar. Prefira pastas separadas: o Sambinha administra os arquivos e históricos selecionados em cada destino; sobreposições entre jobs são permitidas, com as interações descritas abaixo.
+Troque `source` pela pasta que deseja proteger e `destination` pela pasta onde a cópia será guardada. O destino deve ficar fora da pasta de origem. Se ele estiver em um disco externo, conecte e monte o disco antes de executar. Destinos de jobs diferentes não podem se sobrepor; o destino de um job anterior pode ser origem de outro posterior. Consulte as interações abaixo.
 
 `state_dir` guarda o registro que permite ao programa acompanhar os backups. `log_dir` guarda os relatórios de execução. Mantenha essas pastas fora da origem e preserve a pasta de estado entre as execuções. Quando um caminho começa com `~`, ele aponta para sua pasta pessoal; os caminhos relativos, como `./state`, partem do local do arquivo de configuração.
 
@@ -166,9 +166,9 @@ Para pastas comuns que não dependem de um disco montado específico, as opçõe
 
 ## Saiba com antecedência o que será apagado
 
-Quando mais de 1000 arquivos ou versões do histórico estiverem próximos da exclusão definitiva, o Sambinha envia um evento de erro ao Cronitor e lista no relatório os caminhos originais, os objetos de backup e as datas de exclusão. Esse aviso não bloqueia o backup nem altera o prazo: a execução continua e retorna sucesso se não houver outro problema.
+O alerta `deletion_alert_threshold` vale somente para históricos batch. Quando mais de 1000 arquivos ou versões batch estiverem próximos da exclusão definitiva, o Sambinha envia um evento ao Cronitor e registra os caminhos e datas. O histórico simples de `--backup-dir` não é contado nem limpo pelo Sambinha.
 
-O aviso começa dois dias antes do vencimento. Para retenção de um dia, começa um dia antes; para retenção zero, só pode ocorrer na própria execução. Configure `deletion_alert_threshold` em `[backup]` para mudar o limite. Arquivos excluídos pelas regras de seleção ficam fora desse alerta. Execute o programa diariamente para receber o aviso na janela prevista; se ficar parado até o vencimento, o aviso será emitido na próxima execução e a limpeza seguirá o prazo original.
+Para histórico batch, o aviso começa dois dias antes do vencimento. Configure `deletion_alert_threshold` em `[backup]` para mudar o limite.
 
 ## Como recuperar um arquivo
 
@@ -202,7 +202,7 @@ As orientações e os resultados da auditoria de credenciais estão em [SECURITY
 
 ## Jobs e execuções em paralelo
 
-Os jobs executam sequencialmente, na ordem do TOML. Cada job lê suas exclusões, confere discos/montagens, inventaria a origem, transfere, aplica retenção, confirma o estado e conclui a verificação agendada antes de o próximo começar. As opções de concorrência atuam dentro de cada job. Backups e verificações normais obtêm uma trava exclusiva sem espera em `state_dir`: uma segunda execução usando o mesmo diretório de estado termina com erro, antes de alterar dados do backup. Isso também vale para seleções `--job` diferentes. Simulações e restaurações não obtêm essa trava de escrita. Diretórios de estado independentes podem executar em paralelo e devem administrar destinos separados.
+Os jobs executam sequencialmente, na ordem do TOML. Cada job lê suas exclusões e confere discos/montagens; jobs simples deixam o rclone percorrer e sincronizar as árvores, enquanto jobs batch criam inventário e estado indexado. As opções de concorrência atuam dentro de cada job. Backups e verificações normais obtêm uma trava exclusiva sem espera em `state_dir`: uma segunda execução usando o mesmo diretório de estado termina com erro, antes de alterar dados do backup.
 
 ## Retenção dos logs
 
@@ -253,7 +253,7 @@ Isso vale para backup e verificação manual. O preflight pertence a cada job. U
 
 ## Escolha a verificação simples ou por hash
 
-**`verification_mode = "simple"` é o padrão na versão 0.6.1**, inclusive em configurações existentes que omitam a opção. Compara tamanho em bytes e timestamp de modificação (`mtime`, com precisão de nanossegundos). O inventário consulta os metadados sem ler o conteúdo dos arquivos, e a listagem do destino não calcula hashes. O conteúdo ainda precisa ser lido para copiar ou compactar os arquivos.
+`verification_mode` e o cache de fingerprints aplicam-se aos inventários batch. Jobs `logic = "simple"` delegam as decisões de sincronização ao rclone: `simple` usa comparação tamanho/data; `hash` passa `--checksum`. A verificação manual usa `rclone check`.
 
 Para comparar o conteúdo por SHA-256 e MD5, configure:
 
@@ -269,13 +269,13 @@ Também é possível escolher o modo para uma execução:
 .venv/bin/sambinha --config sambinha.toml --verification-mode hash
 ```
 
-O modo simples não detecta uma edição que preserve simultaneamente tamanho e data de modificação. O modo hash lê o conteúdo no primeiro inventário e periodicamente depois. Trocar de simples para hash calcula hashes novos; trocar o modo em backups por lotes pode reconstruir os arquivos compactados porque os metadados do índice mudam. Para verificar por hash um índice que ainda não os possui, faça primeiro um backup no modo hash. `logic = "simple"`/`"batch"` escolhe a estratégia de armazenamento, independentemente de `verification_mode`. Lotes e controles de recuperação mantêm checksums nos dois modos.
+No modo hash, o inventário batch lê o conteúdo primeiro e periodicamente depois. Trocar o modo em backups por lotes pode reconstruir arquivos compactados porque os metadados do índice mudam. Lotes e controles de recuperação mantêm checksums nos dois modos.
 
-Durante a execução interativa, o stderr exibe o percentual do backup inteiro no começo da linha, seguido da etapa e do subdiretório em trabalho. A estimativa atribui faixas iguais aos jobs e reserva 5% para finalização. Cada job usa 20% da sua faixa para verificações/inventário, 70% para transferências/retenção e 10% para verificação/conclusão. Contadores de arquivos/bytes e filas de diretórios avançam dentro dessas faixas. Cópias agrupadas do rclone usam o percentual de transferência informado pelo próprio rclone; outras operações opacas usam estimativas limitadas por tempo decorrido. Lotes concorrentes contribuem proporcionalmente aos bytes. O percentual não volta nem reinicia ao mudar diretório, etapa ou tarefa, e chega a 100% somente após conclusão bem-sucedida. Cópias agrupadas ficam no mesmo diretório para indicar a pasta realmente copiada. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo; resumos e erros continuam visíveis. Execuções sem terminal mantêm os eventos JSON no stdout para automação. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
+Durante a execução interativa, o stderr exibe o percentual do backup inteiro, a etapa e o diretório. Jobs simples acompanham as estatísticas do `rclone sync`; fases batch usam contadores ponderados e estimativas limitadas. O percentual não volta nem reinicia e chega a 100% somente após conclusão bem-sucedida. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
 ## Recursos adicionais
 
-A versão atual é **0.9.1**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.10.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -285,7 +285,7 @@ A versão atual é **0.9.1**. A documentação padrão é em inglês; este arqui
 .venv/bin/sambinha restore --job documents --output /mnt/recovery/all
 ```
 
-`--path` aceita repetição e usa caminhos literais do índice ativo. A pasta de saída deve ser nova ou vazia, separada de origens, backups, estado e logs. A restauração verifica tamanho em uma área temporária antes de publicar os arquivos; confere SHA-256 e MD5 quando registrados no índice. Lotes também passam pela verificação de checksum e integridade do 7-Zip. Preserva datas e permissões comuns e não sobrescreve dados existentes nem aplica bits privilegiados. Não precisa dos arquivos originais. Para lotes, pode recuperar o índice perdido a partir de `.sambinha/control.tar.gz`; a cópia simples exige o índice local. Histórico de versões anteriores continua sendo recuperado manualmente pelo guia.
+`--path` aceita repetição para jobs simples ou batch. Em jobs simples, o rclone seleciona arquivos/diretórios atuais do destino; não são versões históricas. Use o rclone para copiar versões antigas de `.sambinha/history/<id-da-execução>`. A pasta de saída deve ser nova ou vazia, separada de origens, backups, estado e logs. Lotes passam por verificação de checksum e integridade do 7-Zip. Para lotes, pode recuperar o índice perdido a partir de `.sambinha/control.tar.gz`.
 
 Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperação; selecionar um membro de lote baixa o lote inteiro. GLACIER/DEEP_ARCHIVE exigem uma restauração prévia pela AWS.
 
@@ -295,15 +295,15 @@ Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperaç�
 .venv/bin/sambinha verify --job documents
 ```
 
-Localmente, cópias usam tamanho/data no modo simples e leitura do conteúdo no modo hash. Lotes são testados e extraídos para conferir os arquivos originais, incluindo hashes quando registrados. No S3, faz **somente consultas de metadados**: cópias usam tamanho/data no modo simples e tamanho/MD5 no modo hash; lotes e controles JSON sempre usam tamanho/MD5. **Nunca baixa corpos de objetos nem o índice de recuperação**, inclusive nas falhas. Consultas podem ter cobrança de API; essa verificação não testa a extração dos membros de lotes.
+Jobs simples executam `rclone check` com as exclusões do job. Lotes são testados e extraídos para conferir os arquivos originais, incluindo hashes quando registrados. No S3, verificações batch fazem **somente consultas de metadados**: lotes e controles JSON usam tamanho/MD5. **Nunca baixa corpos de objetos nem o índice de recuperação**, inclusive nas falhas. Consultas podem ter cobrança de API; essa verificação não testa a extração dos membros de lotes.
 
 Novos lotes registram tamanho compactado e checksum de envio. Lotes antigos sem esses campos, índice local ausente ou hash remoto indisponível causam erro explícito, sem download alternativo ou reconstrução automática de lotes intactos. Preserve os metadados de checksum do rclone para uploads multipart.
 
-Configure `[backup].verify_interval_days = 7` para verificar após backups bem-sucedidos quando o prazo vencer; a primeira execução habilitada verifica imediatamente. O padrão 0 desativa a agenda por compatibilidade. A agenda depende das execuções de backup, sem instalar um timer separado. Falhas mantêm a data da última verificação bem-sucedida.
+`verify_interval_days` agenda verificações de índices batch após backups bem-sucedidos quando vencer o prazo. Não se aplica a jobs simples. 0 desativa a agenda. Falhas mantêm a data da última verificação bem-sucedida.
 
 ### Proteção contra remoções e monitoramento dos discos
 
-Cada tarefa bloqueia, antes de mudar o destino, remoções acima de `max_delete_percent = 50` quando o índice selecionado anterior tem pelo menos `deletion_min_files = 20` arquivos. Exclusões não entram no cálculo. Use `--allow-mass-deletion` somente para autorizar uma remoção intencional naquela execução; a opção não fica gravada. O aviso consultivo de retenção continua separado desse bloqueio.
+Cada job simples configura `max_delete` (padrão 100), limite absoluto passado ao rclone. Ao excedê-lo, o rclone interrompe a sincronização com erro. Jobs batch continuam usando o bloqueio percentual calculado pelo índice anterior. `--allow-mass-deletion` ignora o limite aplicável naquela execução.
 
 Por padrão, discos da origem e do destino local geram erro com ocupação **acima de 95%**; exatamente 95% é aceito. Espaço indisponível à conta também entra na ocupação. Os discos temporários dos lotes e a saída de restauração são verificados. Um bucket S3 não oferece porcentagem de ocupação de disco local. Há verificações antes do backup e antes de transferências/exclusões, e eventos `disk_usage` registram espaço livre e ocupação.
 
@@ -317,7 +317,6 @@ As opções de performance incluem cache de fingerprints com leitura completa pe
 [backup]
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
-transfer_group_size = 100
 transfer_workers = 4
 batch_workers = 2
 
@@ -344,7 +343,7 @@ Metadados e logs têm permissões privadas. O índice é validado antes da reten
 
 Desde 0.9.0, os jobs executam até o fim na ordem do TOML. Cada job congela seu próprio arquivo de exclusões, confere montagens/discos, faz um inventário atualizado usando somente seu próprio cache persistente, transfere e aplica retenção, confirma o índice, realiza a verificação devida e grava o resumo antes de o próximo começar. Uma falha no preflight posterior não impede a conclusão anterior. `continue_on_job_error` continua pertencendo ao job que falhou; não há ordenação automática de dependências nem reversão.
 
-Um destino pode sobrepor a origem ou o destino de outro job, localmente ou no S3. Por exemplo, jobs que gravam em `/mnt/capsule/LLLD/linux/leandro` e `/mnt/capsule/LLLD/seafile/conf` podem preceder um job de `/mnt/capsule/LLLD` para `/mnt/capsule/LLLDBKP`. Os posteriores observam as alterações concluídas, como ao executar os mesmos jobs em comandos separados. Cada job ainda recusa sobreposição entre sua própria origem e destino, e todas as origens/destinos devem ficar separados de estado/logs.
+Destinos não podem se sobrepor entre jobs, inclusive caminhos locais aninhados ou prefixos S3. O destino de um job pode ser a origem de outro job posterior: ele verá os arquivos concluídos pelo anterior, como ao executar comandos separados na mesma ordem. Cada job ainda recusa sobreposição entre sua própria origem e destino, e todas as origens/destinos devem ficar separados de estado/logs.
 
 Confira estas interações ao compartilhar caminhos:
 

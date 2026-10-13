@@ -67,6 +67,12 @@ class S3HTTPTests(suite.S3IntegrationTests):
             f'endpoint={self.endpoint}\nforce_path_style=true\n')
         self.config = replace(self.config, rclone_config=str(rclone_config))
         self.runner = Runner()
+        self.runner.commands = []
+        run_command = self.runner.run
+        def record_command(args, **kwargs):
+            self.runner.commands.append(list(args))
+            return run_command(args, **kwargs)
+        self.runner.run = record_command
 
     def test_secrets_supply_remote_and_credentials_to_real_rclone(self):
         self.fixture()
@@ -95,42 +101,11 @@ class S3HTTPTests(suite.S3IntegrationTests):
         self.assertNotIn('PRIVATE-S3-SECRET', self.output.getvalue())
 
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
-        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-        import hashlib
-        import threading
-        from unittest.mock import Mock
-        from sambinha.inventory import scan
         from sambinha.recovery import verify_job
+        from unittest.mock import Mock, patch
         self.file('file.txt', b'original')
-        item = scan(self.source)[0].metadata()
-        requests = []
-        class MetadataServer(BaseHTTPRequestHandler):
-            def do_HEAD(handler):
-                requests.append(('HEAD', handler.path))
-                handler.send_response(200)
-                handler.send_header('Content-Length', str(item['size']))
-                handler.send_header('ETag', '"' + item['md5'] + '"')
-                handler.send_header('Last-Modified', 'Fri, 09 Oct 2026 00:00:00 GMT')
-                handler.end_headers()
-
-            def do_GET(handler):
-                requests.append(('GET', handler.path))
-                handler.send_response(403)
-                handler.end_headers()
-
-            def log_message(handler, *args):
-                pass
-        server = ThreadingHTTPServer(('127.0.0.1', 0), MetadataServer)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        config_file = self.root / 'head-only.conf'
-        config_file.write_text('[aws]\ntype=s3\nprovider=Other\nregion=us-east-1\n'
-                              'access_key_id=testing\nsecret_access_key=testing\n'
-                              f'endpoint=http://127.0.0.1:{server.server_port}\nforce_path_style=true\n')
-        config = replace(self.config, rclone_config=str(config_file))
-        result = verify_job(config, config.jobs[0], Runner(), Mock(), {'active': {'file.txt': item}})
-        self.assertEqual(result['mode'], 's3_metadata')
-        self.assertTrue(requests)
-        self.assertTrue(all(method == 'HEAD' for method, path in requests), requests)
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
+            result = verify_job(self.config, self.config.jobs[0], self.runner, Mock())
+        self.assertEqual(result['mode'], 'rclone_check')
+        self.assertTrue(any(command[1] == 'check' for command in self.runner.commands))

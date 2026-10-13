@@ -22,6 +22,8 @@ def parser():
     result.add_argument("--path", dest="paths", action="append", default=[], help="Arquivo ou pasta do índice; repetível")
     result.add_argument("--allow-mass-deletion", action="store_true", help="Autorizar remoções em massa nesta execução")
     result.add_argument("--max-delete-percent", type=float, default=None)
+    result.add_argument("--max-delete", type=int, default=None,
+                        help="Sobrepor max_delete absoluto do job simples; requer --job")
     result.add_argument("--fingerprint-cache", action=argparse.BooleanOptionalAction, default=None)
     result.add_argument("--verification-mode", choices=("simple", "hash"), default=None,
                         help="Comparar tamanho/data de alteração (simple) ou conteúdo (hash)")
@@ -31,7 +33,7 @@ def parser():
         result.add_argument("--" + name.replace("_", "-"), default=None)
     for name in ("deleted_days", "version_days", "log_retention_days", "max_bytes", "max_files", "timeout", "deletion_alert_threshold",
                  "deletion_min_files", "verify_interval_days", "fingerprint_full_scan_days",
-                 "transfer_group_size", "transfer_workers", "batch_workers",
+                 "transfer_workers", "batch_workers",
                  *(f"compression_{kind}_{setting}" for kind in ("text", "video", "photo", "other")
                    for setting in ("level", "threads"))):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=None)

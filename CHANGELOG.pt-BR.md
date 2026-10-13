@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## 0.10.0 — 2026-10-12
+
+Mantém jobs simples no `rclone sync` nativo e `--backup-dir`; limpa históricos de execuções expirados na etapa final do job, usando o maior valor entre `deleted_days` e `version_days` (o histórico do rclone não distingue exclusões de substituições). Preserva arquivos de destino mais novos que a origem, informa seus caminhos e falha o job para revisão manual. Substitui automaticamente conflitos de tipo arquivo/diretório, preservando o item deslocado no histórico. Adiciona `restore --path` para selecionar arquivos e diretórios atuais nos jobs simples. Recusa destinos sobrepostos entre jobs, mantendo permitido que o destino de um job anterior seja a origem de outro posterior. Mantém `max_delete` absoluto por job e exclusões nativas do rclone.
+
+Atualiza a documentação bilíngue e os testes de expiração local/S3, destinos mais novos, substituições, destinos sobrepostos, restauração seletiva e alertas de retenção batch.
+
 ## 0.9.1 — 2026-10-12
 
 Exibir o percentual de transferência informado pelo rclone durante cópias agrupadas interativas, fazendo o progresso geral acompanhar a transferência atual em vez de uma estimativa por tempo. Manter estimativas por tempo para outras operações opacas. Atualizar documentação bilíngue e metadados da release.

@@ -2,9 +2,9 @@
 
 [English](README.md)
 
-O Sambinha **0.9.1** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.10.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
 
-Os jobs executam até o fim na ordem do TOML, com inventários e verificações independentes. Sobreposições entre origens/destinos de jobs diferentes são permitidas; confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos) antes de compartilhar caminhos.
+Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
 ## Instalar
 
@@ -27,8 +27,6 @@ Crie `sambinha.toml`. Os caminhos são relativos a esse arquivo; `~` e variávei
 state_dir = "./state"
 log_dir = "./logs"
 log_retention_days = 14
-deleted_days = 10
-version_days = 2
 verification_mode = "simple"
 
 [[jobs]]
@@ -37,6 +35,7 @@ source = "~/Documentos"
 destination = "/mnt/backup/documents"
 type = "local"
 logic = "simple"
+max_delete = 100 # Limite absoluto deste job, passado ao rclone sync.
 check_source_disk = true
 check_destination_disk = true
 continue_on_job_error = true
@@ -51,16 +50,16 @@ continue_on_job_error = true
 .venv/bin/sambinha restore --config sambinha.toml --job documents --output /mnt/recovered
 ```
 
-A simulação lê inventários e escreve um log, sem alterar backups/estado ou enviar notificações. A restauração usa uma pasta separada, nova ou vazia. O [exemplo completo](sambinha.example.pt-BR.toml) inclui todas as opções.
+A simulação executa `rclone sync --dry-run` e grava um log sem alterar os dados do backup. Jobs simples não criam mais o índice de arquivos do Sambinha; `max_delete` é um limite absoluto por job passado ao rclone. O histórico de `--backup-dir` expira pelo maior valor entre `deleted_days` e `version_days`; como o rclone não identifica se o item foi apagado ou substituído, ambos usam essa retenção conservadora. A restauração aceita `--path` para arquivos e diretórios. O [exemplo completo](sambinha.example.pt-BR.toml) inclui todas as opções.
 
 ## Comportamento essencial
 
-- **Armazenamento e verificação:** `logic = "simple"` preserva a árvore; `"batch"` cria arquivos compactados. O padrão `verification_mode = "simple"` compara tamanho em bytes e data de alteração em nanossegundos; `"hash"` confere conteúdo.
-- **Links simbólicos são sempre ignorados:** não são copiados, seguidos ou traduzidos, e diretórios ligados não são percorridos. Cópias e históricos existentes desses caminhos ficam protegidos enquanto o link existir. [Decisão e limites](docs/usage.pt-BR.md#links-simbólicos).
-- **Retenção:** arquivos apagados ficam guardados por 10 dias e versões anteriores por 2 dias, por padrão. Logs mantêm 14 dias; `log_retention_days = 0` desativa a limpeza.
+- **Armazenamento e verificação:** `logic = "simple"` delega a sincronização da árvore e as exclusões ao rclone; `"batch"` cria arquivos compactados com índice. `sambinha verify` usa `rclone check` nos jobs simples; jobs batch mantêm a verificação pelo índice.
+- **Links simbólicos são sempre ignorados:** não são copiados, seguidos ou traduzidos, e diretórios ligados não são percorridos. Em jobs simples, um arquivo no destino que corresponda a um link na origem é tratado como removido e movido para o histórico com prazo; jobs batch protegem caminhos indexados enquanto houver link. [Decisão e limites](docs/usage.pt-BR.md#links-simbólicos).
+- **Retenção:** históricos dos jobs simples em `.sambinha/history/<id-da-execução>` expiram pelo maior valor entre `deleted_days` e `version_days`; jobs batch mantêm prazos separados para exclusões e versões. Logs mantêm 14 dias; `log_retention_days = 0` desativa a limpeza.
 - **Jobs:** executam sequencialmente. Cada job tem `continue_on_job_error = true` por padrão; use `false` para interromper quando esse job falhar. Qualquer falha deixa o código de saída diferente de zero, e os erros identificam o job.
 - **Discos:** verificações de origem/destino local têm padrão `true` e geram erro acima de 95% de ocupação. Use `false` na respectiva opção por job para suprimir a checagem, como `check_source_disk = false` no Seafile/FUSE. Temporários continuam sendo verificados.
-- **Proteções e progresso:** remoções anormais são bloqueadas por padrão. Backups/verificações normais simultâneos com o mesmo `state_dir` são recusados. O percentual do backup inteiro mostra etapa/subdiretório e acompanha o rclone durante cópias em lote; detalhes por arquivo ficam nos logs JSON.
+- **Proteções e progresso:** cada job simples tem um limite absoluto `max_delete`; `--allow-mass-deletion` o ignora em uma execução. As exclusões nativas do rclone preservam os caminhos excluídos. Backups/verificações normais simultâneos com o mesmo `state_dir` são recusados. O progresso acompanha as estatísticas do `rclone sync`.
 
 ## Mais informações
 

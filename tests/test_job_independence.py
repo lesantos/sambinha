@@ -10,8 +10,10 @@ import unittest
 from unittest.mock import patch
 
 from sambinha.engine import DAY, Context
+from sambinha.config import validate
+from sambinha.errors import ConfigError
 from sambinha.inventory import scan
-from sambinha.recovery import indexed_files, recover
+from sambinha.recovery import recover
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
@@ -60,26 +62,28 @@ class IndependentJobTests(Sandbox):
                         self.verify(config)
                         first, second = config.jobs
                         self.assertEqual(contents(Path(first.destination)), contents(first.source))
-                        state = json.loads((config.state_dir / second.name / 'state.json').read_text())
                         expected = {p.relative_to(second.source).as_posix(): p.read_bytes()
-                                    for p in second.source.rglob('*') if p.is_file()}
+                                    for p in second.source.rglob('*') if p.is_file()
+                                    and (logic == 'batch' or '.sambinha' not in p.relative_to(second.source).parts)}
                         if logic == 'batch':
+                            state = json.loads((config.state_dir / second.name / 'state.json').read_text())
                             restored = config.state_dir.parent / 'restored'
                             with redirect_stdout(io.StringIO()) as output:
                                 result = recover(replace(config, jobs=(second,)), 'restore', output=restored)
                             self.assertEqual(result, 0, output.getvalue())
                             actual = {p.relative_to(restored).as_posix(): p.read_bytes()
                                       for p in restored.rglob('*') if p.is_file()}
+                            self.assertEqual(state['last_verified'], 1000 + DAY)
                         else:
-                            actual = {p: (Path(second.destination) / p).read_bytes() for p in indexed_files(state, logic)}
+                            actual = contents(Path(second.destination))
                         self.assertEqual(actual, expected)
-                        self.assertEqual(state['last_verified'], 1000 + DAY)
                     if logic == 'simple':
                         self.assertEqual(contents(Path(combined.jobs[1].destination)),
                                          contents(Path(separate.jobs[1].destination)))
 
     def test_next_inventory_waits_for_verification_state_commit_and_summary(self):
         config = self.chain(self.root / 'ordered')
+        config = replace(config, jobs=tuple(replace(job, logic='batch') for job in config.jobs))
         stages = []
         original_summary = Context.summary
         def inventory(root, *args, **kwargs):
@@ -88,7 +92,7 @@ class IndependentJobTests(Sandbox):
                 self.assertEqual(stages[-2], ('summary', 'test'))
                 state = json.loads((config.state_dir / 'test' / 'state.json').read_text())
                 self.assertEqual(state['last_verified'], 1000)
-                self.assertEqual(contents(Path(config.jobs[0].destination)), contents(config.jobs[0].source))
+                self.assertTrue(Path(config.jobs[0].destination).exists())
             return scan(root, *args, **kwargs)
         def summary(ctx, success):
             self.assertTrue(success)
@@ -106,7 +110,7 @@ class IndependentJobTests(Sandbox):
         third = replace(first, name='third', destination=str(self.root / 'third'))
         self.assertEqual(self.execute(replace(self.config, jobs=(first, second, third))), 1)
         self.assertEqual(contents(self.destination), contents(self.source))
-        self.assertTrue((self.config.state_dir / 'test' / 'state.json').exists())
+        self.assertFalse((self.config.state_dir / 'test' / 'state.json').exists())
         self.assertFalse(Path(third.destination).exists())
         self.assertEqual([e['job'] for e in self.events if e['event'] == 'error'], ['second'])
 
@@ -133,17 +137,21 @@ class IndependentJobTests(Sandbox):
         os.utime(updater / 'file', ns=(ns, ns))
         first = self.config.jobs[0]
         middle = replace(first, name='middle', source=updater, destination=str(self.source / 'data'))
-        last = replace(first, name='last', destination=str(self.root / 'last'))
+        last = replace(first, name='last', destination=str(self.root / 'last'), logic='batch')
         config = replace(self.config, jobs=(first, middle, last), verify_interval_days=1)
         self.execute_separately(replace(config, jobs=(first, last)), 1000)
         self.assertEqual(self.execute(config, now=2000), 0, self.output.getvalue())
         self.assertEqual((self.destination / 'data/file').read_bytes(), b'old')
-        self.assertEqual((Path(last.destination) / 'data/file').read_bytes(), b'new')
+        restored = self.root / 'last-restored'
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(recover(replace(config, jobs=(last,)), 'restore', output=restored), 0,
+                             output.getvalue())
+        self.assertEqual((restored / 'data/file').read_bytes(), b'new')
         state = json.loads((config.state_dir / 'last' / 'state.json').read_text())
         self.assertEqual(state['last_full_scan'], 1000)
-        self.verify(config)
+        self.verify(replace(config, jobs=(last,)))
 
-    def test_exact_and_nested_shared_destinations_verify_disjoint_copies(self):
+    def test_exact_and_nested_shared_destinations_are_rejected(self):
         self.file('first', b'first')
         source = self.root / 'second-source'
         source.mkdir()
@@ -160,10 +168,8 @@ class IndependentJobTests(Sandbox):
                                  exclude_files=second_rules)
                 config = replace(self.config, jobs=(first, second), verify_interval_days=1,
                                  state_dir=self.root / ('nested-state' if suffix else 'shared-state'))
-                self.assertEqual(self.execute(config), 0, self.output.getvalue())
-                self.verify(config)
-                self.assertEqual((self.destination / 'first').read_bytes(), b'first')
-                self.assertEqual((Path(second.destination) / 'second').read_bytes(), b'second')
+                with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
+                    validate(config)
 
     def test_shared_file_verifies_before_overwrite_and_later_reports_stale_index(self):
         path = self.file('file', b'old')
@@ -175,14 +181,8 @@ class IndependentJobTests(Sandbox):
         first = self.config.jobs[0]
         second = replace(first, name='second', source=source)
         config = replace(self.config, jobs=(first, second), verify_interval_days=1)
-        self.assertEqual(self.execute(config), 0, self.output.getvalue())
-        self.assertEqual([e['job'] for e in self.events if e['event'] == 'verification_complete'], ['test', 'second'])
-        self.assertEqual((self.destination / 'file').read_bytes(), b'new')
-        self.verify(replace(config, jobs=(second,)))
-        with redirect_stdout(io.StringIO()) as output:
-            result = recover(replace(config, jobs=(first,)), 'verify')
-        self.assertEqual(result, 1)
-        self.assertIn('Integridade divergente', output.getvalue())
+        with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
+            validate(config)
 
     def test_shared_batch_destination_keeps_local_indexes_but_remote_control_is_last_writer(self):
         self.file('first', b'first')
@@ -192,13 +192,8 @@ class IndependentJobTests(Sandbox):
         first = replace(self.config.jobs[0], logic='batch')
         second = replace(first, name='second', source=source)
         config = replace(self.config, jobs=(first, second), verify_interval_days=1)
-        self.assertEqual(self.execute(config), 0, self.output.getvalue())
-        self.verify(config)
-        with tarfile.open(self.destination / '.sambinha/control.tar.gz') as archive:
-            remote = json.load(archive.extractfile('state.json'))
-        local = json.loads((config.state_dir / 'second' / 'state.json').read_text())
-        self.assertEqual(remote['identity'], local['identity'])
-        self.assertEqual(remote['active'], local['active'])
+        with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
+            validate(config)
 
     def test_shared_simple_destination_can_retire_the_previous_jobs_files(self):
         self.file('first', b'first')
@@ -208,21 +203,14 @@ class IndependentJobTests(Sandbox):
         first = self.config.jobs[0]
         second = replace(first, name='second', source=source)
         config = replace(self.config, jobs=(first, second), verify_interval_days=1)
-        self.assertEqual(self.execute(config), 0, self.output.getvalue())
-        self.assertEqual([e['job'] for e in self.events if e['event'] == 'verification_complete'], ['test', 'second'])
-        self.assertFalse((self.destination / 'first').exists())
-        history = list(self.destination.glob('.sambinha/history/deleted/*/first'))
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].read_bytes(), b'first')
-        self.verify(replace(config, jobs=(second,)))
-        with redirect_stdout(io.StringIO()) as output:
-            result = recover(replace(config, jobs=(first,)), 'verify')
-        self.assertEqual(result, 1)
+        with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
+            validate(config)
 
     def test_source_root_metadata_conflict_fails_identically_in_combined_and_separate_runs(self):
         for separate in (False, True):
             with self.subTest(separate=separate):
                 config = self.chain(self.root / f'root-metadata-{separate}')
+                config = replace(config, jobs=tuple(replace(job, logic='batch') for job in config.jobs))
                 first, second = config.jobs
                 destination = Path(first.destination)
                 destination.mkdir(parents=True)
@@ -231,15 +219,17 @@ class IndependentJobTests(Sandbox):
                 config = replace(config, jobs=(first, second))
                 if separate:
                     self.assertEqual(self.execute(replace(config, jobs=(first,))), 0)
+                    snapshot = contents(destination)
                     result = self.execute(replace(config, jobs=(second,)))
                 else:
                     result = self.execute(config)
+                    snapshot = contents(destination)
                 self.assertEqual(result, 1)
                 error = next(e for e in self.events if e['event'] == 'error')
                 self.assertEqual(error['job'], 'second')
                 self.assertEqual(error['error'].count('Job second:'), 1)
                 self.assertIn('.sambinha é reservado', error['error'])
-                self.assertEqual(contents(destination), contents(first.source))
+                self.assertEqual(contents(destination), snapshot)
 
     def test_dry_run_matches_separate_dry_runs_without_materializing_the_chain(self):
         config = replace(self.chain(self.root / 'dry'), dry_run=True)

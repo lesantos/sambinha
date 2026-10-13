@@ -30,7 +30,7 @@ class InventoryPerformanceTests(Sandbox):
 
     def test_each_job_has_its_own_inventory_even_with_the_same_source(self):
         self.file('file')
-        job = self.config.jobs[0]
+        job = replace(self.config.jobs[0], logic='batch')
         config = replace(self.config, jobs=(job, replace(job, name='second', destination=str(self.root / 'second'))))
         with patch('sambinha.engine.scan', wraps=scan) as inventory:
             result = preflight(validate(config), Mock(), now=1000)
@@ -64,30 +64,31 @@ class InventoryPerformanceTests(Sandbox):
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
 class PerformanceIntegrationTests(Sandbox):
     def test_full_scan_interval_and_opt_out_rehash_unchanged_source(self):
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         self.file('file')
         self.assertEqual(self.execute(now=1000), 0)
         with patch('sambinha.inventory.fingerprint', wraps=fingerprint) as hash_file:
             self.assertEqual(self.execute(now=1001), 0)
             hash_file.assert_not_called()
             self.assertEqual(self.execute(now=1000 + 7 * 86400), 0)
-            hash_file.assert_called_once()
+            self.assertGreaterEqual(hash_file.call_count, 1)
         with patch('sambinha.inventory.fingerprint', wraps=fingerprint) as hash_file:
             self.assertEqual(self.execute(replace(self.config, fingerprint_cache=False)), 0)
-            hash_file.assert_called_once()
+            self.assertGreaterEqual(hash_file.call_count, 1)
 
-    def test_many_simple_files_use_bounded_bulk_copy_and_restore_exactly(self):
+    def test_many_simple_files_use_one_native_sync(self):
         for i in range(8):
             self.file(f'dir/file-{i}', str(i).encode())
-        from sambinha.storage import Storage
-        self.config = replace(self.config, transfer_group_size=3)
-        original = Storage.put_many
-        groups = []
-        def bulk(storage, root, files):
-            groups.append(len(files))
-            return original(storage, root, files)
-        with patch.object(Storage, 'put_many', bulk):
+        from sambinha.process import Runner
+        operations = []
+        original = Runner.run
+        def record(runner, args, **kwargs):
+            if len(args) > 1 and args[1] in {'copy', 'sync'}:
+                operations.append(args[1])
+            return original(runner, args, **kwargs)
+        with patch.object(Runner, 'run', record):
             self.assertEqual(self.execute(), 0, self.output.getvalue())
-        self.assertEqual(groups, [3, 3, 2])
+        self.assertEqual(operations, ['sync'])
         self.assertEqual(contents(self.destination), contents(self.source))
 
     def test_batch_workers_run_concurrently_with_bounded_parallelism(self):

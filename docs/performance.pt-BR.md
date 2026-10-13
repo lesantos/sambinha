@@ -6,8 +6,9 @@ P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhame
 
 | Prioridade | Melhoria | Configuração e comportamento |
 | --- | --- | --- |
-| P1 | Cache de fingerprints | Em `verification_mode = "hash"`, `fingerprint_cache = true` reaproveita apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa; `--no-fingerprint-cache` desativa. O padrão `"simple"` usa tamanho/mtime e não calcula hashes do inventário. |
-| P2 | Transferência simples agrupada | `transfer_group_size = 100`; listas literais usam um rclone por grupo e `transfer_workers = 4`. Histórico é confirmado antes; validações de origem e destino mais novo permanecem. |
+| P1 | Cache de fingerprints batch | Em `verification_mode = "hash"`, `fingerprint_cache = true` reaproveita apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa; `--no-fingerprint-cache` desativa. Jobs simples não criam inventário de fingerprints. |
+| P2 | Sincronização simples nativa | Jobs simples usam uma operação `rclone sync` para percorrer árvores, aplicar exclusões, atualizar e remover; arquivos substituídos/apagados vão para `--backup-dir`. `transfer_workers = 4` controla a concorrência. Não há inventário recursivo separado do Sambinha nos jobs simples. |
+| P2 | Descoberta batch com exclusões | `lsjson` lista um diretório por chamada não recursiva para limitar o tamanho de cada resposta. O Sambinha ainda reúne os resultados em um inventário global antes de planejar os lotes. |
 | P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Lotes concorrentes | `batch_workers = 2`; staging separado por worker. A thread principal só confirma o índice depois de todos os uploads. |
 | P5 | Cache de filtros | Seleções repetidas de nomes históricos reaproveitam resultados imutáveis na execução; o rclone continua avaliando as regras congeladas. |
@@ -29,7 +30,6 @@ A classificação ignora maiúsculas nas extensões e reconhece nomes comuns de 
 verification_mode = "simple" # Padrão; use "hash" para comparar o conteúdo.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
-transfer_group_size = 100
 transfer_workers = 4
 batch_workers = 2
 
@@ -52,8 +52,8 @@ A ordem por data dentro de cada diretório é preservada. Mudar categoria inicia
 
 Concorrência aumenta espaço temporário, CPU e memória. Cada worker usa originais e arquivo compactado; dois podem precisar aproximadamente do dobro do staging de um. Checks de disco falham acima de 95%. Meça tempo total e tamanho enviado antes de aumentar workers/threads; mais concorrência pode prejudicar um disco lento compartilhado.
 
-O inventário simples padrão consulta tamanho e data de modificação em nanossegundos, sem abrir o conteúdo. Não detecta edições que preservem ambos. O cache de hashes usa metadados do filesystem; não é prova criptográfica de conteúdo intacto. Leituras completas periódicas detectam divergências que o cache pode não perceber. As opções de cache/leitura completa só se aplicam ao modo hash. Arquivos alterados são validados antes/depois dos envios conforme o modo escolhido, e a origem de lotes é conferida antes do commit. Verificação S3 nunca baixa corpos de objetos. Lotes e controles mantêm checksums nos dois modos.
+Jobs simples delegam ao rclone as comparações e não criam inventário de fingerprints do Sambinha. `verification_mode = "simple"` usa a comparação tamanho/data do rclone; `"hash"` passa `--checksum`. `max_delete` define um limite absoluto por job; o rclone aborta se o exceder. Jobs batch continuam usando inventário, cache, modo de verificação e checagem de consistência da origem. Verificação S3 nunca baixa corpos de objetos. Lotes e controles mantêm checksums nos dois modos.
 
-O progresso interativo exibe etapa, subdiretório em trabalho e um percentual estimado global no stderr, sem entrar nos logs JSON ou stdout. Etapas/tarefas ponderadas e lotes concorrentes combinam contadores de arquivos/bytes e estimativas limitadas de subprocessos, sem reiniciar nem voltar o percentual. Só a conclusão bem-sucedida exibe 100%. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo; resumos/erros permanecem visíveis. Grupos de cópia ficam no mesmo diretório. Redirecionar stderr ou executar sem terminal desativa o progresso. Veja os [modos de verificação](../README.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
+O progresso interativo exibe etapa, subdiretório em trabalho e percentual global no stderr, sem entrar nos logs JSON ou stdout. Jobs simples acompanham as estatísticas de transferência reportadas pelo rclone; fases batch usam contadores ponderados e estimativas limitadas. Só a conclusão bem-sucedida exibe 100%. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo; resumos/erros permanecem visíveis. Redirecionar stderr ou executar sem terminal desativa o progresso. Veja os [modos de verificação](../README.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
 
 Referências: [detecção de mudanças do restic](https://restic.readthedocs.io/en/stable/040_backup.html), [concorrência do rclone](https://rclone.org/docs/).

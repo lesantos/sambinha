@@ -124,6 +124,7 @@ class DiskTests(Sandbox):
             self.skipTest('rclone required')
         from sambinha.storage import Storage
         self.file('file')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         original = Storage.put
         filled = False
         def put(storage, *args, **kwargs):

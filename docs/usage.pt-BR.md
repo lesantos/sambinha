@@ -33,7 +33,7 @@ Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2**
 
 ## Retenção, recuperação e limites
 
-Na lógica simples, o destino apresenta os caminhos originais. Antes de substituir ou apagar um arquivo, a versão anterior é copiada para `.sambinha/history/version/<id>/...` ou `.sambinha/history/deleted/<id>/...`. Na lógica por lotes, arquivos compactados antigos permanecem no caminho original até expirar; o índice separa `active` e `retired`.
+Na lógica simples, o destino apresenta os caminhos originais. O rclone usa `--backup-dir` em `.sambinha/history/<id-da-execução>` para guardar arquivos substituídos ou apagados; a limpeza expira esses diretórios pelo maior valor entre `deleted_days` e `version_days`, pois o histórico não diferencia os motivos. Na lógica por lotes, arquivos compactados antigos permanecem em chaves imutáveis até expirar; o índice separa `active` e `retired`.
 
 A contagem começa quando uma execução bem-sucedida detecta a alteração/remoção. A limpeza ocorre durante execuções seguintes, inclusive no instante exato da expiração. Retenção zero permite apagar o histórico nessa execução. Um lote com arquivos editados e apagados usa o maior prazo aplicável. Falhas interrompem a operação afetada; preservam o último índice confirmado. Uploads interrompidos podem deixar objetos sem referência; não são apagados automaticamente para evitar perda de dados.
 
@@ -45,9 +45,9 @@ Para recuperar `simple`, copie os arquivos atuais do destino, excluindo `.sambin
 - Extraia com `7z x arquivo.7z -o/pasta/restaurada`. Os caminhos internos já incluem a árvore a partir da raiz da origem. Compare SHA-256 e tamanho com os controles.
 - Para recuperar o estado local, reponha `state.json` e `controls/` em `<state_dir>/<job>/`, usando a mesma origem/destino/lógica da identidade no índice.
 
-`batch` confia no espelho local para evitar chamadas S3 de inventário. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. A cópia `simple` compara tamanho/data por padrão; no modo hash, consulta checksums do destino e repara divergências de conteúdo. No modo hash, destinos sem MD5 disponível falham explicitamente. O rclone verifica transferências conforme o modo escolhido e as garantias do backend.
+`batch` confia no espelho local para evitar chamadas S3 de inventário. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. Jobs `simple` delegam a comparação ao rclone; o padrão usa tamanho/data e `verification_mode = "hash"` passa `--checksum`. Não há inventário nem cache de fingerprints do Sambinha para esses jobs.
 
-Links simbólicos são ignorados. Arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Cada job deve manter sua própria origem/destino separados, e todos devem ficar fora dos diretórios de estado/logs. Sobreposições entre jobs são permitidas; veja [as regras de interação](configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos). `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
+Links simbólicos são ignorados. Arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Cada job deve manter sua própria origem/destino separados, e todos devem ficar fora dos diretórios de estado/logs. Destinos entre jobs não podem se sobrepor, mas um destino pode ser origem de um job posterior; veja [as regras de interação](configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos). `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
 
 
 ## Atualizando para a versão 0.2.0
@@ -58,11 +58,11 @@ Para preservar backups feitos por uma instalação anterior, use um novo destino
 
 ## Arquivos mais novos no destino
 
-Antes de modificar uma tarefa, a cópia simples compara as datas de modificação do inventário rclone com as da origem, com precisão de nanossegundos. Uma data mais recente no destino impede todas as alterações daquela tarefa, inclusive quando os bytes são iguais; o arquivo e sua data permanecem intactos. Datas iguais permitem comparar tamanho/data no modo simples padrão ou conteúdo por checksum no modo hash. Se o destino não fornecer uma data válida, a tarefa também falha antes de alterar os arquivos.
+Em jobs simples, o rclone aplica `--update`: arquivos mais novos no destino não são substituídos por versões mais antigas da origem. Os demais critérios de comparação seguem o backend e as opções de comparação configuradas no rclone.
 
 Nos lotes, a comparação considera as datas originais dos arquivos no último índice confirmado. A data de upload dos lotes não é a data de edição dos documentos. Conflitos aparecem como `newer_destination` nos logs, e a execução termina com código 1 e um evento Cronitor `fail` com a descrição dos arquivos. A simulação registra o conflito e retorna erro, sem enviar notificações.
 
-Nas transferências simples, o comando `copyto` também recebe `--update`. Se o rclone pular um arquivo porque o destino foi atualizado durante a execução, o Sambinha confirma a data novamente e transforma esse conflito em erro, sem alterar o arquivo mais novo.
+Se a execução simples encontrar falha, inclusive por `max_delete`, o rclone pode já ter concluído outras transferências ou preservado itens em `--backup-dir`; examine o log e o destino antes de repetir.
 
 ## Exclusões por arquivo de regras
 
@@ -83,7 +83,7 @@ exclude_files = "excludes.txt"
 /cache/**
 ```
 
-A seleção usa `rclone lsjson --exclude-from` tanto para a origem quanto para o destino simples. A mesma seleção alimenta a compactação por lotes, sem enviar arquivos excluídos. Não há uma segunda implementação dos padrões em Python. Os nomes do histórico são avaliados pelo próprio rclone em uma árvore temporária de arquivos vazios, sem baixar lotes remotos.
+Jobs simples passam `--exclude-from` ao `rclone sync`, que aplica as exclusões durante sua própria travessia. Por padrão, caminhos excluídos não são removidos do destino; não habilitamos `--delete-excluded`. Jobs batch usam a mesma sintaxe nativa do rclone para selecionar arquivos.
 
 Arquivos excluídos já existentes no destino simples são preservados. Históricos que contenham algum arquivo excluído também são preservados. Um lote ativo antigo com membros excluídos vai para `state.json.excluded`, mantendo seu arquivo e controle no destino e na cópia de recuperação; não é um lote atual da seleção filtrada. Isso evita apagar parte de um lote que não pode ser dividida sem restauração.
 
@@ -98,13 +98,13 @@ As regras são copiadas para um arquivo temporário no início de cada job, mant
 deletion_alert_threshold = 1000
 ```
 
-A opção equivalente na linha de comando é `--deletion-alert-threshold`. O limite é estrito: exatamente 1000 não dispara; mais de 1000 dispara. A contagem é independente por job e conta os arquivos/versões dentro dos lotes, não apenas a quantidade de arquivos compactados. É possível configurar 0 para avisar sobre qualquer exclusão definitiva prevista.
+A opção equivalente na linha de comando é `--deletion-alert-threshold`. O limite é estrito: exatamente 1000 não dispara; mais de 1000 dispara. A contagem é independente por job batch e conta os arquivos/versões dentro dos lotes, não apenas a quantidade de arquivos compactados. O histórico simples de `--backup-dir` não é contado nem limpo pelo Sambinha.
 
 Cada histórico novo registra a data de criação, a retenção, os caminhos originais, o vencimento e o início do aviso. O período é de dois dias para retenções de dois ou mais dias, um dia para retenção de um dia e zero para retenção imediata. O programa precisa ser executado regularmente para avisar na janela: ele não envia eventos enquanto estiver parado e não adia exclusões para compensar uma execução perdida.
 
 Quando o limite é ultrapassado, os eventos `deletion_alert` e `deletion_candidate` listam os arquivos e as datas. `deletion_scheduled` registra o planejamento quando o histórico é criado; `expire` registra a remoção efetiva. Históricos protegidos por exclusões não entram na contagem. O Cronitor recebe `fail` com o resumo, mas o código de saída continua 0 e `end.success` continua verdadeiro se não houver falha real. Não é necessário confirmar a exclusão: ela ocorre no prazo que já estava configurado. O aviso pode repetir nas execuções da janela, até a limpeza terminar.
 
-Na cópia simples, um arquivo apagado pode sair da árvore atual antes disso, mas sua cópia permanece no histórico durante a retenção. O aviso trata da remoção definitiva dessa cópia. Em simulação, o planejamento aparece nos logs e nenhuma notificação é enviada.
+Em jobs simples, arquivos apagados da árvore atual vão para o histórico nativo do rclone, sem prazo automático de retenção. O aviso e a limpeza por dias tratam apenas do histórico batch.
 
 ## Verificação dos discos montados
 
@@ -145,15 +145,15 @@ sambinha --verify-interval-days 7
 
 Selecione uma tarefa e uma saída nova/vazia, separada de origens, destinos, estado e logs. Os caminhos são literais, relativos ao índice ativo; a árvore original é preservada. Todos os arquivos selecionados têm tamanho e hashes SHA-256/MD5 registrados no índice, quando presentes, conferidos em área temporária antes da publicação. Arquivos são criados sem sobrescrever os existentes; permissões privilegiadas não são aplicadas. Links e caminhos inseguros nos lotes são recusados antes da extração. Uma falha posterior de disco/escrita pode deixar arquivos já publicados e validados, com retorno de erro.
 
-A origem pode estar ausente. A cópia simples precisa do índice local; lotes podem recuperar `state.json` do tar remoto, lendo apenas o membro regular limitado a 64 MiB, sem extrair outros caminhos ou instalar um estado novo. `restore` recupera o índice ativo; versões históricas continuam sendo recuperadas manualmente. Restaurar do S3 baixa os arquivos/lotes selecionados e pode gerar cobrança. GLACIER/DEEP_ARCHIVE exigem restore prévio na AWS.
+Jobs simples restauram a árvore atual sem índice e aceitam `--path` para arquivos/diretórios atuais. Para uma versão histórica simples, use rclone no diretório `.sambinha/history/<id-da-execução>`. Lotes podem recuperar `state.json` do tar remoto, lendo apenas o membro regular limitado a 64 MiB, sem extrair outros caminhos ou instalar um estado novo. Restaurar do S3 baixa os arquivos/lotes selecionados e pode gerar cobrança. GLACIER/DEEP_ARCHIVE exigem restore prévio na AWS.
 
-`verify` de cópias segue `verification_mode`: o padrão `"simple"` usa tamanho/data em nanossegundos; `"hash"` lê conteúdo local ou consulta MD5 no S3. Lotes locais validam checksum do arquivo compactado, integridade do 7-Zip, caminhos e tamanhos/hashes registrados dos membros. No S3, só consulta metadados, incluindo controles JSON; lotes sempre usam tamanho/MD5. Nunca baixa corpos de objetos nem índices ausentes. Um ETag multipart sozinho não é MD5 do objeto inteiro. Hash necessário ausente, lote antigo sem checksum de envio ou índice local ausente causam erro explícito. Esta checagem não descompacta membros nem autentica um índice alterado por atacante.
+Jobs simples executam `rclone check`. Lotes locais validam checksum do arquivo compactado, integridade do 7-Zip, caminhos e tamanhos/hashes registrados dos membros. No S3 batch, só consulta metadados, incluindo controles JSON; lotes usam tamanho/MD5. Nunca baixa corpos de objetos nem índices ausentes. Um ETag multipart sozinho não é MD5 do objeto inteiro. Hash necessário ausente, lote antigo sem checksum de envio ou índice local ausente causam erro explícito. Esta checagem não descompacta membros nem autentica um índice alterado por atacante.
 
-`verify_interval_days` é global: 0 desativa; 7 verifica após backups bem-sucedidos quando devido, incluindo a primeira execução habilitada. Apenas sucesso atualiza `last_verified`; falha notifica Cronitor e retorna erro. Não há timer independente. `verify` manual verifica imediatamente e não altera a data da agenda automática. Simulação informa a verificação prevista sem ler conteúdo ou baixar objetos.
+`verify_interval_days` agenda verificações de índices batch; não se aplica a jobs simples. 0 desativa a agenda. Apenas sucesso atualiza `last_verified`. `verify` manual verifica imediatamente. Em jobs simples, executa `rclone check` com as exclusões do job.
 
-## Bloqueio de remoções em massa e ocupação dos discos
+## Limites de remoção e ocupação dos discos
 
-As opções por tarefa `max_delete_percent = 50` e `deletion_min_files = 20` bloqueiam quando a seleção anterior atinge o mínimo e a porcentagem removida fica estritamente acima do limite. O cálculo ignora caminhos excluídos e usa o índice confirmado anterior. O bloqueio ocorre antes de alterar histórico, enviar, substituir ou limpar retenção. O primeiro backup não tem base anterior; exatamente o limite é permitido. Use mínimo 1 para proteger também pastas pequenas. `--allow-mass-deletion` autoriza apenas uma execução; confira a origem antes de usá-lo. Outras tarefas independentes continuam.
+Cada job simples define `max_delete` como limite absoluto de arquivos removidos pelo `rclone sync` (padrão 100). O rclone falha e interrompe a sincronização se a execução ultrapassar esse limite. A operação não é repetida inteira após erro, evitando reaplicar o limite em várias tentativas; transferências parciais podem permanecer. Jobs batch mantêm `max_delete_percent` e `deletion_min_files`, calculados pelo índice anterior. `--allow-mass-deletion` ignora a proteção aplicável apenas naquela execução.
 
 Discos da origem, destino local e temporários de lotes causam erro acima de 95% de ocupação, contando espaço indisponível ao usuário. Exatamente 95% é permitido. Destinos inexistentes usam o ancestral existente mais próximo para a medição. Checks ocorrem antes do backup e antes de operações de alteração; `disk_usage` registra porcentagem e bytes livres. S3 não expõe ocupação local. A restauração verifica também o disco de saída.
 
@@ -161,21 +161,21 @@ As opções por job `check_source_disk` e `check_destination_disk` têm padrão 
 
 ## Resumo, performance e compatibilidade
 
-Cada tarefa emite `summary` com arquivos totais/novos/modificados/intactos/removidos, lotes reutilizados/recriados, bytes originais previstos, bytes de conteúdo transferidos e exclusões históricas pendentes. Custos dos controles/índice ficam fora dos bytes de conteúdo. Falhas podem ter transferências parciais; não há transação distribuída entre tarefas. Veja as configurações P1–P6 em [performance](performance.pt-BR.md).
+Jobs batch emitem contagens indexadas de arquivos e lotes. Jobs simples registram a estratégia `rclone sync` e o `max_delete` absoluto por job; uma falha pode ocorrer depois de parte da sincronização ter sido aplicada. Veja [performance](performance.pt-BR.md) para sync nativo e perfis batch.
 
 Estados 0.3.x continuam compatíveis. Lotes sem checksum de envio não têm verificação completa por metadados até serem substituídos após mudanças. Não há reenvio automático só para adicionar o checksum. No modo hash, o cache pressupõe metadados de filesystem confiáveis e força leituras completas periódicas; desative-o quando precisar de leitura completa em toda execução.
 
 ## Modos de verificação e progresso no terminal — 0.6.1
 
-`[backup].verification_mode = "simple"` é o padrão, inclusive em configurações existentes sem essa chave; `"hash"` ativa SHA-256/MD5. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam ao modo hash. Trocar para hash recalcula hashes ausentes; trocar modos em backups por lotes pode reconstruir arquivos compactados. Verificação por hash de um índice sem hashes exige antes um backup nesse modo. Restauração confere tamanhos e hashes quando presentes no índice; checksums dos lotes são mantidos nos dois modos.
+`[backup].verification_mode = "simple"` é o padrão; `"hash"` passa `--checksum` aos syncs simples e ativa fingerprints SHA-256/MD5 nos índices batch. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam aos inventários batch.
 
-O stderr interativo exibe etapa, diretório e percentual do backup: arquivos/bytes para inventários, fila conhecida na descoberta de diretórios, percentual de transferência do rclone nas cópias em lote e tempo decorrido em outras operações opacas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; não volta e só chega a 100% após sucesso. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo. Cópias agrupadas mostram o subdiretório real. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
+O stderr interativo exibe etapa, diretório e percentual do backup: jobs simples acompanham estatísticas do `rclone sync`, enquanto fases batch usam contadores ponderados e estimativas limitadas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; só chega a 100% após sucesso. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
 
 ## Links simbólicos
 
 Links simbólicos nos dados da origem e do destino local são sempre ignorados. Diretórios ligados não são percorridos; links para arquivos, links quebrados e ciclos não interrompem o inventário normal. Os links e seus alvos não são copiados através do link, compactados ou representados como arquivos `.rclonelink`. Um alvo que também apareça como arquivo regular por outro caminho é copiado normalmente.
 
-Esses caminhos funcionam como exclusões implícitas: cópias, lotes e históricos existentes ficam protegidos enquanto o caminho correspondente na origem ou no destino contiver um link. Um link no destino local também impede copiar a origem para aquele caminho, sem alterar o link nem seu alvo.
+O rclone ignora links na origem e no destino sem segui-los. Em jobs batch, cópias/históricos indexados desses caminhos ficam protegidos. No sync simples, um link na origem não aparece na árvore de origem, então um arquivo correspondente no destino pode ser considerado removido e movido para `--backup-dir`; continua sujeito ao prazo normal. Históricos simples são removidos por diretório de execução, incluindo caminhos excluídos recentemente dentro de um diretório expirado. Um link no destino local também impede copiar a origem para aquele caminho, sem alterar o link nem seu alvo.
 
 O rclone normalmente ignora links. O Sambinha usa `--skip-links` para suprimir avisos e `--links=false --copy-links=false` para prevalecer sobre variáveis de ambiente que habilitem links. [Documentação oficial do rclone](https://rclone.org/local/#skip-links). Esse comportamento é fixo e não exige configuração.
 

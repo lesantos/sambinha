@@ -17,17 +17,15 @@ from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
 class S3MetadataVerificationTests(Sandbox):
-    def test_simple_verification_never_downloads_objects(self):
+    def test_simple_s3_verification_delegates_to_rclone_check_without_downloads(self):
         self.file('dir/file', b'original')
-        item = scan(self.source)[0].metadata()
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket/prefix')
-        remote = {'Size': item['size'], 'Hashes': {'md5': item['md5']}}
         runner = Mock()
-        with patch('sambinha.storage.Storage.stat', return_value=remote) as stat, \
+        with patch('sambinha.storage.Storage.check_simple') as check, \
              patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
-            result = verify_job(self.config, job, runner, Mock(), {'active': {item['path']: item}})
-        self.assertEqual(result['mode'], 's3_metadata')
-        stat.assert_called_once_with('dir/file')
+            result = verify_job(self.config, job, runner, Mock())
+        self.assertEqual(result['mode'], 'rclone_check')
+        check.assert_called_once()
         runner.run.assert_not_called()
 
     def test_batch_archive_and_control_are_checked_without_download(self):
@@ -45,16 +43,14 @@ class S3MetadataVerificationTests(Sandbox):
             verify_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
         self.assertEqual([c.args[0] for c in stat.call_args_list], [batch.key, batch.key + '.json'])
 
-    def test_missing_hash_or_wrong_checksum_fails_without_download(self):
-        self.file('file')
-        item = scan(self.source)[0].metadata()
+    def test_simple_s3_verification_uses_rclone_check_in_hash_mode_too(self):
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket')
-        for remote in ({'Size': item['size'], 'Hashes': {}},
-                       {'Size': item['size'], 'Hashes': {'md5': '0' * 32}}):
-            with self.subTest(remote=remote), patch('sambinha.storage.Storage.stat', return_value=remote), \
-                 patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')), \
-                 self.assertRaises(BackupError):
-                verify_job(self.config, job, Mock(), Mock(), {'active': {'file': item}})
+        config = replace(self.config, jobs=(job,), verification_mode='hash')
+        with patch('sambinha.storage.Storage.check_simple') as check, \
+             patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
+            result = verify_job(config, job, Mock(), Mock())
+        self.assertEqual(result['mode'], 'rclone_check')
+        check.assert_called_once()
 
     def test_missing_local_s3_index_fails_without_downloading_recovery_archive(self):
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
@@ -81,6 +77,7 @@ class RecoveryIntegrationTests(Sandbox):
     def test_destination_option_controls_restore_output_but_not_temporary_space(self):
         from tests.test_disks import Usage
         self.file('file')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         self.assertEqual(self.execute(), 0)
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0],
                               check_source_disk=False, check_destination_disk=False),))
@@ -109,16 +106,17 @@ class RecoveryIntegrationTests(Sandbox):
         self.assertEqual(self.recover('restore', output=self.source), 1)
         self.assertEqual((self.source / 'file').read_bytes(), b'test')
 
-    def test_simple_restore_selected_directory_preserves_binary_and_permissions(self):
+    def test_simple_restore_selected_directory_and_file_preserves_contents_and_metadata(self):
         self.file('dir/binary.dat', bytes(range(256)), mode=0o750)
         self.file('dir/ação.txt', 'Olá'.encode())
         self.file('other', b'not selected')
         self.assertEqual(self.execute(), 0)
-        expected = {p: b for p, b in contents(self.source).items() if p.startswith('dir/')}
         shutil.rmtree(self.source)
         restored = self.root / 'restored'
-        self.assertEqual(self.recover('restore', output=restored, selectors=('dir',)), 0)
-        self.assertEqual(contents(restored), expected)
+        self.assertEqual(self.recover('restore', output=restored, selectors=('dir', 'other')), 0)
+        self.assertEqual(contents(restored), {'dir/binary.dat': bytes(range(256)),
+                                              'dir/ação.txt': 'Olá'.encode(),
+                                              'other': b'not selected'})
         self.assertEqual((restored / 'dir/binary.dat').stat().st_mode & 0o777, 0o750)
 
     def test_batch_restore_recovers_index_when_local_state_is_lost(self):
@@ -139,10 +137,10 @@ class RecoveryIntegrationTests(Sandbox):
         self.file('b', b'original')
         self.assertEqual(self.execute(), 0)
         (self.destination / 'b').write_bytes(b'corrupt!')
-        restored = self.root / 'restored'
-        self.assertEqual(self.recover('restore', output=restored), 1)
-        self.assertFalse(restored.exists())
         self.assertEqual(self.recover('verify'), 1)
+        restored = self.root / 'restored'
+        self.assertEqual(self.recover('restore', output=restored), 0)
+        self.assertEqual((restored / 'b').read_bytes(), b'corrupt!')
 
     def test_restore_refuses_overwrite_overlap_and_invalid_selection(self):
         self.file('file')
@@ -168,7 +166,8 @@ class RecoveryIntegrationTests(Sandbox):
 
     def test_periodic_verification_only_runs_when_due_and_failure_keeps_last_success(self):
         self.file('file', b'original')
-        self.config = replace(self.config, verify_interval_days=7)
+        self.config = replace(self.config, verify_interval_days=7,
+                              jobs=(replace(self.config.jobs[0], logic='batch'),))
         self.assertEqual(self.execute(now=1000), 0)
         self.assertEqual(self.state()['last_verified'], 1000)
         self.assertEqual(self.execute(now=1001), 0)
@@ -181,6 +180,7 @@ class RecoveryIntegrationTests(Sandbox):
         changed = self.file('changed', b'old')
         deleted = self.file('deleted', b'old')
         self.file('unchanged', b'old')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         self.assertEqual(self.execute(), 0)
         changed.write_bytes(b'new content')
         deleted.unlink()
@@ -189,7 +189,7 @@ class RecoveryIntegrationTests(Sandbox):
         summary = next(e for e in self.events if e['event'] == 'summary')
         self.assertEqual((summary['new_files'], summary['modified_files'], summary['removed_files'],
                           summary['unchanged_files']), (1, 1, 1, 1))
-        self.assertEqual(summary['bytes_planned'], len(b'new content') + len(b'new'))
+        self.assertEqual(summary['bytes_planned'], len(b'new content') + len(b'new') + len(b'old'))
         self.assertEqual(summary['bytes_transferred'], 0)
 
     def test_cli_dispatches_restore_and_verify_with_configuration_inheritance(self):

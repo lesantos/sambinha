@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.9.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.10.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -11,7 +11,7 @@ This document consolidates the original backup requirements and all product chan
 - Maintain the project in the private `lesantos/sambinha` GitHub repository, with a README, usage/recovery guides, public configuration examples, tests and release notes.
 - Validate dependencies, configured sources, mounts and local disk occupancy before transfers. Independent jobs must continue after a per-job failure; a global preflight failure can stop the invocation before transfers.
 - Use TOML configuration with global `[backup]` settings and independent `[[jobs]]`. Support an alternative configuration file and CLI overrides; omitted CLI arguments inherit the file's values.
-- Allow one source to have multiple independent jobs, destinations and backup strategies. Reject overlap within a job's own source/destination and with state/logs; allow overlap between different jobs' sources and destinations.
+- Allow one source to have multiple independent jobs, destinations and backup strategies. Reject overlapping destinations between jobs and overlap within a job's own source/destination or with state/logs. Allow a previous job's destination to be a later job's source.
 - Resolve relative configuration paths from the TOML directory, and support home-directory and environment-variable references.
 - Provide bounded timeouts and one initial transfer attempt plus at most three retries, two seconds apart.
 
@@ -19,10 +19,10 @@ This document consolidates the original backup requirements and all product chan
 
 - Support local folders, including mounted volumes, and Amazon S3. Both destinations must support the `simple` and `batch` strategies.
 - Copy only files that are missing or differ from the destination. Use checksums rather than falling back to size-only comparisons when a required checksum is unavailable.
-- Simple backups must preserve original paths and file attributes/permissions where supported. Local simple backups must preserve empty directories. S3 does not offer native POSIX permissions; original metadata remains available in the index.
+- Simple backups delegate file/directory synchronization and exclusions to rclone; local syncs preserve metadata and empty source directories where supported. S3 does not offer native POSIX permissions.
 - If the destination has a newer file, preserve it, report the conflict and fail that job. Batch comparisons must use original timestamps from the confirmed index, not archive upload times.
 - Keep deleted source files for 10 days and previous edited versions for 2 days by default, with configurable retention. Expire history during subsequent executions, including at the exact deadline; zero-day retention allows immediate cleanup.
-- Save simple historical bytes and their retirement record before replacing or deleting the current destination file. Retired batch archives must remain at their immutable keys until expiry. A lot containing both edits and deletions uses the longest applicable retention.
+- Simple backups use rclone `--backup-dir` for displaced/deleted files and purge run histories after the larger of `deleted_days` and `version_days`, since rclone does not distinguish these causes. Retired batch archives remain at immutable keys until expiry; a lot containing edits and deletions uses the longest applicable retention.
 - Reactivated active archives must not be deleted by earlier retirement records. Publish retry information when retention cleanup succeeds locally but updating the remote recovery index fails.
 - Default S3 storage to `GLACIER_IR`, with configurable storage classes. Document access and billing characteristics in code/examples/guides without hardcoded prices. Simple S3 backups require a class readable without asynchronous restore.
 - Store batch JSON controls and `.sambinha/control.tar.gz` in `STANDARD`, even when data archives use colder classes.
@@ -46,7 +46,7 @@ Acceptance: inserting an older new file must leave intact prior batch keys uncha
 ## 4. Restore command — selected functionality 1 / 0.4.0
 
 - Provide `sambinha restore` for a selected job, restoring a file, a folder's indexed contents or all active files.
-- Accept repeatable literal source-relative `--path` selections and a required `--output`. Preserve the original tree; reject paths absent from the active index.
+- Accept repeatable literal source-relative `--path` selections and a required `--output` for simple and batch jobs. Simple jobs select current destination files/directories; batch jobs reject paths absent from the active index.
 - Require a new or empty output directory separate from sources, backups, state and logs. Do not overwrite existing files or follow output symlinks.
 - Stage the selected content and verify original size, SHA-256 and MD5 before publishing requested files. Restore ordinary permission bits and modification timestamps, without privileged mode bits.
 - Work even when the original source is unavailable. Simple recovery requires its local index. Batch recovery may recover a missing index from `.sambinha/control.tar.gz`, reading only one regular `state.json` member limited to 64 MiB without arbitrary tar extraction.
@@ -74,7 +74,7 @@ Acceptance: run real rclone against an HTTP server allowing HEAD and rejecting G
 ## 6. Protection against mass removals — selected functionality 3 / 0.4.0
 
 - Compare the current source selection with the previously confirmed selected inventory, excluding paths filtered out by current exclusion rules.
-- Block the job before history changes, uploads, replacements or retention cleanup when the previous selected count reaches `deletion_min_files` and removed files exceed `max_delete_percent`.
+- Apply the absolute per-job `max_delete` through rclone for simple jobs; retain the index-based `max_delete_percent` guard for batch jobs.
 - Default to at least 20 previous selected files and a strictly greater than 50% removal ratio. Exactly the threshold is allowed; the first backup has no baseline and is allowed.
 - Allow configurable thresholds and a one-invocation `--allow-mass-deletion` bypass for intentional removals. Do not persist the bypass in job configuration or state.
 - Record removed paths, counts and threshold, return failure and notify Cronitor when configured. Other independent jobs may continue.
@@ -126,7 +126,7 @@ All six improvements were selected for implementation, in priority order P1 thro
 | Priority | Required improvement | Configuration and acceptance |
 | --- | --- | --- |
 | P1 | Cache fingerprints of unchanged files. | `fingerprint_cache = true`; reuse requires equal device, inode, size, nanosecond mtime/ctime and permissions. `fingerprint_full_scan_days = 7` forces periodic full content reads; `--no-fingerprint-cache` disables reuse. A same-size edit with restored mtime must invalidate the cache through ctime. |
-| P2 | Group simple transfers into bounded rclone operations. | `transfer_group_size = 100`, `transfer_workers = 4`; use literal lists, save history first and preserve checksum/newer-destination/source-consistency checks. Confirm fewer process calls and exact recovered bytes. |
+| P2 | Delegate simple backups to native rclone sync. | One `rclone sync` handles source traversal, native exclusions, transfer concurrency and deletions. `max_delete` is absolute per job; `--backup-dir` keeps displaced files. |
 | P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Compress and upload batches with limited concurrency. | `batch_workers = 2`; each worker owns staging and subprocess reports. Commit only after all required uploads succeed. Test actual concurrent execution and the configured upper bound. |
 | P5 | Reuse filter results within an execution. | Cache immutable results for identical historical-path selections; continue using rclone's matcher and frozen rules. Do not carry stale filter results into later runs. |
@@ -210,4 +210,8 @@ Per-job `check_source_disk` and `check_destination_disk` default to true. The la
 
 ## 18. Independent sequential jobs — 0.9.0
 
-Each job completes exclusions, preflight, a private inventory/cache, transfers/retention, state commit, due verification and summary before the next job starts. Allow cross-job source/destination and destination/destination overlap, including S3 prefixes. Preserve own source/destination and internal-directory protections. Match successful copy/verification results of separate commands in the same order; later preflight failures leave earlier completed jobs intact. Deletion warnings count per job and progress uses equal job ranges. Cross-job inventory sharing is superseded. Document overwrite/removal, stale indexes, shared batch recovery controls, reserved source-root metadata and dry-run dependencies. Validate local simple/batch chains in both modes, state/cache freshness, newly produced exclusions, overlapping local/S3 destinations, restoration and scheduled/manual verification. Run the full suite and publish 0.9.0 with source, wheel and checksums.
+Each job completes exclusions, preflight, a private inventory/cache, transfers/retention, state commit, due verification and summary before the next job starts. Cross-job source/destination and destination/destination overlap was allowed in 0.9.0; destination-to-destination overlap is superseded by 0.10.0. Preserve own source/destination and internal-directory protections. Match successful copy/verification results of separate commands in the same order; later preflight failures leave earlier completed jobs intact. Deletion warnings count per job and progress uses equal job ranges. Cross-job inventory sharing is superseded.
+
+## 19. Simple history, conflicts and selected restore — 0.10.0
+
+Reject overlapping destinations across jobs while allowing an earlier job's destination to be a later job's source. At the end of each simple job, expire run-scoped `--backup-dir` history using the larger of deletion and version retention because rclone does not identify why each path was displaced. Preserve newer destination files, report them and fail the job for manual review. Let rclone replace file/directory conflicts while retaining displaced items in history. Support repeatable `restore --path` selectors for current simple destination files/directories. Cover local and S3 behavior and run the full suite before publishing 0.10.0.

@@ -107,6 +107,10 @@ def unpack(storage, runner, key, control, work):
 
 def verify_job(config, job, runner, log, state=None, *, progress=None):
     storage = Storage(job, config, runner)
+    if job.logic == "simple":
+        storage.check_simple()
+        log.event("verification_complete", job=job.name, mode="rclone_check")
+        return {"mode": "rclone_check"}
     with tempfile.TemporaryDirectory(prefix="sambinha-verify-") as directory:
         work = Path(directory)
         state = state if state is not None else read_index(config, job, storage, work,
@@ -182,6 +186,11 @@ def restore_job(config, job, runner, log, output, selectors=()):
     output = validate_output(config, output, check_space=job.check_destination_disk)
     selectors = tuple(safe_relative(p.rstrip("/")) for p in selectors)
     storage = Storage(job, config, runner)
+    if job.logic == "simple":
+        storage.restore_simple(output, selectors, dry_run=config.dry_run)
+        log.event("restore_summary", job=job.name, dry_run=config.dry_run,
+                  strategy="rclone_copy", selectors=list(selectors))
+        return
     with tempfile.TemporaryDirectory(prefix="sambinha-restore-") as directory:
         work = Path(directory)
         state = read_index(config, job, storage, work)

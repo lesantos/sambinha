@@ -56,6 +56,18 @@ class ConfigurationTests(Sandbox):
         self.assertFalse(config.dry_run)
         self.assertEqual(config.jobs[0].max_bytes, 100000)
 
+    def test_max_delete_is_per_simple_job_and_cli_override_requires_selection(self):
+        jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\nmax_delete=7\n'
+                '[[jobs]]\nname="second"\nsource="source"\ndestination="second"\nmax_delete=9\n')
+        config_path = self.toml(jobs=jobs)
+        config = load(config_path)
+        self.assertEqual([job.max_delete for job in config.jobs], [7, 9])
+        with self.assertRaisesRegex(ConfigError, '--job'):
+            load(config_path, {'max_delete': 3})
+        selected = load(config_path, {'job': 'second', 'max_delete': 3})
+        self.assertEqual(selected.jobs[0].max_delete, 3)
+        self.assertEqual(parser().parse_args(['--max-delete', '3']).max_delete, 3)
+
     def test_select_job(self):
         jobs = '[[jobs]]\nname="a"\nsource="source"\ndestination="a"\n[[jobs]]\nname="b"\nsource="source"\ndestination="b"\n'
         config = load(self.toml(jobs=jobs), {"job": "b", "logic": "batch"})
@@ -86,15 +98,20 @@ class ConfigurationTests(Sandbox):
         for values in ({"name": "../bad"}, {"type": "ftp"}, {"logic": "unknown"},
                        {"storage_class": "wrong"}, {"max_bytes": 0}, {"max_files": 1},
                        {"compressor": ""}, {"archive_format": "rar"}, {"destination": ""},
-                       {"max_delete_percent": 101}, {"max_delete_percent": float('nan')},
-                       {"deletion_min_files": 0}, {"compression_video_level": 10},
+                       {"max_delete": -1}, {"max_delete": True},
+                       {"compression_video_level": 10},
                        {"compression_text_threads": 65}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, jobs=(replace(self.config.jobs[0], **values),)))
+        batch = replace(self.config.jobs[0], logic='batch')
+        for values in ({"max_delete_percent": 101}, {"max_delete_percent": float('nan')},
+                       {"deletion_min_files": 0}):
+            with self.subTest(values=values), self.assertRaises(ConfigError):
+                validate(replace(self.config, jobs=(replace(batch, **values),)))
 
     def test_invalid_new_global_values_and_cli_actions(self):
         for values in ({'verify_interval_days': -1}, {'fingerprint_cache': 'yes'},
-                       {'fingerprint_full_scan_days': 0}, {'transfer_group_size': 0},
+                       {'fingerprint_full_scan_days': 0},
                        {'transfer_workers': True}, {'batch_workers': 0}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, **values))
@@ -115,7 +132,9 @@ class ConfigurationTests(Sandbox):
         first = self.config.jobs[0]
         second = replace(first, name="batch", logic="batch", destination=str(self.root / "second"))
         self.assertEqual(len(validate(replace(self.config, jobs=(first, second))).jobs), 2)
-        validate(replace(self.config, jobs=(first, replace(second, destination=first.destination + "/nested"))))
+        for destination in (first.destination, first.destination + "/nested"):
+            with self.subTest(destination=destination), self.assertRaisesRegex(ConfigError, "se sobrepõem"):
+                validate(replace(self.config, jobs=(first, replace(second, destination=destination))))
         with self.assertRaises(ConfigError):
             validate(replace(self.config, jobs=(first, replace(second, name=first.name))))
 
@@ -129,12 +148,14 @@ class ConfigurationTests(Sandbox):
 
     def test_jobs_can_write_into_other_sources_and_local_or_s3_destinations(self):
         first = self.config.jobs[0]
-        for destination in (first.destination, first.destination + '/nested', str(first.source)):
-            second = replace(first, name='second', source=self.root / 'other-source', destination=destination)
-            validate(replace(self.config, jobs=(first, second)))
+        second = replace(first, name='second', source=self.root / 'other-source', destination=str(first.source))
+        validate(replace(self.config, jobs=(first, second)))
         first = replace(first, type='s3', destination='aws:bucket/prefix')
         for destination in (first.destination, first.destination + '/nested'):
-            validate(replace(self.config, jobs=(first, replace(first, name='second', destination=destination))))
+            with self.subTest(destination=destination), self.assertRaisesRegex(ConfigError, "se sobrepõem"):
+                validate(replace(self.config, jobs=(first, replace(first, name='second', destination=destination))))
+        other = replace(first, name='other', destination='aws:bucket/other')
+        validate(replace(self.config, jobs=(first, other)))
 
     def test_unknown_options_and_malformed_toml(self):
         for text in ('[backup]\nunknown=1', '[backup', 'jobs="bad"',

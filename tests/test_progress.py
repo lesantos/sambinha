@@ -73,7 +73,8 @@ class ProgressTests(Sandbox):
         runner = Mock()
         stdout = io.StringIO()
         with patch('sys.stderr', terminal), redirect_stdout(stdout):
-            result = run(replace(self.config, dry_run=True, verification_mode='simple'), runner=runner,
+            result = run(replace(self.config, dry_run=True, verification_mode='simple',
+                                 jobs=(replace(self.config.jobs[0], logic='batch'),)), runner=runner,
                          clock=lambda: 1000)
         self.assertEqual(result, 0)
         self.assertIn('Inventário simples', terminal.getvalue())
@@ -156,14 +157,15 @@ class ProgressTests(Sandbox):
         terminal = Terminal()
         stdout = io.StringIO()
         with patch('sys.stderr', terminal), redirect_stdout(stdout):
-            result = run(replace(self.config, dry_run=True, verification_mode='simple'),
+            result = run(replace(self.config, dry_run=True, verification_mode='simple',
+                                 jobs=(replace(self.config.jobs[0], logic='batch'),)),
                          runner=Mock(), clock=lambda: 1000)
         self.assertEqual(result, 0)
         self.assertNotIn('unique-file-name', stdout.getvalue())
         self.assertNotIn('unique-file-name', terminal.getvalue())
         self.assertIn(str(self.source / 'nested/subdir'), terminal.getvalue())
         records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
-        self.assertTrue(any(r.get('path') == 'nested/subdir/unique-file-name' for r in records))
+        self.assertTrue(any('nested/subdir/unique-file-name' in r.get('files', []) for r in records))
         values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
         self.assertEqual(values[-1], 100)
@@ -180,26 +182,26 @@ class ProgressTests(Sandbox):
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
 class OverallProgressIntegrationTests(Sandbox):
-    def test_bulk_copies_display_the_actual_subdirectory_and_keep_file_details_in_audit(self):
+    def test_simple_sync_uses_rclone_progress_and_keeps_file_names_out_of_terminal(self):
         for name in ('nested/subdir/file-a', 'nested/subdir/file-b', 'other/file-c', 'other/file-d'):
             self.file(name)
         terminal, stdout = Terminal(), io.StringIO()
         directories = []
         original = Runner.run
         def record(runner, args, **kwargs):
-            if len(args) > 1 and args[1] == 'copy':
+            if len(args) > 1 and args[1] == 'sync':
                 directories.append(kwargs.get('progress_directory'))
             return original(runner, args, **kwargs)
         with patch('sys.stderr', terminal), redirect_stdout(stdout), patch.object(Runner, 'run', record):
             result = run(replace(self.config, verification_mode='simple'), clock=lambda: 1000)
         self.assertEqual(result, 0, stdout.getvalue())
-        self.assertEqual(directories, [str(self.source / 'nested/subdir'), str(self.source / 'other')])
+        self.assertEqual(directories, [str(self.source)])
         self.assertEqual(contents(self.source), contents(self.destination))
-        self.assertIn('Copiando arquivos | ' + str(self.source / 'nested/subdir'), terminal.getvalue())
+        self.assertIn('Sincronizando arquivos | ' + str(self.source), terminal.getvalue())
         for name in ('file-a', 'file-b', 'file-c', 'file-d'):
             self.assertNotIn(name, terminal.getvalue() + stdout.getvalue())
         records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
-        self.assertEqual(sum(r['event'] == 'transferred' for r in records), 4)
+        self.assertFalse(any(r['event'] == 'transferred' for r in records))
         values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
         self.assertEqual(sum(p == 100 for p in values), 1)

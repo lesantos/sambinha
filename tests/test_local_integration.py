@@ -58,12 +58,12 @@ class LocalIntegrationTests(Sandbox):
         (self.source / 'empty_directory').mkdir(mode=0o750)
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
-        self.assertCountEqual([e["path"] for e in self.events if e["event"] == "transferred"], contents(self.source))
         for source in self.source.rglob('*'):
             target = self.destination / source.relative_to(self.source)
             self.assertTrue(target.exists())
-            self.assertEqual(source.stat().st_mode & 0o777, target.stat().st_mode & 0o777)
-            self.assertEqual(source.stat().st_mtime_ns, target.stat().st_mtime_ns)
+            if source.is_file():
+                self.assertEqual(source.stat().st_mode & 0o777, target.stat().st_mode & 0o777)
+                self.assertAlmostEqual(source.stat().st_mtime, target.stat().st_mtime, delta=1)
         self.assertEqual([e['event'] for e in self.events if e['event'] in ('start', 'end')], ['start', 'end'])
         self.assertEqual([n[1] for n in self.notifications], ['run', 'complete'])
 
@@ -72,13 +72,12 @@ class LocalIntegrationTests(Sandbox):
         self.assertEqual(self.execute(), 0)
         old_time = target.stat().st_mtime_ns
         self.assertEqual(self.execute(), 0)
-        self.assertEqual([e['path'] for e in self.events if e['event'] == 'identical'], ['file'])
-        self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
+        self.assertTrue(any(e['event'] == 'sync_start' for e in self.events))
         target.write_bytes(b'xyz')
         os.utime(target, ns=(old_time, old_time))
         self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
         self.assert_complete()
-        history = list(self.destination.glob('.sambinha/history/version/*/file'))
+        history = list(self.destination.glob('.sambinha/history/*/file'))
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].read_bytes(), b'abc')
 
@@ -97,12 +96,15 @@ class LocalIntegrationTests(Sandbox):
         changed.write_bytes(b'new')
         deleted.unlink()
         self.assertEqual(self.execute(now=2000), 0)
-        self.assert_complete()
-        self.assertEqual({r['reason'] for r in self.state()['retired']}, {'deleted', 'version'})
-        self.assertEqual(self.execute(now=2000 + 2 * DAY), 0)
-        self.assertEqual([r['reason'] for r in self.state()['retired']], ['deleted'])
+        history = list(self.destination.glob('.sambinha/history/*/changed'))
+        self.assertEqual(len(history), 1)
+        history_dir = history[0].parent
+        self.assertEqual((history_dir / 'changed').read_bytes(), b'old')
+        self.assertEqual((history_dir / 'deleted').read_bytes(), b'keep')
+        self.assertEqual(self.execute(now=2000 + 10 * DAY - 1), 0)
+        self.assertTrue(history_dir.exists())
         self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
-        self.assertEqual(self.state()['retired'], [])
+        self.assertFalse(history_dir.exists())
         self.assert_complete()
 
     def test_simple_file_directory_replacements(self):
@@ -112,10 +114,14 @@ class LocalIntegrationTests(Sandbox):
         self.file('node/child', b'child')
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
+        history = list(self.destination.glob('.sambinha/history/*/node'))
+        self.assertTrue(any(path.is_file() and path.read_bytes() == b'file' for path in history))
         shutil.rmtree(self.source / 'node')
         self.file('node', b'file again')
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
+        self.assertTrue(any(path.is_dir() and (path / 'child').read_bytes() == b'child'
+                            for path in self.destination.glob('.sambinha/history/*/node')))
 
     def test_simple_empty_source_retains_removed_files(self):
         self.file('a/b', b'backup')
@@ -123,7 +129,9 @@ class LocalIntegrationTests(Sandbox):
         shutil.rmtree(self.source / 'a')
         self.assertEqual(self.execute(), 0)
         self.assert_complete()
-        self.assertEqual(len(self.state()['retired']), 1)
+        history = list(self.destination.glob('.sambinha/history/*/a/b'))
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].read_bytes(), b'backup')
 
     def test_batch_roundtrip_completeness_and_control_backup(self):
         self.fixture()
@@ -204,7 +212,10 @@ class LocalIntegrationTests(Sandbox):
                 self.assertFalse(self.destination.exists())
                 self.assertFalse(self.config.state_dir.exists())
                 self.assertEqual(self.notifications, [])
-                self.assertTrue(any(e['event'] in ('would_transfer', 'would_batch') for e in self.events))
+                if logic == 'simple':
+                    self.assertTrue(any(e['event'] == 'sync_start' for e in self.events))
+                else:
+                    self.assertTrue(any(e['event'] == 'would_batch' for e in self.events))
 
     def test_existing_backup_dry_run_preserves_all_bytes(self):
         for logic in ('simple', 'batch'):
@@ -239,12 +250,14 @@ class LocalIntegrationTests(Sandbox):
         self.assertFalse(Path(job.destination).exists())
 
     def test_corrupt_state_stops_and_destination_symlink_is_ignored(self):
+        self.use_batch()
         self.file('a')
         self.assertEqual(self.execute(), 0)
+        before = contents(self.destination)
         state = self.config.state_dir / 'test/state.json'
         state.write_text('corrupt')
         self.assertEqual(self.execute(), 1)
-        self.assertEqual((self.destination / 'a').read_bytes(), b'test')
+        self.assertEqual(contents(self.destination), before)
         state.unlink()
         outside = self.root / 'outside'
         outside.write_bytes(b'untouched')
@@ -307,6 +320,7 @@ class LocalIntegrationTests(Sandbox):
         self.assertEqual(contents(self.root / 'second'), contents(self.source))
 
     def test_zero_day_retention(self):
+        self.use_batch()
         self.file('a')
         self.assertEqual(self.execute(), 0)
         (self.source / 'a').unlink()
@@ -386,6 +400,7 @@ class LocalIntegrationTests(Sandbox):
     def test_previous_metadata_namespace_cannot_modify_existing_backup(self):
         # An index from a different namespace must be refused before any remote
         # file can be reinterpreted as a document or removed as obsolete data.
+        self.use_batch()
         self.file('a', b'original')
         self.assertEqual(self.execute(), 0)
         state = self.state()

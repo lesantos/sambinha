@@ -42,6 +42,7 @@ class ExampleTests(unittest.TestCase):
         self.assertIn('backs up files', (ROOT / 'README.md').read_text())
 
     def test_all_public_options_present_even_when_commented(self):
+        import tomllib
         section, global_keys, job_keys = None, set(), []
         for line in (ROOT / 'sambinha.example.toml').read_text().splitlines():
             if line.strip() == '[backup]':
@@ -55,11 +56,15 @@ class ExampleTests(unittest.TestCase):
                     section.add(match[1])
         expected = {field.name for field in fields(Config)} - {'jobs', 'environment'}
         self.assertEqual(global_keys, expected)
-        expected_jobs = {field.name for field in fields(Job)}
+        expected_jobs = {field.name for field in fields(Job)} - {
+            'max_delete', 'max_delete_percent', 'deletion_min_files'}
+        examples = tomllib.loads((ROOT / 'sambinha.example.toml').read_text())['jobs']
         self.assertGreaterEqual(len(job_keys), 2)
-        for index, keys in enumerate(job_keys):
+        for index, (keys, example) in enumerate(zip(job_keys, examples)):
+            expected = expected_jobs | ({'max_delete'} if example['logic'] == 'simple'
+                                        else {'max_delete_percent', 'deletion_min_files'})
             with self.subTest(job=index):
-                self.assertEqual(keys, expected_jobs)
+                self.assertEqual(keys, expected)
 
     def test_active_toml_example_remains_valid(self):
         with patch.dict('os.environ', {'CRONITOR_URL': ''}):

@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It copies changes, keeps previous versions for a configurable period, and records what happened. The current version is **0.9.1**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.10.0**.
 
 ## How it protects your files
 
@@ -10,11 +10,11 @@ Sambinha backs up your files to a local folder, a mounted disk or Amazon S3. It 
 
 New batches visit directories deterministically and sort files within each directory by modification time, oldest first, then by path for ties. New batches separate text, video, photo and other compression profiles without changing that time order. Existing intact batches keep their keys and member order, including archives from older versions. Only new files and members of affected or incompatible batches are repacked. Preserve the local index so intact batches can be reused without remote listings or uploads.
 
-Files newer at the destination are preserved: the job reports an error before replacing them, and Cronitor receives the conflict details. Batch comparisons use original timestamps from the confirmed index, rather than archive upload times. Independent jobs continue after a job failure.
+Batch jobs report an error before replacing files newer at the destination. Simple jobs pass `--update` to rclone, which preserves destination files it considers newer. Independent jobs continue after a job failure.
 
-Deleted source files remain in history for **10 days** by default; previous versions of edited files remain for **2 days**. Expired history is removed during later backup runs. The soft `deletion_alert_threshold` warning reports upcoming permanent deletions without delaying retention.
+Batch jobs retain deleted files for **10 days** and replaced versions for **2 days** by default. Simple jobs purge expired rclone `--backup-dir` run directories after the larger of `deleted_days` and `version_days`. Rclone does not label each saved path as a deletion or replacement, so simple history uses the longer period for every item. Cleanup lists only immediate history directories and then purges expired run directories.
 
-A separate safeguard blocks abnormal source removals **before any destination changes**: by default, more than 50% of a previously selected inventory of at least 20 files. Intentional removals can be authorized for one invocation with `--allow-mass-deletion`.
+Each simple job has an absolute `max_delete` limit (default 100), passed to rclone. When more destination files would be deleted, rclone stops the sync with an error. Batch jobs retain the percentage guard based on their prior index. `--allow-mass-deletion` bypasses the applicable guard for one invocation.
 
 By default, source and local destination disks are checked before the backup and before transfers/deletions. Occupancy **above 95%** produces an error; exactly 95% is accepted. Batch temporary storage is also checked. S3 buckets do not expose a local disk occupancy percentage.
 
@@ -57,18 +57,18 @@ type = "local"
 logic = "simple"
 ```
 
-Keep the destination outside the source. Jobs may overlap other jobs' sources or destinations; review the interactions below and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
+Keep the destination outside the source. Destinations of different jobs cannot overlap, but an earlier job's destination may be a later job's source; review the interactions below and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
 
 ```bash
 .venv/bin/sambinha --config sambinha.toml --dry-run
 .venv/bin/sambinha --config sambinha.toml
 ```
 
-Simulation writes a report and reads inventories, but creates no backup state or archives, transfers or deletes no backup objects, and sends no Cronitor notifications. Each job ends with a `summary` record containing new, modified, unchanged and removed files, batches reused/rebuilt, planned original bytes, transferred payload bytes, pending history entries and success. Compression can make transferred bytes differ from planned bytes. Empty source directories are preserved by local simple backups.
+Simulation runs `rclone sync --dry-run` for simple jobs and does not build a Sambinha source index for them. Batch jobs still read an inventory. Each job ends with a summary; simple-job file counts are reported by rclone's log. Empty source directories are preserved by simple syncs.
 
 ## Jobs and parallel execution
 
-Jobs execute sequentially in TOML order. Each job reads its exclusions, checks its disks/mounts, inventories its source, transfers, applies retention, commits its state and completes any scheduled verification before the next job starts. Concurrency settings apply inside each job. Normal backup and verification invocations acquire a nonblocking exclusive lock in `state_dir`: a second invocation using the same state directory exits with an error rather than waiting or modifying backup data. This also applies to different `--job` selections. Dry runs and restores do not acquire that writer lock. Independent state directories can run concurrently and should manage separate destinations.
+Jobs execute sequentially in TOML order. Each job reads its exclusions and checks disks/mounts; simple jobs then let rclone traverse and synchronize the trees, while batch jobs build an inventory and commit indexed state. Concurrency settings apply inside each job. Normal backup and verification invocations acquire a nonblocking exclusive lock in `state_dir`: a second invocation using the same state directory exits with an error rather than waiting or modifying backup data. This also applies to different `--job` selections. Dry runs and restores do not acquire that writer lock. Independent state directories can run concurrently and should manage separate destinations.
 
 
 ## Disk checks per job
@@ -119,7 +119,7 @@ log_retention_days = 14
 
 ## Choose simple or hash verification
 
-**`verification_mode = "simple"` is the default in 0.6.1**, including when the option is omitted from an existing configuration. It compares size in bytes and the modification timestamp (`mtime`, with nanosecond precision). The source inventory uses filesystem metadata without reading file contents, and destination listings do not calculate hashes. File contents are still read when copying or compressing them.
+**`verification_mode = "simple"` is the default**, including when the option is omitted from an existing configuration. Batch inventories compare size and modification time without reading contents. Simple jobs use rclone size/time comparison flags; `verification_mode = "hash"` makes their sync use `--checksum`.
 
 To compare contents using SHA-256 and MD5, configure:
 
@@ -135,7 +135,7 @@ Or select a mode for one invocation:
 .venv/bin/sambinha --config sambinha.toml --verification-mode hash
 ```
 
-The simple mode intentionally cannot detect a content edit that preserves both size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching from simple to hash computes fresh hashes; switching batch modes can rebuild archives because their indexed metadata changes. Hash verification of an index without hashes requires a hash-mode backup first. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
+For batch inventories, simple mode cannot detect a content edit that preserves size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching batch modes can rebuild archives because their indexed metadata changes. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
 
 During interactive execution, stderr displays one percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate assigns equal ranges to the jobs and reserves 5% for finalization. Each job uses 20% of its range for preflight/inventory, 70% for transfers/retention and 10% for verification/completion. File/byte counters and directory queues advance within those ranges. Bulk rclone copies use the transfer percentage reported by rclone; other opaque subprocess operations use bounded elapsed-time estimates. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
 
@@ -147,9 +147,9 @@ During interactive execution, stderr displays one percentage for the entire back
 .venv/bin/sambinha restore --job documents --output /mnt/recovery/all
 ```
 
-`--path` can be repeated. Paths refer to the active index and preserve their original directory tree. The output must be new or empty and separate from sources, backups, state and logs. Selected files are staged and their sizes checked before publication; recorded SHA-256 and MD5 are checked when present in the index. Archives also undergo checksum and 7-Zip integrity checks. Restore does not overwrite existing files or restore privileged permission bits. Source files need not still exist.
+`--path` can be repeated for simple or batch jobs. Simple restore uses rclone to select current destination files/directories; it does not restore historical versions. The output must be new or empty and separate from sources, backups, state and logs. Batch files are staged and checked before publication. Restore does not overwrite existing files. Source files need not still exist.
 
-Restoration from S3 **downloads the selected objects** and can incur retrieval charges. Selecting one file in a batch downloads its entire archive. Glacier/Deep Archive objects must first be made available through AWS restore. Batch restoration can recover a missing local index from `.sambinha/control.tar.gz`; simple restoration needs its local index. Historical revisions remain accessible through the controls and history paths described in the [usage guide](usage.md).
+Restoration from S3 **downloads the selected objects** and can incur retrieval charges. Selecting one file in a batch downloads its entire archive. Glacier/Deep Archive objects must first be made available through AWS restore. Batch restoration can recover a missing local index from `.sambinha/control.tar.gz`. Simple jobs do not maintain a Sambinha index; use rclone to copy a historical version from `.sambinha/history/<run-id>`.
 
 ## Verify integrity without S3 downloads
 
@@ -157,21 +157,20 @@ Restoration from S3 **downloads the selected objects** and can incur retrieval c
 .venv/bin/sambinha verify --job documents
 ```
 
-Local copy verification compares size and modification time in simple mode, or reads contents in hash mode. Batch verification tests/extracts archives and checks the indexed original files, including recorded hashes when present. S3 verification uses **only metadata requests**: copy jobs compare size/time in simple mode and size/MD5 in hash mode; batch archives and JSON controls always use size/MD5. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This does not test extraction of archived S3 members.
+Simple-job verification runs `rclone check` with the job's filters. Batch verification tests/extracts archives and checks indexed original files. S3 verification uses **only metadata requests** for indexed batch data. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This does not test extraction of archived S3 members.
 
 New batches record their compressed size and checksum at upload. Old batches lacking these fields, missing local indexes or unavailable remote hashes cause an explicit verification error, with no download fallback. Intact legacy archives are preserved rather than automatically rewritten. Keep rclone's S3 checksum metadata enabled for multipart uploads; see the [S3 guide](s3.md).
 
-Set `[backup].verify_interval_days = 7` to verify after a successful backup when seven days have elapsed. The first eligible run verifies immediately. `0`, the default for compatibility, disables scheduled checks. This schedule runs during backups; it does not install a system timer. A failed check returns an error and keeps the last successful verification timestamp.
+`verify_interval_days` schedules indexed batch verification after successful backups when due. It does not apply to simple jobs. `0` disables scheduled checks. A failed check returns an error and keeps the last successful verification timestamp.
 
 ## Performance settings and separate file profiles
 
-Performance settings provide fingerprint caching with periodic full scans, bounded bulk rclone copies, limited concurrent batch compression/uploads, per-job filter caching and per-category compression levels and threads. From 0.9.0 inventories are independent per job; sharing them would hide changes made by earlier jobs.
+Performance settings provide fingerprint caching for batch inventories, native simple-job syncs with bounded rclone transfers, limited concurrent batch compression/uploads and per-category compression levels and threads. Simple jobs do not build a separate recursive inventory.
 
 ```toml
 [backup]
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
-transfer_group_size = 100
 transfer_workers = 4
 batch_workers = 2
 
@@ -190,7 +189,7 @@ compression_other_level = 3
 compression_other_threads = 2
 ```
 
-In **hash mode**, cache reuse requires unchanged device, inode, size, nanosecond modification/change times and permissions. A full content scan runs every seven days by default; `--no-fingerprint-cache` forces hashing for each run. In **simple mode**, both settings leave content hashing disabled; checks compare size and modification time. Transfer and archive validation follow the selected mode. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](performance.md).
+Fingerprint settings apply to batch inventories. `transfer_workers` controls concurrent rclone transfers in simple jobs. `max_delete` is an absolute per-job cap; `--allow-mass-deletion` bypasses it for one run. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](performance.md).
 
 ## S3, credentials, exclusions and notifications
 
@@ -258,7 +257,7 @@ English is the default documentation language. Every maintained Markdown guide a
 
 From 0.9.0, jobs run to completion in TOML order. Each job freezes its own exclusion file, checks mounts/disks, builds a fresh inventory using only its own persistent fingerprint cache, transfers and applies retention, commits its index, performs any due verification and writes its summary before the next job starts. A later preflight failure cannot prevent an earlier job from completing. `continue_on_job_error` still belongs to the failing job; there is no automatic dependency ordering or rollback.
 
-A destination may overlap another job's source or destination, locally or in S3. For example, jobs writing to `/mnt/capsule/LLLD/linux/leandro` and `/mnt/capsule/LLLD/seafile/conf` may precede a job backing up `/mnt/capsule/LLLD` to `/mnt/capsule/LLLDBKP`. Later jobs observe the completed changes, as when running the same jobs in separate commands. Each job still rejects overlap between its own source and destination, and all sources/destinations must remain separate from state/logs.
+Destinations may not overlap each other, including nested local paths or S3 prefixes. A job's destination may be the source of a later job: the later job sees the completed files from the earlier one, as when running separate commands in order. Each job still rejects overlap between its own source and destination, and all sources/destinations must remain separate from state/logs.
 
 Review these interactions when sharing paths:
 

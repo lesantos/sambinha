@@ -1,6 +1,12 @@
-# Resultados dos testes do Sambinha 0.9.0
+# Resultados dos testes do Sambinha 0.10.0
 
 [English](test-results.md)
+
+Em 2026-10-12/13, Linux, Python 3.12.3: `python -m unittest discover -v` executou **306 testes sem falhas**; 26 foram ignorados porque HTTP S3 é opt-in e três casos extremos de links foram adiados. Depois, a suíte opt-in `tests.test_s3_http` passou em **23/23**; o teste atualizado de link na origem e os cinco testes de exemplos/documentação também passaram. Somando as execuções, **304 testes passaram e dois casos de conflito/corrida com links continuam ignorados**. Foram usados rclone/7-Zip reais localmente e Moto, sem credenciais AWS ou Cronitor.
+
+A cobertura não foi recalculada para esta release.
+
+## Resultados históricos: 0.9.0
 
 Executados em 2026-10-12, Linux, Python 3.12.3: **301 testes passaram, sem falhas ou testes ignorados**, em **349.296 segundos**. A cobertura incluindo ramos é **94%**, acima dos 85% exigidos.
 

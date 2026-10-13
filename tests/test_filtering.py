@@ -48,7 +48,6 @@ class FilteringTests(Sandbox):
         excluded.unlink()
         self.assertEqual(self.execute(), 0)
         self.assertEqual((self.destination / 'skip.tmp').read_bytes(), b'old')
-        self.assertFalse(self.state()['retired'])
 
     def test_excluded_files_are_not_hashed_and_included_empty_directories_remain(self):
         self.file('keep.txt')
@@ -66,16 +65,17 @@ class FilteringTests(Sandbox):
         self.assertNotIn('skip.tmp', visited)
         self.assertTrue((self.destination / 'empty').is_dir())
 
-    def test_expired_history_is_protected_by_new_exclusion(self):
+    def test_expired_simple_history_is_removed_even_if_a_new_rule_excludes_its_path(self):
         target = self.file('file.tmp', b'old')
         self.assertEqual(self.execute(), 0)
         target.unlink()
         self.assertEqual(self.execute(now=2000), 0)
-        history = self.state()['retired'][0]['key']
+        history_root = self.destination / '.sambinha/history'
+        histories = list(history_root.iterdir())
+        self.assertEqual(len(histories), 1)
         self.exclude('*.tmp\n')
         self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
-        self.assertTrue((self.destination / history).is_file())
-        self.assertEqual(len(self.state()['retired']), 1)
+        self.assertFalse(histories[0].exists())
 
     def test_batch_exclusions_preserve_old_mixed_lot_and_restore_selected_files(self):
         self.file('keep.txt', b'keep')
@@ -114,12 +114,20 @@ class FilteringTests(Sandbox):
         self.assertEqual(load(path, {'exclude_files': 'other.txt'}).jobs[0].exclude_files, self.root / 'other.txt')
 
     def test_simulation_selects_files_without_mutating_backup_or_state(self):
+        from sambinha.process import Runner
         self.file('keep.txt')
         self.file('skip.tmp')
         self.exclude('*.tmp\n')
-        self.assertEqual(self.execute(replace(self.config, dry_run=True)), 0)
-        transferred = [e['path'] for e in self.events if e['event'] == 'would_transfer']
-        self.assertEqual(transferred, ['keep.txt'])
+        calls = []
+        original = Runner.run
+        def record(runner, args, **kwargs):
+            calls.append(args)
+            return original(runner, args, **kwargs)
+        with patch.object(Runner, 'run', record):
+            self.assertEqual(self.execute(replace(self.config, dry_run=True)), 0)
+        self.assertEqual([e['event'] for e in self.events if e['event'] == 'sync_start'], ['sync_start'])
+        sync = next(command for command in calls if command[1] == 'sync')
+        self.assertIn('--dry-run', sync)
         self.assertFalse(self.destination.exists())
         self.assertFalse(self.config.state_dir.exists())
 
@@ -131,15 +139,38 @@ class FilteringTests(Sandbox):
         self.assertEqual(self.execute(), 0)
         target.write_bytes(b'new')
         rules = self.exclude('*.tmp\n')
-        original = Storage.inventory
-        def change_rules(storage):
+        original = Storage.sync_simple
+        def change_rules(storage, *args, **kwargs):
+            self.assertEqual(storage.job.exclude_files.read_text(), '*.tmp\n')
             rules.write_text('')
-            return original(storage)
-        with patch.object(Storage, 'inventory', change_rules):
+            return original(storage, *args, **kwargs)
+        with patch.object(Storage, 'sync_simple', change_rules):
             self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assertEqual((self.destination / 'skip.tmp').read_bytes(), b'old')
         self.assertEqual(self.execute(), 0)
         self.assertEqual((self.destination / 'skip.tmp').read_bytes(), b'new')
+
+    def test_source_listing_is_split_into_nonrecursive_calls_per_directory(self):
+        rules = self.exclude('*.tmp\n', logic='batch')
+        selection = Selection(rules, self.config, Runner())
+        root = self.source
+        entries = {
+            root: [{'Path': 'nested', 'IsDir': True}, {'Path': 'root.txt'}],
+            root / 'nested': [{'Path': 'leaf', 'IsDir': True}, {'Path': 'skip.tmp'}],
+            root / 'nested' / 'leaf': [{'Path': 'keep.txt'}],
+        }
+        calls = []
+        def listing(directory, files_only=False, *, recursive=True, apply_exclusions=True):
+            calls.append((Path(directory), recursive, apply_exclusions))
+            return entries[Path(directory)]
+        with patch.object(selection, 'listing', side_effect=listing), \
+             patch.object(selection, 'include_paths', side_effect=lambda paths: set(paths)):
+            files, directories = selection.source(root)
+        self.assertEqual(files, {'root.txt', 'nested/skip.tmp', 'nested/leaf/keep.txt'})
+        self.assertEqual(directories, {'nested', 'nested/leaf'})
+        self.assertEqual(calls, [(root, False, False),
+                                 (root / 'nested', False, False),
+                                 (root / 'nested' / 'leaf', False, False)])
 
     def test_invalid_native_pattern_stops_before_copy(self):
         self.file('file')

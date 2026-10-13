@@ -9,6 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from sambinha.engine import DAY
+from sambinha.config import validate
+from sambinha.errors import ConfigError
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.s3_support import MotoRunner
 
@@ -35,9 +37,7 @@ class S3IntegrationTests(Sandbox):
                       max_bytes=100 * 1024, max_files=3)
         self.config = replace(self.config, jobs=(job,))
 
-    def test_overlapping_job_destinations_have_independent_copies_and_verifications(self):
-        from contextlib import redirect_stdout
-        from sambinha.recovery import recover
+    def test_overlapping_job_destinations_are_rejected(self):
         self.file('first', b'first')
         source = self.root / 'second-source'
         source.mkdir()
@@ -51,16 +51,8 @@ class S3IntegrationTests(Sandbox):
                                  exclude_files=rules)
                 config = replace(self.config, jobs=(first, second), verify_interval_days=1,
                                  state_dir=self.root / ('nested-state' if suffix else 'shared-state'))
-                self.assertEqual(self.execute(config), 0, self.output.getvalue())
-                self.assertEqual([e['job'] for e in self.events if e['event'] == 'verification_complete'],
-                                 ['test', 'second'])
-                with redirect_stdout(io.StringIO()) as output:
-                    result = recover(config, 'verify', runner=self.runner)
-                self.assertEqual(result, 0, output.getvalue())
-                for job, name, expected in ((first, 'first', b'first'), (second, 'second', b'second')):
-                    key = job.destination.split(':', 1)[1].split('/', 1)[1] + '/' + name
-                    actual = self.client.get_object(Bucket='sambinha-tests', Key=key)['Body'].read()
-                    self.assertEqual(actual, expected)
+                with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
+                    validate(config)
 
     def execute(self, *args, **kwargs):
         kwargs['runner'] = self.runner
@@ -113,24 +105,38 @@ class S3IntegrationTests(Sandbox):
             head = self.client.head_object(Bucket='sambinha-tests', Key='backup/' + path)
             self.assertEqual(head.get('StorageClass'), 'GLACIER_IR')
 
+    def test_s3_simple_restore_selected_directory_and_file(self):
+        self.fixture()
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        from sambinha.recovery import recover
+        output = self.root / 'selected-restore'
+        self.assertEqual(recover(self.config, 'restore', output=output,
+                                 selectors=('tree', 'root.txt'), runner=self.runner,
+                                 notifier=lambda *args: None), 0)
+        self.assertEqual(contents(output), {
+            'tree/a.txt': b'original a', 'tree/b.txt': bytes(range(256)) * 100,
+            'tree/sub/ação.txt': 'Texto com acentos'.encode(),
+            'tree/sub/empty': b'', 'root.txt': b'root',
+        })
+
     def test_metadata_mode_roundtrip_reuse_and_timestamp_change(self):
         self.fixture()
         self.config = replace(self.config, verification_mode='simple')
         with patch('sambinha.inventory.fingerprint', side_effect=AssertionError('source hash read')):
             self.assertEqual(self.execute(), 0, self.output.getvalue())
             self.assertEqual(self.execute(now=1001), 0, self.output.getvalue())
-            self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
             path = self.source / 'root.txt'
             stamp = path.stat().st_mtime_ns
             path.write_bytes(b'edit')
             os.utime(path, ns=(stamp + 1, stamp + 1))
             self.assertEqual(self.execute(now=1002), 0, self.output.getvalue())
+        self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
         self.assert_complete()
-        self.assertEqual(self.state()['active']['root.txt']['sha256'], '')
         from sambinha.recovery import verify_job
         from unittest.mock import Mock
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
-            verify_job(self.config, self.config.jobs[0], self.runner, Mock(), self.state())
+            result = verify_job(self.config, self.config.jobs[0], self.runner, Mock())
+        self.assertEqual(result['mode'], 'rclone_check')
 
     def test_batch_full_roundtrip_and_controls_in_standard(self):
         self.fixture()
@@ -154,15 +160,17 @@ class S3IntegrationTests(Sandbox):
         self.file('new/new.dat', b'new')
         self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
         self.assert_complete()
-        histories = self.state()['retired']
-        self.assertEqual({r['reason'] for r in histories}, {'deleted', 'version'})
-        old_version = next(r['key'] for r in histories if r['reason'] == 'version')
-        self.assertEqual(self.client.get_object(Bucket='sambinha-tests', Key='backup/' + old_version)['Body'].read(), old)
+        histories = list(self.client.get_paginator('list_objects_v2').paginate(
+            Bucket='sambinha-tests', Prefix='backup/.sambinha/history/'))
+        keys = {item['Key'] for page in histories for item in page.get('Contents', [])}
+        old_key = next(key for key in keys if key.endswith('/tree/a.txt'))
+        self.assertEqual(self.client.get_object(Bucket='sambinha-tests', Key=old_key)['Body'].read(), old)
         self.assertEqual(self.execute(now=2000 + 2 * DAY), 0)
-        self.assertEqual([r['reason'] for r in self.state()['retired']], ['deleted'])
+        self.assertTrue(self.client.get_object(Bucket='sambinha-tests', Key=old_key))
         self.assert_complete()
         self.assertEqual(self.execute(now=2000 + 10 * DAY), 0)
-        self.assertEqual(self.state()['retired'], [])
+        expired = self.client.list_objects_v2(Bucket='sambinha-tests', Prefix='backup/.sambinha/history/')
+        self.assertEqual(expired['KeyCount'], 0)
         self.assert_complete()
 
     def test_batch_edit_delete_add_and_retention_integrity(self):
@@ -212,9 +220,14 @@ class S3IntegrationTests(Sandbox):
                 self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic,
                     destination='aws:sambinha-tests/' + logic),), state_dir=self.root / ('state-' + logic))
                 self.assertEqual(self.execute(), 0)
+                sync_count = sum(command[1] == 'sync' for command in self.runner.commands)
                 self.assertEqual(self.execute(), 0)
-                self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
-                self.assertEqual(sum(e['event'] == 'identical' for e in self.events), 2)
+                if logic == 'simple':
+                    self.assertEqual(sum(command[1] == 'sync' for command in self.runner.commands), sync_count + 1)
+                    self.assertFalse(any(e['event'] == 'identical' for e in self.events))
+                else:
+                    self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
+                    self.assertEqual(sum(e['event'] == 'identical' for e in self.events), 2)
 
     def test_s3_dry_run_leaves_no_objects_and_no_state(self):
         self.fixture()
@@ -313,22 +326,29 @@ class S3IntegrationTests(Sandbox):
                     self.config = replace(self.config, jobs=(replace(self.config.jobs[0], name='batches',
                         logic='batch', destination='aws:sambinha-tests/batches'),))
                 self.assertEqual(self.execute(), 0, self.output.getvalue())
-                import json
-                state = json.loads((self.config.state_dir / self.config.jobs[0].name / 'state.json').read_text())
                 commands = []
                 def metadata(args, **kwargs):
                     commands.append(args)
-                    self.assertEqual(args[1], 'lsjson')
-                    self.assertIn('--stat', args)
                     return original(args, **kwargs)
                 with patch.object(self.runner, 'run', metadata), \
                      patch.object(Storage, 'get', side_effect=AssertionError('Object download prohibited')):
-                    result = verify_job(self.config, self.config.jobs[0], self.runner, Mock(), state)
-                self.assertEqual(result['files'], 2)
-                self.assertEqual(result['mode'], 's3_metadata')
+                    if logic == 'simple':
+                        result = verify_job(self.config, self.config.jobs[0], self.runner, Mock())
+                    else:
+                        state = json.loads((self.config.state_dir / self.config.jobs[0].name / 'state.json').read_text())
+                        result = verify_job(self.config, self.config.jobs[0], self.runner, Mock(), state)
+                if logic == 'simple':
+                    self.assertEqual(result['mode'], 'rclone_check')
+                    self.assertTrue(any(command[1] == 'check' for command in commands))
+                else:
+                    self.assertEqual(result['files'], 2)
+                    self.assertEqual(result['mode'], 's3_metadata')
+                    self.assertTrue(all(command[1] == 'lsjson' and '--stat' in command for command in commands))
                 self.assertTrue(commands)
 
     def test_s3_deletion_warning_continues_backup_and_expiration(self):
+        self.use_batch()
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_bytes=1),))
         for name in ('a', 'b', 'c'):
             self.file(name)
         self.config = replace(self.config, deletion_alert_threshold=2)

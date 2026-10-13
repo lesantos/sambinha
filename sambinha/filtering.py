@@ -66,12 +66,14 @@ class Selection:
         self.ignored_roots = tuple(ignored_roots)
         self._included = {}
 
-    def listing(self, root, files_only=False):
-        arguments = [self.config.rclone, "lsjson", str(root), "--recursive",
+    def listing(self, root, files_only=False, *, recursive=True, apply_exclusions=True):
+        arguments = [self.config.rclone, "lsjson", str(root),
                      "--retries", "1", "--low-level-retries", "1", *SKIP_LINK_FLAGS]
+        if recursive:
+            arguments.append("--recursive")
         if files_only:
             arguments.append("--files-only")
-        if self.exclude_file:
+        if apply_exclusions and self.exclude_file:
             arguments += ["--exclude-from", str(self.exclude_file)]
         if self.config.rclone_config:
             arguments += ["--config", self.config.rclone_config]
@@ -86,9 +88,32 @@ class Selection:
     def source(self, root):
         if not self.exclude_file:
             return None, None
-        records = self.listing(root)
-        return ({item["Path"] for item in records if not item.get("IsDir", False)},
-                {item["Path"] for item in records if item.get("IsDir", False)})
+        # Split source discovery into one non-recursive command per directory.
+        # Exclusions are applied to each directory's file names in a temporary
+        # tree that retains their paths relative to the original source root.
+        # This preserves root-anchored rclone patterns while keeping every
+        # source listing command bounded to a single directory.
+        queue = [(Path(root), "")]
+        included_files = set()
+        while queue:
+            directory, relative = queue.pop()
+            children = self.listing(directory, recursive=False, apply_exclusions=False)
+            candidates = set()
+            for item in children:
+                name = safe_relative(item["Path"])
+                path = PurePosixPath(relative, name).as_posix()
+                safe_relative(path)
+                if item.get("IsDir", False):
+                    queue.append((directory / name, path))
+                else:
+                    candidates.add(path)
+            included_files.update(self.include_paths(candidates))
+
+        included_dirs = set()
+        for path in included_files:
+            parts = PurePosixPath(path).parts
+            included_dirs.update("/".join(parts[:index]) for index in range(1, len(parts)))
+        return included_files, included_dirs
 
     def include_paths(self, paths):
         paths = set(paths)

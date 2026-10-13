@@ -71,6 +71,7 @@ class Runner:
         for attempt in range(4 if retry else 1):
             try:
                 stages = {"lsjson": "Lendo destino", "lsf": "Lendo diretórios", "copy": "Copiando arquivos",
+                          "sync": "Sincronizando arquivos",
                           "copyto": "Copiando arquivo", "delete": "Aplicando retenção",
                           "a": "Comprimindo lote", "t": "Conferindo lote", "x": "Extraindo lote"}
                 stage = stages.get(args[1]) if len(args) > 1 else None
@@ -78,7 +79,8 @@ class Runner:
                 if stage in {"Copiando arquivo", "Conferindo lote"} or (stage == "Lendo destino" and "--stat" in args):
                     directory = Path(directory).parent
                 directory = progress_directory or directory
-                measured = bool(self.progress and self.progress.enabled and len(args) > 1 and args[1] == "copy")
+                measured = bool(self.progress and self.progress.enabled and len(args) > 1
+                                and args[1] in {"copy", "sync"})
                 command = [*args, "--stats", "1s", "--stats-one-line", "--stats-log-level", "NOTICE"] if measured else args
                 task = self.progress.task(stage, directory, measured=measured) if self.progress and stage else nullcontext()
                 with task as report:
