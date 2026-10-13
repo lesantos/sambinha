@@ -19,6 +19,7 @@ from .state import atomic_json, load_state, lock, private_directory
 from .storage import Storage
 from .progress import Progress
 from .protection import timestamp_ns
+from .filesystems import supports_posix_metadata
 
 
 def identity(job):
@@ -223,7 +224,12 @@ def restore_job(config, job, runner, log, output, selectors=()):
                     shutil.move(extracted / metadata["path"], target)
         # Publish only after all requested content has passed verification.
         validate_output(config, output, check_space=job.check_destination_disk)
-        private_directory(output)
+        preserve_permissions = supports_posix_metadata(output)
+        if preserve_permissions:
+            private_directory(output)
+        else:
+            # validate_output already rejected symlinks and nonempty output.
+            output.mkdir(mode=0o700, parents=True, exist_ok=True)
         for path, metadata in selected.items():
             if job.check_destination_disk:
                 check_disk(output, "restauração")
@@ -234,7 +240,9 @@ def restore_job(config, job, runner, log, output, selectors=()):
             fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, "wb") as stream, (staged / path).open("rb") as source:
                 shutil.copyfileobj(source, stream)
-                os.fchmod(stream.fileno(), metadata["mode"] & 0o777)
+                if preserve_permissions:
+                    os.fchmod(stream.fileno(), metadata["mode"] & 0o777)
+                stream.flush()
                 os.utime(stream.fileno(), ns=(metadata["mtime_ns"], metadata["mtime_ns"]))
             log.event("restored", job=job.name, path=path)
         if job.check_destination_disk:

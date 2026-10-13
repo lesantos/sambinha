@@ -4,6 +4,7 @@ import threading
 import time
 from contextlib import contextmanager
 import math
+from .terminal import cell_width, progress_line, terminal_columns
 
 
 class Progress:
@@ -16,6 +17,7 @@ class Progress:
         self.last_time = float("-inf")
         self.stage = None
         self.visible = False
+        self._rendered_columns = 0
         self.root = _root or self
         self.mutex = self.root.mutex if _root else threading.RLock()
         self.percent = 0
@@ -42,7 +44,8 @@ class Progress:
         return [Progress(self.stream, clock=self.clock, redact=self.redact, _root=self.root,
                          _sink=lambda fraction, i=i: report(i, fraction)) for i in range(len(weights))]
 
-    def update(self, stage, directory, completed=0, total=None, *, force=False):
+    def update(self, stage, directory, completed=0, total=None, *, force=False, activity=None,
+               indeterminate=False):
         if not self.enabled:
             return
         root = self.root
@@ -54,11 +57,16 @@ class Progress:
             if (not force and stage == root.stage and directory == root.directory
                     and now - root.last_time < 0.2):
                 return
-            # Paths can contain terminal control characters, including newlines.
-            label = self.redact(f"{stage} | {directory}")
-            label = "".join(c if c.isprintable() else "?" for c in label)
-            self.stream.write(f"\r\033[2K{root.percent:5.1f}% do backup (estimado) | {label}")
+            # Redact and sanitize before measuring terminal cells/truncation.
+            def clean(value):
+                return "".join(c if c.isprintable() else "?" for c in self.redact(str(value)))
+            columns = terminal_columns(self.stream)
+            text = progress_line(root.percent, clean(stage), clean(directory),
+                                 clean(activity) if activity else "", columns,
+                                 indeterminate=indeterminate)
+            self.stream.write(self._erase(columns) + text)
             self.stream.flush()
+            root._rendered_columns = cell_width(text)
             root.stage, root.directory, root.last_time, root.visible = stage, directory, now, True
 
     def finish(self):
@@ -70,14 +78,21 @@ class Progress:
                 self.stream.write("\n")
                 self.stream.flush()
                 self.root.visible = False
+                self.root._rendered_columns = 0
+
+    def _erase(self, columns):
+        # Resizing can reflow the previously displayed line into several rows.
+        rows = max(1, math.ceil(self.root._rendered_columns / columns)) if self.root.visible else 1
+        return "\r\033[2K" + "\033[1A\r\033[2K" * (rows - 1)
 
     def clear(self):
         if self.enabled:
             with self.mutex:
                 if self.root.visible:
-                    self.stream.write("\r\033[2K")
+                    self.stream.write(self._erase(terminal_columns(self.stream)))
                     self.stream.flush()
                     self.root.visible = False
+                    self.root._rendered_columns = 0
 
     def close(self):
         self.clear()
@@ -89,9 +104,46 @@ class Progress:
             yield
             return
         if measured:
-            self.update(stage, directory, 0, 100, force=True)
+            # Discovery and deletion have no reliable percentage denominator.
+            # Keep the measured percentage and show counters/elapsed activity
+            # while waiting for rclone's next statistics sample.
+            stop = threading.Event()
+            state_lock = threading.RLock()
+            started = self.clock()
+            percent, current_activity = None, "aguardando estatísticas do rclone"
+            tick = 0
+
+            def display(*, force=False):
+                nonlocal tick
+                elapsed = max(0, int(self.clock() - started))
+                spinner = "|/-\\"[tick % 4]
+                tick += 1
+                self.update(stage, directory, percent if percent is not None else 0, 100, force=force,
+                            activity=f"{spinner} {current_activity} | tempo: {elapsed}s",
+                            indeterminate=percent is None)
+
+            def report(value=None, *, activity=None):
+                nonlocal percent, current_activity
+                with state_lock:
+                    percent = value
+                    if activity is not None:
+                        current_activity = activity
+                    display()
+
+            def heartbeat():
+                while not stop.wait(0.25):
+                    with state_lock:
+                        display()
+
+            display(force=True)
+            thread = threading.Thread(target=heartbeat, daemon=True)
+            thread.start()
             try:
-                yield lambda percent: self.update(stage, directory, percent, 100)
+                try:
+                    yield report
+                finally:
+                    stop.set()
+                    thread.join()
             except BaseException:
                 self.clear()
                 raise

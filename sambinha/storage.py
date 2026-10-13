@@ -11,6 +11,7 @@ from .filtering import SKIP_LINK_FLAGS
 from .protection import timestamp_ns
 from .mounts import check_mounts
 from .disks import check_disks
+from .filesystems import metadata_flags
 
 
 class Storage:
@@ -118,7 +119,8 @@ class Storage:
         self.command("sync", root, self.job.destination, "--backup-dir", self.path(backup_dir),
                      *self.comparison_flags(), "--update", "--transfers", str(self.config.transfer_workers),
                      "--max-delete", str(max_delete), "--delete-before",
-                     "--create-empty-src-dirs", "--metadata", *filters,
+                     "--create-empty-src-dirs",
+                     *metadata_flags(self.job.destination, remote=self.job.type == "s3"), *filters,
                      # A whole-sync retry would apply --max-delete again and
                      # could multiply the per-run deletion cap.
                      "-vv", "--use-json-log",
@@ -177,7 +179,8 @@ class Storage:
         if dry_run:
             filters.append("--dry-run")
         if not selectors:
-            self.command("copy", self.job.destination, output, "--create-empty-src-dirs", "--metadata",
+            self.command("copy", self.job.destination, output, "--create-empty-src-dirs",
+                         *metadata_flags(output),
                          *filters, retry=True, progress_directory=str(self.job.destination))
             return
         chosen = []
@@ -196,7 +199,8 @@ class Storage:
             chosen.append(selector)
             target = str(Path(output) / selector)
             if item["IsDir"]:
-                self.command("copy", self.path(selector), target, "--create-empty-src-dirs", "--metadata",
+                self.command("copy", self.path(selector), target, "--create-empty-src-dirs",
+                             *metadata_flags(target),
                              *filters, retry=True, progress_directory=self.path(selector))
             else:
                 # copyto addresses one exact file; rclone rejects directory
@@ -206,7 +210,7 @@ class Storage:
                     selected = Selection(self.job.exclude_files, self.config, self.runner)
                     if selector not in selected.include_paths({selector}):
                         raise BackupError(f"Caminho solicitado está excluído: {selector}")
-                self.command("copyto", self.path(selector), target, "--metadata",
+                self.command("copyto", self.path(selector), target, *metadata_flags(target),
                              retry=True, progress_directory=str(Path(output) / Path(selector).parent))
 
     def delete(self, key):

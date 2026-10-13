@@ -2,6 +2,14 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.10.1 — 2026-10-13
+
+Keep progress within the terminal width, compact counters and abbreviate paths, including wide/combining Unicode characters. Clear reflowed rows after resizing. During phases without a reliable total, show activity instead of a frozen percentage, with no additional inventory scan; resume the measured percentage when transfer totals become available.
+
+Read rclone progress from structured JSON byte/file counters, including one-line statistics without a `Transferred:` prefix. Interactive copies and syncs show checked/copied/deleted/moved counters and a heartbeat with elapsed time. Discovery/deletion activity does not invent transfer progress; bytes moved into backup history do not falsely complete the transfer stage. Keep the overall percentage monotonic and reserve 100% for successful completion.
+
+Detect destination POSIX attribute support for backups and restores. Avoid ownership and permission changes on exFAT, FAT and filesystems without known support, preserving contents and timestamps. Keep metadata on POSIX filesystems and S3. Detection is read-only, including simulation; batch restore also stops requiring `chmod` on these destinations.
+
 ## 0.10.0 — 2026-10-12
 
 Keep simple jobs on native `rclone sync` and `--backup-dir`, and purge expired run histories as the final job step using the longer of `deleted_days` and `version_days` (rclone history does not distinguish deletions from replacements). Preserve destination files newer than the source, report their paths and fail the job for manual review. Automatically replace file/directory type conflicts while retaining the displaced data in history. Add `restore --path` for selected current files and directories in simple jobs. Reject overlapping destinations across jobs while allowing an earlier destination to feed a later source. Keep the per-job absolute `max_delete` limit and rclone native exclusions.

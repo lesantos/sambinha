@@ -2,6 +2,14 @@
 
 [English](CHANGELOG.md)
 
+## 0.10.1 — 2026-10-13
+
+Mantém o progresso dentro da largura do terminal, compacta contadores e abrevia caminhos, incluindo caracteres Unicode largos/combinantes. Limpa linhas refluídas após redimensionamento. Nas fases sem total confiável, mostra atividade em vez de um percentual congelado, sem inventário adicional; retoma o percentual medido quando existem totais de transferência.
+
+Lê o progresso do rclone pelos contadores estruturados do JSON, incluindo estatísticas de uma linha sem o prefixo `Transferred:`. Cópias e sincronizações interativas mostram contadores de arquivos conferidos/copiados/remoções/movimentos e um indicador de atividade com tempo decorrido. Comparação/exclusões não inventam avanço percentual; bytes movidos para o histórico não indicam transferência concluída. Mantém o percentual global sem retrocesso e reserva 100% para conclusão bem-sucedida.
+
+Detecta suporte a atributos POSIX no destino de backups/restaurações. Evita mudanças de proprietário e permissões em exFAT, FAT e sistemas sem suporte conhecido, preservando conteúdo e datas. Mantém os metadados em sistemas POSIX e no S3. A detecção é somente leitura, inclusive nas simulações; restaurações de lotes também deixam de exigir `chmod` nesses destinos.
+
 ## 0.10.0 — 2026-10-12
 
 Mantém jobs simples no `rclone sync` nativo e `--backup-dir`; limpa históricos de execuções expirados na etapa final do job, usando o maior valor entre `deleted_days` e `version_days` (o histórico do rclone não distingue exclusões de substituições). Preserva arquivos de destino mais novos que a origem, informa seus caminhos e falha o job para revisão manual. Substitui automaticamente conflitos de tipo arquivo/diretório, preservando o item deslocado no histórico. Adiciona `restore --path` para selecionar arquivos e diretórios atuais nos jobs simples. Recusa destinos sobrepostos entre jobs, mantendo permitido que o destino de um job anterior seja a origem de outro posterior. Mantém `max_delete` absoluto por job e exclusões nativas do rclone.

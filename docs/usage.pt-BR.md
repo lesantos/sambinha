@@ -33,6 +33,8 @@ Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2**
 
 ## Retenção, recuperação e limites
 
+Backups e restaurações detectam o sistema de arquivos do destino antes de solicitar proprietário e permissões. Em exFAT, FAT e montagens sem suporte POSIX conhecido, o rclone copia o conteúdo e a data de modificação sem `--metadata`; a restauração de lotes também evita `chmod`. Sistemas com atributos POSIX nativos, como ext4 e Btrfs, continuam preservando os metadados. A detecção lê a tabela de montagens, sem criar arquivos de teste; se o suporte não puder ser confirmado, ignora esses atributos. Os metadados armazenados no S3 continuam habilitados.
+
 Na lógica simples, o destino apresenta os caminhos originais. O rclone usa `--backup-dir` em `.sambinha/history/<id-da-execução>` para guardar arquivos substituídos ou apagados; a limpeza expira esses diretórios pelo maior valor entre `deleted_days` e `version_days`, pois o histórico não diferencia os motivos. Na lógica por lotes, arquivos compactados antigos permanecem em chaves imutáveis até expirar; o índice separa `active` e `retired`.
 
 A contagem começa quando uma execução bem-sucedida detecta a alteração/remoção. A limpeza ocorre durante execuções seguintes, inclusive no instante exato da expiração. Retenção zero permite apagar o histórico nessa execução. Um lote com arquivos editados e apagados usa o maior prazo aplicável. Falhas interrompem a operação afetada; preservam o último índice confirmado. Uploads interrompidos podem deixar objetos sem referência; não são apagados automaticamente para evitar perda de dados.
@@ -166,6 +168,8 @@ Jobs batch emitem contagens indexadas de arquivos e lotes. Jobs simples registra
 Estados 0.3.x continuam compatíveis. Lotes sem checksum de envio não têm verificação completa por metadados até serem substituídos após mudanças. Não há reenvio automático só para adicionar o checksum. No modo hash, o cache pressupõe metadados de filesystem confiáveis e força leituras completas periódicas; desative-o quando precisar de leitura completa em toda execução.
 
 ## Modos de verificação e progresso no terminal — 0.6.1
+
+Nas cópias e sincronizações interativas, o progresso lê as estatísticas estruturadas do rclone. O terminal mostra arquivos conferidos/copiados, remoções, movimentos e tempo decorrido; um indicador de atividade continua atualizando enquanto aguarda a próxima amostra. O percentual de transferência usa contadores de bytes (ou de arquivos nas transferências de zero bytes). Durante comparação e exclusões anteriores à cópia pode não existir um total confiável: o terminal mostra atividade sem percentual até conhecer os totais de transferência. Essa opção mais rápida não faz inventário adicional. A linha se adapta à largura do terminal, abreviando caminhos e contadores para evitar quebras; o redimensionamento limpa linhas refluídas. Movimentos para o histórico, sozinhos, não indicam transferência concluída. Esses detalhes do terminal ficam fora dos logs JSON/stdout.
 
 `[backup].verification_mode = "simple"` é o padrão; `"hash"` passa `--checksum` aos syncs simples e ativa fingerprints SHA-256/MD5 nos índices batch. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam aos inventários batch.
 

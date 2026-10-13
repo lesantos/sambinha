@@ -28,6 +28,8 @@ Exit codes: **0** success, **1** operation/notification failure, **2** configura
 
 ## Retention and exclusion rules
 
+Backups and restores detect the destination filesystem before requesting ownership and permissions. On exFAT, FAT and mounts without known POSIX support, rclone copies contents and modification times without `--metadata`; batch restore also skips `chmod`. Filesystems with native POSIX attributes, such as ext4 and Btrfs, continue preserving metadata. Detection reads the mount table without creating probe files; if support cannot be confirmed, these attributes are skipped. Metadata stored in S3 remains enabled.
+
 Simple backups use rclone's `--backup-dir` under `.sambinha/history/<run-id>` for replaced and deleted files. Expired run directories are purged after the larger of `deleted_days` and `version_days`; since rclone does not distinguish deletion from replacement in this history, simple items share that longer period. Batch archives remain at immutable keys until expiry, with current controls in `active` and historical records in `retired`.
 
 Batch retention starts when a successful execution detects edits/deletions. Cleanup happens on later runs, including at the exact deadline. Zero-day retention allows cleanup in that run. A mixed edited/deleted lot receives the longest applicable retention. Active reactivated archives cannot expire through a former retirement record. Cleanup publication failures are retried using `index_pending`.
@@ -92,6 +94,8 @@ Symbolic links are ignored. Special files and newline-bearing source filenames a
 Batch reuse trusts the local mirror and exclusive remote prefix ownership. External object deletion/corruption is detected by explicit/scheduled verification, not by every unchanged backup. Simple sync comparison behavior follows rclone and its backend settings. Batch hash mode compares remote checksums and unavailable required checksums fail.
 
 ## Verification modes and terminal progress — 0.6.1
+
+Interactive copies and syncs read rclone's structured JSON statistics. The terminal shows checked/copied file counts, removals, moves and elapsed time; an activity indicator continues updating while waiting for the next sample. The transfer percentage uses byte counters (file counts for zero-byte transfers). During discovery and deletions before copying, there may be no reliable total: the terminal shows activity without a percentage until transfer totals are known. This fast mode performs no extra inventory scan. The line adapts to terminal width, abbreviating paths and counters to avoid wrapping; resizing clears any reflowed rows. Moves into backup history alone do not count as completed transfer progress. These terminal details remain outside the JSON audit/stdout.
 
 `[backup].verification_mode = "simple"` is the default, even for existing configurations without this key; `"hash"` enables SHA-256/MD5 content checks. The CLI override is `--verification-mode simple|hash`. Hash cache and periodic-full-scan options only apply to hash mode. Switching to hash recomputes absent hashes; batch mode switches can rebuild archives. A hash verification requires a hash-mode backup first if the index has no hashes. Restores check sizes and any hashes recorded in their index; archive checksums remain enabled in both modes.
 

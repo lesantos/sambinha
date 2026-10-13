@@ -1,6 +1,49 @@
-# Resultados dos testes do Sambinha 0.10.0
+# Resultados dos testes do Sambinha 0.10.1
 
 [English](test-results.md)
+
+Em 2026-10-13, Linux, Python 3.12.3: a execução completa com cobertura de ramos e `SAMBINHA_HTTP_S3_TESTS=1` executou **330 testes em 942.539 segundos: 328 passaram, sem falhas, 2 ignorados**. Os dois casos preexistentes de conflito/corrida com links no destino continuam adiados. Foram usados rclone/7-Zip reais, Moto em processo/HTTP localhost e um pseudoterminal real, sem credenciais AWS ou Cronitor reais.
+
+A cobertura da aplicação incluindo ramos é **92%**, acima dos **85%** exigidos. As novas regressões cobrem metadados POSIX não suportados no destino, conteúdo/datas em backup e restauração, estatísticas estruturadas do rclone, atividade de exclusões antes da cópia, arquivos vazios, limpeza em interrupções/timeouts, larguras de terminal, células Unicode e redimensionamento.
+
+Reproduzir:
+
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
+.venv/bin/python -m coverage report --include="sambinha/*" --show-missing --fail-under=85
+```
+
+```text
+Name                      Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------------
+sambinha/__init__.py          1      0      0      0   100%
+sambinha/batches.py          56      0     26      0   100%
+sambinha/cli.py              48      6      8      1    84%   54-56, 60-62
+sambinha/config.py          227      5    128      5    97%   163, 166, 208, 231, 251
+sambinha/disks.py            26      0     14      0   100%
+sambinha/engine.py          434     11    142     14    96%   74, 108, 136->126, 138->126, 149->151, 174->172, 177, 180, 345-346, 350, 352->369, 362, 368, 440, 495
+sambinha/errors.py           18      0      4      0   100%
+sambinha/filesystems.py      28      1      6      2    91%   36, 43->31
+sambinha/filtering.py       112      9     44      2    92%   24-25, 41-45, 85-86
+sambinha/inventory.py       140      7     72      6    94%   39, 46, 54, 65, 94, 101, 120
+sambinha/logging.py          79      1     26      2    97%   63->68, 71
+sambinha/mounts.py           19      1     12      1    94%   17
+sambinha/notify.py           22      1     10      2    91%   17->exit, 21
+sambinha/process.py         145      4     42      3    96%   91-92, 108->exit, 147-148, 160->169
+sambinha/profiles.py         11      0      2      0   100%
+sambinha/progress.py        132      0     20      1    99%   129->131
+sambinha/protection.py       21      0      8      0   100%
+sambinha/recovery.py        260     40    124     23    80%   37, 44, 53, 64, 68, 77, 83, 90, 92, 95, 103, 124-133, 136->143, 148, 150, 153-156, 173, 201, 203-205, 210-212, 217, 239, 267, 292-294
+sambinha/retention.py        41      2     12      0    96%   28-29
+sambinha/secrets.py          22      0      6      0   100%
+sambinha/state.py           119     17     70     19    81%   25, 46, 52-54, 58, 63, 82, 90, 94, 106, 108, 109->114, 111, 114->100, 117, 120, 123, 125, 131
+sambinha/storage.py         165     26     72     13    82%   23, 45, 78-79, 81-87, 107, 109-110, 140->131, 153-155, 160, 165->157, 178, 190, 192, 198, 209-212
+sambinha/terminal.py         67      1     30      3    96%   29->35, 54, 81->84
+---------------------------------------------------------------------
+TOTAL                      2193    132    878     97    92%
+```
+
+## Resultados históricos: 0.10.0
 
 Em 2026-10-12/13, Linux, Python 3.12.3: `python -m unittest discover -v` executou **306 testes sem falhas**; 26 foram ignorados porque HTTP S3 é opt-in e três casos extremos de links foram adiados. Depois, a suíte opt-in `tests.test_s3_http` passou em **23/23**; o teste atualizado de link na origem e os cinco testes de exemplos/documentação também passaram. Somando as execuções, **304 testes passaram e dois casos de conflito/corrida com links continuam ignorados**. Foram usados rclone/7-Zip reais localmente e Moto, sem credenciais AWS ou Cronitor.
 

@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.10.0**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.10.1**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -214,3 +214,7 @@ Cada job conclui exclusões, preflight, inventário/cache próprios, transferên
 ## 19. Histórico simples, conflitos e restauração seletiva — 0.10.0
 
 Recusar destinos sobrepostos entre jobs e permitir que o destino de um job anterior seja origem de um posterior. No final de cada job simples, expirar históricos `--backup-dir` pelo maior prazo de exclusão/versão, pois o rclone não identifica por que cada caminho foi deslocado. Preservar arquivos mais novos no destino, informar os caminhos e falhar o job para revisão manual. Permitir que o rclone substitua conflitos de tipo arquivo/diretório, preservando os itens deslocados no histórico. Aceitar seletores `restore --path` repetidos para arquivos/diretórios atuais de jobs simples. Cobrir comportamento local e S3 e executar toda a suíte antes de publicar 0.10.0.
+
+## 20. Atributos do destino e atividade no terminal — 0.10.1
+
+Detectar suporte a atributos POSIX nativos antes das operações de metadados em backups/restaurações locais. Ignorar mudanças de proprietário/permissões em exFAT, FAT e sistemas desconhecidos; preservar conteúdo e datas, metadados POSIX suportados e metadados do S3. A detecção não cria arquivos de teste nem inventários adicionais. Ler contadores estruturados JSON do rclone, incluindo estatísticas de uma linha sem prefixo. Mostrar arquivos conferidos/copiados, remoções, movimentos e tempo decorrido. Durante comparação/exclusões sem total confiável, mostrar atividade sem percentual e retomar o progresso medido quando houver totais de transferência. Manter monotonicidade global e reservar 100% para sucesso. Ajustar a linha à largura do terminal, considerar células Unicode e apagar linhas refluídas no redimensionamento. Cobrir streaming real do rclone, restauração sem POSIX, limpeza em interrupções/timeouts e renderização em terminal real.

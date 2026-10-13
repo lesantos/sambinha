@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.10.0**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.10.1**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -215,3 +215,7 @@ Each job completes exclusions, preflight, a private inventory/cache, transfers/r
 ## 19. Simple history, conflicts and selected restore — 0.10.0
 
 Reject overlapping destinations across jobs while allowing an earlier job's destination to be a later job's source. At the end of each simple job, expire run-scoped `--backup-dir` history using the larger of deletion and version retention because rclone does not identify why each path was displaced. Preserve newer destination files, report them and fail the job for manual review. Let rclone replace file/directory conflicts while retaining displaced items in history. Support repeatable `restore --path` selectors for current simple destination files/directories. Cover local and S3 behavior and run the full suite before publishing 0.10.0.
+
+## 20. Destination attributes and terminal activity — 0.10.1
+
+Detect native POSIX attribute support before local backup/restore metadata operations. Skip ownership/permission changes on exFAT, FAT and unknown filesystems; retain contents and modification times, supported POSIX metadata and S3 metadata. Detection must not create probes or extra inventories. Read rclone structured JSON counters, including one-line statistics without a prefix. Show checked/copied/deleted/moved counts and elapsed activity. During comparison/deletion without a reliable total, show activity without a percentage, and resume measured progress when transfer totals are known. Preserve overall monotonicity and reserve 100% for success. Fit progress to the terminal width, handle Unicode cell widths and erase reflowed rows on resize. Cover real rclone streaming, non-POSIX restore, interruption/timeout cleanup and real terminal rendering.

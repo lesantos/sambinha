@@ -6,6 +6,7 @@ import subprocess
 import time
 import json
 import threading
+import math
 from configparser import ConfigParser, Error as ConfigParserError
 from contextlib import nullcontext
 from pathlib import Path
@@ -18,6 +19,42 @@ _CREDENTIAL = re.compile(r"SECRET|TOKEN|PASSWORD|(?:^|_)PASS(?:$|_)|ACCESS_KEY|(
 def credential_values(environment):
     return {value for key, value in environment.items()
             if isinstance(value, str) and value and _CREDENTIAL.search(key)}
+
+
+def rclone_progress(stats):
+    """Read counters independently of rclone's human-readable stats message."""
+    def number(key):
+        value = stats.get(key)
+        if type(value) not in (int, float) or value < 0:
+            return None
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        return value
+
+    def count(key):
+        value = number(key)
+        return int(value) if value is not None else 0
+
+    def counter(done, total):
+        value, maximum = count(done), count(total)
+        return f"{value}/{maximum}" if maximum else str(value)
+
+    transferred, total_bytes = number("bytes"), number("totalBytes")
+    transfers, total_transfers = count("transfers"), count("totalTransfers")
+    active = stats.get("transferring")
+    # Local moves into --backup-dir also increase bytes. They are activity,
+    # not completed transfer work; delete-before can still be running.
+    transfer_work = transfers > 0 or total_transfers > 0 or (isinstance(active, list) and bool(active))
+    percent = None
+    if transfer_work and transferred is not None and total_bytes is not None and total_bytes > 0:
+        percent = 100 * min(transferred, total_bytes) / total_bytes
+    elif total_transfers > 0 and total_bytes == 0:
+        # Empty files have no byte denominator but do have a transfer count.
+        percent = 100 * min(transfers, total_transfers) / total_transfers
+    activity = (f"conferidos: {counter('checks', 'totalChecks')} | "
+                f"copiados: {counter('transfers', 'totalTransfers')} | "
+                f"remoções: {count('deletes')} | movidos: {count('renames')}")
+    return percent, activity
 
 
 class Runner:
@@ -82,6 +119,8 @@ class Runner:
                 measured = bool(self.progress and self.progress.enabled and len(args) > 1
                                 and args[1] in {"copy", "sync"})
                 command = [*args, "--stats", "1s", "--stats-one-line", "--stats-log-level", "NOTICE"] if measured else args
+                if measured and "--use-json-log" not in command:
+                    command = [*command, "--use-json-log"]
                 task = self.progress.task(stage, directory, measured=measured) if self.progress and stage else nullcontext()
                 with task as report:
                     if measured:
@@ -109,7 +148,8 @@ class Runner:
             process.stdin.close()
 
         output = []
-        percentage = re.compile(r"Transferred:\s*[^,]*,\s*(\d+(?:\.\d+)?)%")
+        # Compatibility with plain/full and one-line stats without a prefix.
+        percentage = re.compile(r"(?:^|\n)\s*(?:Transferred:\s*)?(?=\d)[^,\n]*/[^,\n]*,\s*(\d+(?:\.\d+)?)%")
 
         def collect():
             for line in process.stdout:
@@ -118,23 +158,32 @@ class Runner:
                 try:
                     record = json.loads(line)
                     if isinstance(record, dict):
+                        stats = record.get("stats")
+                        if isinstance(stats, dict):
+                            percent, activity = rclone_progress(stats)
+                            report(percent, activity=activity)
+                            continue
                         message = record.get("msg", line)
                 except (ValueError, TypeError):
                     pass
+                if not isinstance(message, str):
+                    continue
                 match = percentage.search(message)
                 if match:
-                    report(float(match.group(1)))
+                    report(min(100, float(match.group(1))), activity="transferindo arquivos")
 
         reader = threading.Thread(target=collect, daemon=True)
         reader.start()
         try:
             returncode = process.wait(timeout=self.timeout)
-        except subprocess.TimeoutExpired:
+        except BaseException:
+            # An interruption must also release the reader and child process.
             process.kill()
             process.wait()
-            reader.join()
             raise
-        reader.join()
+        finally:
+            reader.join()
+            process.stdout.close()
         output = "".join(output)
         self.last_stderr = output
         return subprocess.CompletedProcess(args, returncode, "", output)

@@ -136,7 +136,7 @@ class ProgressTests(Sandbox):
         copying.update('Copiando', '/dados/dir-c', 2, 2)
         self.assertNotIn('100.0%', terminal.getvalue())
         progress.finish()
-        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% (?:do backup|est\.)', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
         self.assertEqual(values[-1], 100)
         self.assertIn(55, values)
@@ -163,10 +163,10 @@ class ProgressTests(Sandbox):
         self.assertEqual(result, 0)
         self.assertNotIn('unique-file-name', stdout.getvalue())
         self.assertNotIn('unique-file-name', terminal.getvalue())
-        self.assertIn(str(self.source / 'nested/subdir'), terminal.getvalue())
+        self.assertIn('nested/subdir', terminal.getvalue())
         records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
         self.assertTrue(any('nested/subdir/unique-file-name' in r.get('files', []) for r in records))
-        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% (?:do backup|est\.)', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
         self.assertEqual(values[-1], 100)
         self.assertEqual(sum(p == 100 for p in values), 1)
@@ -197,12 +197,12 @@ class OverallProgressIntegrationTests(Sandbox):
         self.assertEqual(result, 0, stdout.getvalue())
         self.assertEqual(directories, [str(self.source)])
         self.assertEqual(contents(self.source), contents(self.destination))
-        self.assertIn('Sincronizando arquivos | ' + str(self.source), terminal.getvalue())
+        self.assertIn('Sincronizando', terminal.getvalue())
         for name in ('file-a', 'file-b', 'file-c', 'file-d'):
             self.assertNotIn(name, terminal.getvalue() + stdout.getvalue())
         records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
         self.assertFalse(any(r['event'] == 'transferred' for r in records))
-        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% (?:do backup|est\.)', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
         self.assertEqual(sum(p == 100 for p in values), 1)
 
@@ -215,7 +215,7 @@ class OverallProgressIntegrationTests(Sandbox):
         with patch('sys.stderr', terminal), redirect_stdout(stdout):
             result = run(config, clock=lambda: 1000)
         self.assertEqual(result, 0, stdout.getvalue())
-        values = [float(p) for p in re.findall(r'(\d+\.\d+)% do backup', terminal.getvalue())]
+        values = [float(p) for p in re.findall(r'(\d+\.\d+)% (?:do backup|est\.)', terminal.getvalue())]
         self.assertEqual(values, sorted(values))
         self.assertIn(47.5, values)
         self.assertEqual(sum(p == 100 for p in values), 1)
