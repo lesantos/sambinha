@@ -10,7 +10,7 @@ O [README](../README.pt-BR.md) apresenta a primeira cópia. Este guia detalha os
 Todos os parâmetros operacionais têm overrides CLI; opções omitidas herdam o TOML:
 
 ```bash
-.venv/bin/python -m sambinha --job documents-s3 --max-bytes 102400 --max-files 10 --dry-run
+.venv/bin/python -m sambinha --job documents-s3 --max-megabytes 100 --dry-run
 .venv/bin/python -m sambinha --job documents-local --deleted-days 30 --version-days 7
 .venv/bin/python -m sambinha --config /caminho/outro.toml --job documents-local --destination /mnt/backup
 .venv/bin/python -m sambinha --help
@@ -23,7 +23,7 @@ Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2**
 ## Regras dos lotes
 
 1. Ordene arquivos e subpastas juntos por mtime/nome em cada diretório; percorra subpastas em profundidade antes do próximo irmão.
-2. Novos lotes normais acumulam somente bytes originais até `max_bytes` (padrão 1 GiB), sem limite de quantidade nem separação por categoria. Compactados podem superar o limite por overhead.
+2. Novos lotes normais acumulam somente bytes originais até o limite `max_megabytes` em MB (padrão 1024; 1 MB = 1.048.576 bytes), sem limite de quantidade nem separação por categoria. Compactados podem superar o limite por overhead.
 3. Desvie arquivos a partir de `individual_batch_percent` (100% por padrão) para lotes individuais sem fechar o lote normal aberto. Não divida arquivos.
 4. Preserve a associação e a ordem dos membros confirmados mesmo com crescimento/data nova; novos arquivos formam novos lotes. Remova grupos vazios do ativo respeitando o histórico.
 5. Use `compression_level = 3` e `compression_threads = 2` para todos os tipos ao criar/recriar compactados. Revisões imutáveis, controles JSON e `batch_id` lógico permitem histórico sem duplicidade ativa.

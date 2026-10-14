@@ -14,14 +14,16 @@ source = "/mnt/origem/documentos"
 destination = "aws:bucket/documentos"
 type = "s3"
 logic = "batch"
-max_bytes = 1073741824
+max_megabytes = 1024
 compression_level = 3
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
 ```
 
-`max_bytes` é a soma dos tamanhos originais, antes da compressão. Não existe limite de quantidade de arquivos. Todos os tipos usam o mesmo nível (0–9, padrão 3) e threads (1–64, padrão 2). Ajustes de compressão se aplicam aos arquivos compactados criados/recriados, preservando os intactos.
+`max_megabytes` limita a soma dos tamanhos originais, antes da compressão, em MB (1 MB = 1.048.576 bytes). O padrão é 1024 MB (1 GiB). Aceita inteiros e decimais positivos e finitos, equivalentes a pelo menos 1 byte; frações de byte são truncadas na conversão interna. Não existe limite de quantidade de arquivos. Todos os tipos usam o mesmo nível (0–9, padrão 3) e threads (1–64, padrão 2). Ajustes de compressão se aplicam aos arquivos compactados criados/recriados, preservando os intactos.
+
+Substitua `max_bytes` por `max_megabytes` nos TOMLs e `--max-bytes` por `--max-megabytes` nos comandos, dividindo o valor antigo por 1.048.576. Por exemplo, `max_bytes = 1073741824` passa a `max_megabytes = 1024`. O nome antigo é rejeitado; os lotes existentes permanecem intactos.
 
 Remova `max_files` e todas as opções `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` dos TOMLs e comandos agendados antigos; são rejeitadas com indicação do parâmetro/linha. Substitua os ajustes por categoria por `compression_level` e `compression_threads`. Controles antigos continuam legíveis e preservam seus membros. A migração não reúne automaticamente os pequenos lotes antigos.
 
@@ -31,13 +33,13 @@ O estado confirmado passa ao schema 2 na primeira publicação 0.13.0. Estados a
 
 Em cada diretório, ordene juntos arquivos e subpastas pela data de modificação em nanossegundos, dos mais antigos aos mais novos; desempate pelo nome. Ao encontrar uma pasta, percorra toda a subárvore antes do próximo irmão (profundidade primeiro). Arquivos regulares entram nessa ordem. Links da origem são ignorados e exclusões são respeitadas. Usam-se as datas reais das pastas da origem, que podem diferir das pastas recriadas por restore.
 
-Um arquivo com `size * 100 >= max_bytes * individual_batch_percent` recebe um lote exclusivo. O percentual deve ser finito, maior que 0 e no máximo 100; a igualdade já qualifica. O desvio mantém o lote normal aberto: com limite de 100 bytes e arquivos de 40, 200 e 60 bytes, forma-se um lote normal de 100 e um individual de 200 bytes. Arquivos não são divididos. Um lote normal novo só fecha quando o próximo arquivo normal ultrapassaria o limite. Categoria e quantidade de membros não geram fronteiras.
+Um arquivo com `size * 100 >= int(max_megabytes * 1048576) * individual_batch_percent` recebe um lote exclusivo. O percentual deve ser finito, maior que 0 e no máximo 100; a igualdade já qualifica. O desvio mantém o lote normal aberto: com limite de 100 bytes e arquivos de 40, 200 e 60 bytes, forma-se um lote normal de 100 e um individual de 200 bytes. Arquivos não são divididos. Um lote normal novo só fecha quando o próximo arquivo normal ultrapassaria o limite. Categoria e quantidade de membros não geram fronteiras.
 
 Não se reabrem lotes confirmados apenas para inserir arquivos novos: esses arquivos formam novos grupos pelo mesmo algoritmo, evitando reenvios de conteúdo intacto. A formação inicial respeita fronteiras sequenciais nesse percurso; não procura um empacotamento global que reordene os membros.
 
 ## Associação persistente e histórico
 
-Grupos novos registram um `batch_id` lógico estável e o papel `individual` no controle. O nome físico da revisão muda conforme conteúdo/metadados. Arquivos alterados permanecem no grupo original e na mesma posição, mesmo quando tamanho/data mudam. O lote pode crescer além de `max_bytes`; reduzir o limite não provoca reconstrução automática. Remover um membro mantém os demais no grupo. Um grupo vazio sai do índice ativo, e a revisão anterior segue a retenção de exclusões/versões. Grupos exclusivos continuam exclusivos após encolher. Controles antigos com um arquivo são tratados como individuais.
+Grupos novos registram um `batch_id` lógico estável e o papel `individual` no controle. O nome físico da revisão muda conforme conteúdo/metadados. Arquivos alterados permanecem no grupo original e na mesma posição, mesmo quando tamanho/data mudam. O lote pode crescer além de `max_megabytes`; reduzir o limite não provoca reconstrução automática. Remover um membro mantém os demais no grupo. Um grupo vazio sai do índice ativo, e a revisão anterior segue a retenção de exclusões/versões. Grupos exclusivos continuam exclusivos após encolher. Controles antigos com um arquivo são tratados como individuais.
 
 Cada caminho selecionado aparece em exatamente um controle ativo. Revisões antigas podem conter os mesmos caminhos como histórico; a restauração comum lê apenas a seleção ativa. Exclusões continuam protegendo históricos, inclusive lotes antigos misturando conteúdo incluído/excluído. Trocar o formato do compactado recria as representações afetadas preservando os membros.
 
@@ -45,7 +47,7 @@ Alterar um membro recria/envia todo o lote. Grupos maiores aumentam transferênc
 
 ## Alertas de crescimento ao final
 
-`batch_size_alert_percent` é um percentual finito não negativo de `max_bytes`, padrão 200. Zero desativa. Atingir ou ultrapassar o limiar em bytes originais gera alerta para lotes não individuais. Arquivos compactados com um único membro são desconsiderados. Cada lote gera `batch_size_alert` nos logs; as mensagens são agregadas entre jobs.
+`batch_size_alert_percent` é um percentual finito não negativo de `max_megabytes`, padrão 200. Zero desativa. Atingir ou ultrapassar o limiar em bytes originais gera alerta para lotes não individuais. Arquivos compactados com um único membro são desconsiderados. Cada lote gera `batch_size_alert` nos logs; as mensagens são agregadas entre jobs.
 
 O alerta não interrompe jobs nem altera o retorno operacional bem-sucedido (0). Depois de concluir todos os jobs permitidos pela política de falhas, envie um único `fail` ao Cronitor com jobs/lotes afetados, sem enviar `complete` em seguida. Erros operacionais continuam retornando código não zero e incluem os alertas no resumo final. Falha na entrega da notificação é erro operacional. Simulações podem registrar alertas previstos, mas não enviam telemetria. Alertas já existentes sobre expiração de históricos mantêm seu comportamento separado, antes da limpeza.
 
@@ -56,7 +58,7 @@ sambinha rebalance --config sambinha.toml --job documents-s3 --dry-run
 sambinha rebalance --config sambinha.toml --job documents-s3
 ```
 
-Somente jobs batch são aceitos. A operação usa o backup confirmado, sem consultar os dados atuais da origem, e funciona sem a montagem da origem. Todo grupo não individual com mais de um membro e soma acima de `max_bytes` precisa ser substituído. Todos os grupos conformes e todos os individuais permanecem intactos. Essa é a quantidade mínima possível de lotes ativos existentes que precisam mudar para cumprir o limite. Não reúne pequenos grupos conformes e nunca roda automaticamente.
+Somente jobs batch são aceitos. A operação usa o backup confirmado, sem consultar os dados atuais da origem, e funciona sem a montagem da origem. Todo grupo não individual com mais de um membro e soma acima de `max_megabytes` precisa ser substituído. Todos os grupos conformes e todos os individuais permanecem intactos. Essa é a quantidade mínima possível de lotes ativos existentes que precisam mudar para cumprir o limite. Não reúne pequenos grupos conformes e nunca roda automaticamente.
 
 Agrupe apenas os membros dos lotes afetados, na ordem registrada dos grupos/membros, desvie arquivos individuais pelo percentual configurado e empacote o restante por bytes. Um membro que cresceu além do limite passa a lote exclusivo. Sobras de grupos afetados podem compartilhar novos lotes. O limite não inclui o overhead do compactador. Publicação, histórico e retenção seguem o mesmo fluxo seguro do backup.
 

@@ -18,6 +18,7 @@ class ConfigurationTests(Sandbox):
         config = load(self.toml())
         self.assertEqual(config.deleted_days, 10)
         self.assertEqual(config.version_days, 2)
+        self.assertEqual(config.jobs[0].max_megabytes, 1024)
         self.assertEqual(config.jobs[0].max_bytes, 1024**3)
         self.assertEqual(config.jobs[0].compression_level, 3)
         self.assertEqual(config.jobs[0].source, self.source)
@@ -50,11 +51,45 @@ class ConfigurationTests(Sandbox):
             load(self.toml('continue_on_job_error=true'))
 
     def test_override_only_supplied_values(self):
-        config = load(self.toml('deleted_days=17\ndry_run=true'), {"version_days": 0, "dry_run": False, "max_bytes": 100000})
+        config = load(self.toml('deleted_days=17\ndry_run=true'), {"version_days": 0, "dry_run": False, "max_megabytes": 100})
         self.assertEqual(config.deleted_days, 17)
         self.assertEqual(config.version_days, 0)
         self.assertFalse(config.dry_run)
-        self.assertEqual(config.jobs[0].max_bytes, 100000)
+        self.assertEqual(config.jobs[0].max_megabytes, 100)
+        self.assertEqual(config.jobs[0].max_bytes, 100 * 1024 ** 2)
+
+    def test_max_megabytes_loads_toml_and_cli_in_megabytes(self):
+        prefix = '[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'
+        for value, expected_bytes in ((64, 64 * 1024 ** 2), (0.5, 512 * 1024),
+                                      (0.1, 104857)):
+            with self.subTest(value=value):
+                config = load(self.toml(jobs=prefix + f'max_megabytes={value}\n'))
+                self.assertEqual(config.jobs[0].max_megabytes, value)
+                self.assertEqual(config.jobs[0].max_bytes, expected_bytes)
+        path = self.toml(jobs=prefix + 'max_megabytes=64\n')
+        overrides = vars(parser().parse_args(['--max-megabytes', '0.5', '--job', 'test']))
+        overrides = {key: overrides[key] for key in ('max_megabytes', 'job')}
+        config = load(path, overrides)
+        self.assertEqual(config.jobs[0].max_bytes, 512 * 1024)
+
+    def test_max_megabytes_rejects_invalid_values(self):
+        for value in (0, -1, True, False, '64', None, float('nan'), float('inf'),
+                      float('-inf'), 1e308, 0.5 / 1024 ** 2):
+            with self.subTest(value=value), self.assertRaisesRegex(ConfigError, 'max_megabytes'):
+                validate(replace(self.config, jobs=(replace(self.config.jobs[0], max_megabytes=value),)))
+        config = load(self.toml(), {'max_megabytes': 1 / 1024 ** 2})
+        self.assertEqual(config.jobs[0].max_bytes, 1)
+
+    def test_max_bytes_is_no_longer_a_configuration_option(self):
+        jobs = '[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\nmax_bytes=1048576\n'
+        with self.assertRaisesRegex(ConfigError, "'max_bytes' "):
+            load(self.toml(jobs=jobs))
+        with self.assertRaisesRegex(ConfigError, 'Override desconhecido'):
+            load(self.toml(), {'max_bytes': 1048576})
+        from contextlib import redirect_stderr
+        import io
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser().parse_args(['--max-bytes', '1048576'])
 
     def test_metadata_directory_loads_relative_to_configuration_and_rejects_overlap(self):
         self.assertEqual(load(self.toml('metadata_dir="metadata"')).metadata_dir, self.root / 'metadata')
@@ -108,7 +143,7 @@ class ConfigurationTests(Sandbox):
 
     def test_invalid_job_values(self):
         for values in ({"name": "../bad"}, {"type": "ftp"}, {"logic": "unknown"},
-                       {"storage_class": "wrong"}, {"max_bytes": 0}, {"individual_batch_percent": 0},
+                       {"storage_class": "wrong"}, {"max_megabytes": 0}, {"individual_batch_percent": 0},
                        {"compressor": ""}, {"archive_format": "rar"}, {"destination": ""},
                        {"max_delete": -1}, {"max_delete": True},
                        {"compression_level": 10},
@@ -236,7 +271,7 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(args.config, Path("sambinha.toml"))
         self.assertEqual(parser().prog, "sambinha")
         self.assertIsNone(args.dry_run)
-        self.assertIsNone(args.max_bytes)
+        self.assertIsNone(args.max_megabytes)
         self.assertFalse(parser().parse_args(["--no-dry-run"]).dry_run)
 
     def test_cli_invalid_config_exit_code(self):

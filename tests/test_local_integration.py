@@ -31,7 +31,7 @@ class LocalIntegrationTests(Sandbox):
 
     def use_batch(self, **values):
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch',
-                               max_bytes=100 * 1024, **values),))
+                               max_megabytes=100 / 1024, **values),))
 
     def assert_complete(self, logic=None):
         logic = logic or self.config.jobs[0].logic
@@ -189,7 +189,7 @@ class LocalIntegrationTests(Sandbox):
         self.file('dir/big.txt', bytes(range(256)) * 400)
         self.file('dir/big.csv', bytes(range(256)) * 400)
         self.use_batch()
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_bytes=32 * 1024),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_megabytes=32 / 1024),))
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
         self.assertEqual(len(self.state()['active']), 2)

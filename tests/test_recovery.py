@@ -346,7 +346,7 @@ assert runner.env == environment == dict(os.environ)
         for i in range(3):
             self.file(f'{i}/selected.txt', b'selected')
             self.file(f'{i}/unselected.txt', b'unselected')
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=2),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
         self.assertEqual(self.execute(), 0)
         restored = self.root / 'mounted-output'
         restored.mkdir()
@@ -380,7 +380,7 @@ assert runner.env == environment == dict(os.environ)
     def test_late_batch_corruption_leaves_output_empty_and_cleans_workspace(self):
         self.file('a/file.txt', b'first')
         self.file('b/file.txt', b'second')
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=6),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=6 / 1024 ** 2),))
         self.assertEqual(self.execute(), 0)
         keys = list(self.state()['active'])
         self.assertEqual(len(keys), 2)

@@ -34,7 +34,7 @@ class S3IntegrationTests(Sandbox):
     def prepare_s3(self):
         self.client.create_bucket(Bucket='sambinha-tests')
         job = replace(self.config.jobs[0], type='s3', destination='aws:sambinha-tests/backup',
-                      max_bytes=100 * 1024)
+                      max_megabytes=100 / 1024)
         self.config = replace(self.config, jobs=(job,))
 
     def test_overlapping_job_destinations_are_rejected(self):
@@ -301,7 +301,7 @@ class S3IntegrationTests(Sandbox):
         self.file('folder/big.txt', bytes(range(256)) * 400)
         self.file('folder/big.csv', bytes(range(256)) * 400)
         self.use_batch()
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_bytes=32 * 1024),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_megabytes=32 / 1024),))
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assert_complete()
         self.assertEqual(len(self.state()['active']), 2)
@@ -413,7 +413,7 @@ class S3IntegrationTests(Sandbox):
 
     def test_s3_deletion_warning_continues_backup_and_expiration(self):
         self.use_batch()
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_bytes=1),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_megabytes=1 / 1024 ** 2),))
         for name in ('a', 'b', 'c'):
             self.file(name)
         self.config = replace(self.config, deletion_alert_threshold=2)
@@ -453,7 +453,7 @@ class S3IntegrationTests(Sandbox):
 
     def test_stable_growth_and_manual_rebalance_without_source_over_s3(self):
         import shutil
-        job = replace(self.config.jobs[0], logic='batch', max_bytes=10)
+        job = replace(self.config.jobs[0], logic='batch', max_megabytes=10 / 1024 ** 2)
         self.config = replace(self.config, jobs=(job,))
         for name in ('a','b','c','d'):
             self.file(name, name.encode()*4)

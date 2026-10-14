@@ -53,7 +53,7 @@ class BatchOptionsAndTraversalTests(Sandbox):
 class StableBatchLifecycleTests(Sandbox):
     def setUp(self):
         super().setUp()
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=10),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=10 / 1024 ** 2),))
 
     def seed(self):
         for name in ('a', 'b', 'c', 'd'):

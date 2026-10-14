@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.0**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.1**.
 
 ## How it protects your files
 
@@ -65,6 +65,16 @@ Keep the destination outside the source. Destinations of different jobs cannot o
 ```
 
 Simulation runs `rclone sync --dry-run` for simple jobs and does not build a Sambinha source index for them. Batch jobs still read an inventory. Each job ends with a summary; simple-job file counts are reported by rclone's log. Empty source directories are preserved by simple syncs.
+
+## Configure batch size
+
+For each job with `logic = "batch"`, set `max_megabytes` to limit original data per batch, before compression:
+
+```toml
+max_megabytes = 1024 # 1024 MB = 1 GiB; 1 MB = 1,048,576 bytes
+```
+
+The default is 1024; decimals such as `max_megabytes = 0.5` are accepted. Override it for one run with `--max-megabytes 100`. Migrate old configurations by replacing `max_bytes` with `max_megabytes` and dividing the value by 1,048,576; `max_bytes = 1073741824` becomes `max_megabytes = 1024`. Confirmed batches retain their members even when they grow beyond the limit; see [batches and rebalance](batch-lifecycle.md).
 
 ## Jobs and parallel execution
 

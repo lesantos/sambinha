@@ -62,7 +62,7 @@ type = "local"
 logic = "simple"
 compression_level = 3
 compression_threads = 2
-# Individual a partir deste % do max_bytes; mantém o lote normal aberto.
+# Individual a partir deste % do max_megabytes; mantém o lote normal aberto.
 individual_batch_percent = 100
 # Falha Cronitor só no final; 0 desativa; não interrompe jobs.
 batch_size_alert_percent = 200
@@ -75,7 +75,7 @@ check_destination_disk = true
 # Se ESTE job falhar, true continua os próximos; false interrompe a execução.
 continue_on_job_error = true
 # Configurações de lotes, se esta tarefa mudar para logic = "batch"
-# max_bytes = 1073741824
+# max_megabytes = 1024
 # compressor = "7z"
 # archive_format = "7z"
 # Configuração S3; não afeta destinos locais.
@@ -100,7 +100,7 @@ type = "s3"
 logic = "batch"
 compression_level = 3
 compression_threads = 2
-# Individual a partir deste % do max_bytes; mantém o lote normal aberto.
+# Individual a partir deste % do max_megabytes; mantém o lote normal aberto.
 individual_batch_percent = 100
 # Falha Cronitor só no final; 0 desativa; não interrompe jobs.
 batch_size_alert_percent = 200
@@ -118,7 +118,7 @@ exclude_files = "./excludes.example.txt"
 # source_mount = "/mnt/dados"
 # S3 não tem montagem local de destino; deixe vazio ou omita.
 # destination_mount = ""
-max_bytes = 1073741824 # 1 GiB de bytes originais, sem compactação
+max_megabytes = 1024 # MB dos dados originais, sem compactação (1 MB = 1.048.576 bytes)
 compressor = "7z" # ou 7zz, qualquer executável que implemente a CLI do 7-Zip
 archive_format = "7z" # 7z ou zip
 # Padrão frio: GLACIER_IR, acesso imediato, cobrança de recuperação, mínimo de 90 dias

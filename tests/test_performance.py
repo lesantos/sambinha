@@ -90,7 +90,7 @@ class PerformanceIntegrationTests(Sandbox):
         for i in range(6):
             self.file(f'dir/file-{i}.txt', str(i).encode())
         self.config = replace(self.config, batch_workers=2,
-                              jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=2),))
+                              jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
         from sambinha.engine import upload_batch
         gate = threading.Barrier(2)
         mutex = threading.Lock()
@@ -117,7 +117,7 @@ class PerformanceIntegrationTests(Sandbox):
     def test_modifying_one_file_does_not_rebuild_other_lots(self):
         for i in range(6):
             self.file(f'dir/{i}.txt', str(i).encode())
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=2),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
         self.assertEqual(self.execute(), 0)
         before = self.state()['active']
         (self.source / 'dir/0.txt').write_bytes(b'updated')

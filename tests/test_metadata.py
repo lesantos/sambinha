@@ -72,7 +72,7 @@ class DailyMetadataTests(Sandbox):
 
     def test_daily_reports_format_changes_but_limit_changes_preserve_groups(self):
         job, _ = self.baseline()
-        for changed, needs_update in ((replace(job, archive_format='zip'), True), (replace(job, max_bytes=4), False)):
+        for changed, needs_update in ((replace(job, archive_format='zip'), True), (replace(job, max_megabytes=4 / 1024 ** 2), False)):
             with self.subTest(job=changed):
                 self.config = replace(self.config, jobs=(changed,))
                 result = self.daily(changed)
@@ -147,7 +147,7 @@ class MetadataPublicationTests(Sandbox):
     def setUp(self):
         super().setUp()
         self.config = replace(self.config, metadata_dir=self.root / 'metadata',
-                              jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=20),))
+                              jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=20 / 1024 ** 2),))
         self.file('a.txt', b'alpha')
         self.file('b.txt', b'beta')
 

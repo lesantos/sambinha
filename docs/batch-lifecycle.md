@@ -14,14 +14,16 @@ source = "/mnt/source/documents"
 destination = "aws:bucket/documents"
 type = "s3"
 logic = "batch"
-max_bytes = 1073741824
+max_megabytes = 1024
 compression_level = 3
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
 ```
 
-`max_bytes` is the sum of original member sizes, not the compressed .7z size. There is no member-count limit. Compression uses a single level (0–9, default 3) and thread count (1–64, default 2), regardless of extension. New settings apply to newly created/rebuilt archives; intact archives are reused.
+`max_megabytes` limits the sum of original member sizes in MB (1 MB = 1,048,576 bytes), not the compressed .7z size. The default is 1024 MB (1 GiB). Positive finite integers and decimals equivalent to at least 1 byte are accepted; fractional bytes are truncated during internal conversion. There is no member-count limit. Compression uses a single level (0–9, default 3) and thread count (1–64, default 2), regardless of extension. New settings apply to newly created/rebuilt archives; intact archives are reused.
+
+Replace `max_bytes` with `max_megabytes` in TOMLs and `--max-bytes` with `--max-megabytes` in commands, dividing the old value by 1,048,576. For example, `max_bytes = 1073741824` becomes `max_megabytes = 1024`. The old name is rejected; existing archives remain intact.
 
 Remove `max_files` and all `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` options from old TOML files and scheduled CLI invocations. These obsolete configuration options are rejected with parameter/line diagnostics. Replace category options with `compression_level`/`compression_threads`. Existing archive controls remain readable and their membership is preserved; migration does not automatically consolidate legacy small archives.
 
@@ -31,21 +33,21 @@ Confirmed state migrates to schema 2 on the first 0.13.0 publication. Legacy sch
 
 Inside each source directory, sort files and subdirectories together by nanosecond modification time (oldest first), breaking ties by name. On encountering a directory, process its entire subtree before continuing with its next sibling. Add regular files in that depth-first order. Source links remain ignored; exclusions are applied before inventory. The directory dates used are the actual source dates, not dates reconstructed by restore.
 
-A file with `size * 100 >= max_bytes * individual_batch_percent` gets a dedicated archive. The percentage must be finite, greater than 0 and at most 100; equality qualifies. Diverting an individual file leaves the normal batch open. For example, with a 100-byte limit, files of 40, 200 and 60 bytes produce one normal 100-byte batch and one individual 200-byte batch. A file is never split. Normal new batches close only when adding the next normal file would exceed the byte limit. File type and member count do not create boundaries.
+A file with `size * 100 >= int(max_megabytes * 1048576) * individual_batch_percent` gets a dedicated archive. The percentage must be finite, greater than 0 and at most 100; equality qualifies. Diverting an individual file leaves the normal batch open. For example, with a 100-byte limit, files of 40, 200 and 60 bytes produce one normal 100-byte batch and one individual 200-byte batch. A file is never split. Normal new batches close only when adding the next normal file would exceed the byte limit. File type and member count do not create boundaries.
 
 Confirmed batches are not reopened just to add new files: new files form new batches using the same algorithm. This avoids reuploading unchanged data. The initial packing minimizes sequential boundaries under this traversal, but does not solve arbitrary bin packing by reordering members.
 
 ## Stable membership and history
 
-Each new group records an immutable logical `batch_id`, plus an `individual` role in its control. Revision filenames are content/metadata addressed. A modified member stays in its original group and its original member position even if its mtime or size changes. A group may grow beyond `max_bytes`; lowering the limit does not automatically rebuild it. Removing a member does not move the others. An empty group leaves the active index, and its prior physical revision follows deletion/version retention. A dedicated group remains dedicated after shrinking. Legacy singleton controls are treated as individual groups.
+Each new group records an immutable logical `batch_id`, plus an `individual` role in its control. Revision filenames are content/metadata addressed. A modified member stays in its original group and its original member position even if its mtime or size changes. A group may grow beyond `max_megabytes`; lowering the limit does not automatically rebuild it. Removing a member does not move the others. An empty group leaves the active index, and its prior physical revision follows deletion/version retention. A dedicated group remains dedicated after shrinking. Legacy singleton controls are treated as individual groups.
 
 Exactly one active control owns each selected path. Old revisions can contain the same path as active data because they are retained history; ordinary restore uses only the active selection. Exclusions continue protecting excluded history, including legacy mixed excluded batches. Changes to archive format rebuild affected archive representations while retaining group members.
 
-Updating one member rebuilds/uploads the entire archive. Large groups therefore require proportionally more transfer, staging space and time for partial restore, and concentrate more data behind one archive's integrity. Use the actual group size when planning temporary space; `max_bytes` is not a runtime size ceiling for existing groups.
+Updating one member rebuilds/uploads the entire archive. Large groups therefore require proportionally more transfer, staging space and time for partial restore, and concentrate more data behind one archive's integrity. Use the actual group size when planning temporary space; `max_megabytes` is not a runtime size ceiling for existing groups.
 
 ## Deferred growth alerts
 
-`batch_size_alert_percent` is a finite nonnegative percentage of `max_bytes`, default 200. Zero disables it. Alert when a nonindividual active batch reaches or exceeds the threshold in original bytes. Single-file archives are excluded, regardless of size. Log one `batch_size_alert` record per matching batch and aggregate the messages across jobs.
+`batch_size_alert_percent` is a finite nonnegative percentage of `max_megabytes`, default 200. Zero disables it. Alert when a nonindividual active batch reaches or exceeds the threshold in original bytes. Single-file archives are excluded, regardless of size. Log one `batch_size_alert` record per matching batch and aggregate the messages across jobs.
 
 Growth alerts never interrupt jobs or change a successful operational exit code (0). After all allowed jobs finish, send one Cronitor `fail`, including the affected jobs/batches; do not send `complete` afterward. Real operational failures still return nonzero and include growth alerts in the final failure message. Notification delivery errors are operational failures. Dry runs may log projected alerts but send no telemetry. Existing imminent-deletion alerts keep their separate before-purge behavior.
 
@@ -56,7 +58,7 @@ sambinha rebalance --config sambinha.toml --job documents-s3 --dry-run
 sambinha rebalance --config sambinha.toml --job documents-s3
 ```
 
-Only batch jobs are accepted. Rebalance reads the confirmed backup, not current source contents, and works without the source/mount. Every nonindividual group with more than one member above `max_bytes` must be replaced; every already conforming group and every individual archive is preserved byte-for-byte. This is the minimum possible number of existing active archives that must change to enforce the bound. It does not merge healthy small groups or rebalance automatically.
+Only batch jobs are accepted. Rebalance reads the confirmed backup, not current source contents, and works without the source/mount. Every nonindividual group with more than one member above `max_megabytes` must be replaced; every already conforming group and every individual archive is preserved byte-for-byte. This is the minimum possible number of existing active archives that must change to enforce the bound. It does not merge healthy small groups or rebalance automatically.
 
 Pool only members of affected groups in their recorded group/member order, divert individual files using the configured percentage, and pack remaining members by bytes. An archive containing an individually oversized member can therefore be split into a dedicated archive and normal groups. Archive overhead is outside the original-byte limit. New generations/retention are published through the ordinary safe publication workflow; old archives remain until retention permits deletion.
 

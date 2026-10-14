@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.13.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.13.1**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -89,6 +89,16 @@ O terminal mostrará o que seria feito. A simulação grava o relatório, mas n�
 Para atualizar o backup depois de mudar seus arquivos, execute o mesmo comando novamente. Os arquivos iguais serão identificados e não precisarão ser enviados outra vez. Os relatórios ficam na pasta `logs` e registram começo, fim, arquivos copiados, arquivos já iguais e possíveis erros.
 
 Se você preferir executar diretamente a partir do código, pode usar `.venv/bin/python -m sambinha` no lugar de `.venv/bin/sambinha`.
+
+## Configure o tamanho dos lotes
+
+Em cada job com `logic = "batch"`, use `max_megabytes` para limitar os dados originais por lote, antes da compressão:
+
+```toml
+max_megabytes = 1024 # 1024 MB = 1 GiB; 1 MB = 1.048.576 bytes
+```
+
+O padrão é 1024 e decimais são aceitos, como `max_megabytes = 0.5`. Para uma execução, use `--max-megabytes 100`. Configurações antigas devem substituir `max_bytes` por `max_megabytes` e dividir o valor por 1.048.576; `max_bytes = 1073741824` vira `max_megabytes = 1024`. Lotes confirmados mantêm seus membros, mesmo que cresçam acima do limite; veja [lotes e rebalanceamento](batch-lifecycle.pt-BR.md).
 
 ## Leve uma cópia para a nuvem
 
@@ -283,7 +293,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.13.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.13.1**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

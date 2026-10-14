@@ -67,8 +67,12 @@ def _validate_job(job: Job, seen: set[str]):
         raise ConfigError(f"Classe S3 inválida: {job.storage_class}")
     if job.type == "s3" and job.logic == "simple" and job.storage_class in {"GLACIER", "DEEP_ARCHIVE"}:
         raise ConfigError("simple exige S3 acessível sem restore; use GLACIER_IR ou batch")
-    if type(job.max_bytes) is not int or job.max_bytes < 1:
-        raise ConfigError("max_bytes deve ser positivo")
+    value = job.max_megabytes
+    if (type(value) not in (int, float) or value <= 0
+            or isinstance(value, float) and (not math.isfinite(value)
+                                            or not math.isfinite(value * 1024 ** 2))
+            or job.max_bytes < 1):
+        raise ConfigError("max_megabytes deve ser um número positivo e finito equivalente a pelo menos 1 byte")
     for name, minimum, maximum in (("individual_batch_percent", 0, 100),
                                    ("batch_size_alert_percent", -1, float('inf'))):
         value = getattr(job, name)

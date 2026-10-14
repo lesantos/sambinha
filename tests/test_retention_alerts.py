@@ -45,7 +45,7 @@ class RetentionAlertTests(Sandbox):
         for name in ('a', 'b', 'c'):
             self.file(name, name.encode())
         self.config = replace(self.config, deleted_days=days, deletion_alert_threshold=2,
-                              jobs=(replace(self.config.jobs[0], logic=logic, max_bytes=1),))
+                              jobs=(replace(self.config.jobs[0], logic=logic, max_megabytes=1 / 1024 ** 2),))
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -82,7 +82,7 @@ class RetentionAlertTests(Sandbox):
         for name in ('a', 'b', 'c'):
             self.file(name)
         self.config = replace(self.config, deleted_days=0, deletion_alert_threshold=2)
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=1),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=1 / 1024 ** 2),))
         self.assertEqual(self.execute(), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -127,7 +127,7 @@ class RetentionAlertTests(Sandbox):
     def test_warning_threshold_is_per_job_like_separate_invocations(self):
         for name in ('a', 'b', 'c'):
             self.file(name)
-        first = replace(self.config.jobs[0], logic='batch', max_bytes=1)
+        first = replace(self.config.jobs[0], logic='batch', max_megabytes=1 / 1024 ** 2)
         second = replace(first, name='second', destination=str(self.root / 'second'))
         self.config = replace(self.config, deletion_alert_threshold=5, jobs=(first, second))
         self.assertEqual(self.execute(now=1000), 0)

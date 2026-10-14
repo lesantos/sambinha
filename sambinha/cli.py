@@ -35,7 +35,9 @@ def parser():
                  "state_dir", "log_dir", "metadata_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
                  "source_mount", "destination_mount"):
         result.add_argument("--" + name.replace("_", "-"), default=None)
-    for name in ("deleted_days", "version_days", "log_retention_days", "max_bytes", "compression_level", "compression_threads", "recovery_index_versions", "timeout", "deletion_alert_threshold",
+    result.add_argument("--max-megabytes", type=float, default=None,
+                        help="Limite de bytes originais por lote em MB (1 MB = 1.048.576 bytes)")
+    for name in ("deleted_days", "version_days", "log_retention_days", "compression_level", "compression_threads", "recovery_index_versions", "timeout", "deletion_alert_threshold",
                  "deletion_min_files", "verify_interval_days", "fingerprint_full_scan_days",
                  "transfer_workers", "batch_workers"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=None)

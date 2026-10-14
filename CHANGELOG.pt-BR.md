@@ -2,6 +2,10 @@
 
 [English](CHANGELOG.md)
 
+## 0.13.1 — 2026-10-14
+
+Troca `max_bytes` por `max_megabytes` e `--max-bytes` por `--max-megabytes`. O limite passa a ser informado em MB (1 MB = 1.048.576 bytes), com padrão 1024. Aceita decimais; atualiza exemplos e instruções de migração preservando o tamanho dos lotes.
+
 ## 0.13.0 — 2026-10-14
 
 Adota lotes persistentes com IDs lógicos, DFS por data/nome e compressão única (nível 3, duas threads). Remove o limite de quantidade e fronteiras por categoria. Arquivos a partir de `individual_batch_percent` (100%) são desviados sem fechar o lote normal. Alterações mantêm membros mesmo acima de max_bytes; grupos vazios seguem retenção.

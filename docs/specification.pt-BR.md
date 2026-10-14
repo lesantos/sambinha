@@ -31,7 +31,7 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 ## 3. Lotes persistentes e rebalanceamento — 0.13.0
 
 - Ordenar irmãos (arquivos e subpastas juntos) por mtime/nome e percorrer em profundidade. Sem categorias nem limite de quantidade.
-- Empacotar bytes originais até `max_bytes`; desviar arquivos a partir de `individual_batch_percent` (padrão 100%) para lotes individuais mantendo o lote normal aberto.
+- Empacotar bytes originais até o limite `max_megabytes` em MB (padrão 1024; 1 MB = 1.048.576 bytes); desviar arquivos a partir de `individual_batch_percent` (padrão 100%) para lotes individuais mantendo o lote normal aberto.
 - Preservar grupos e ordem dos membros já confirmados. Crescimento e redução do limite não redistribuem membros; remoção só tira o membro, e grupo vazio segue retenção.
 - Cada caminho deve aparecer em apenas um lote ativo; nomes de revisão são imutáveis e o ID lógico persiste. Controles contêm tamanho/data/permissões, hashes quando disponíveis, tamanho/MD5 do compactado e papel individual.
 - `rebalance` é manual, funciona sem origem, altera somente grupos não individuais excedidos e preserva todos os conformes. Não reúne lotes antigos conformes.
@@ -127,7 +127,7 @@ O cache pressupõe metadados de filesystem confiáveis; leituras completas peri�
 ## 11. Compressão única e alertas de crescimento — 0.13.0
 
 - `compression_level = 3` (0–9) e `compression_threads = 2` (1–64) para todos os tipos, somente na criação/recriação. Opções anteriores por categoria e max_files saem da configuração.
-- `batch_size_alert_percent = 200` alerta a partir do percentual de max_bytes em bytes originais; 0 desativa. Desconsiderar lotes de um arquivo.
+- `batch_size_alert_percent = 200` alerta a partir do percentual de max_megabytes em bytes originais; 0 desativa. Desconsiderar lotes de um arquivo.
 - Agregar alertas e enviar falha Cronitor somente ao final dos jobs, sem interromper e sem mudar retorno operacional 0; não enviar complete depois. Erros operacionais seguem não zero.
 - Restauração e rebalanceamento independem da origem. Bootstrap valida índices/graus de recuperação antes de alterar backup; gerações de metadados não substituem retenção/cópias dos dados.
 

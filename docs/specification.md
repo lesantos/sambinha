@@ -31,7 +31,7 @@ This document consolidates the original backup requirements and all product chan
 ## 3. Stable batches and manual rebalance — 0.13.0
 
 - Sort mixed siblings (files and directories) by mtime/name and traverse depth first. No categories or member-count limit.
-- Pack original bytes up to `max_bytes`; divert files reaching `individual_batch_percent` (default 100%) without closing the normal batch.
+- Pack original bytes up to the `max_megabytes` limit in MB (default 1024; 1 MB = 1,048,576 bytes); divert files reaching `individual_batch_percent` (default 100%) without closing the normal batch.
 - Preserve confirmed groups and member order. Growth/lower limits do not redistribute members; removal only drops that member and empty groups follow retention.
 - Every selected path occurs in one active group. Immutable revision keys and stable logical IDs coexist; controls carry original metadata, hashes when available, archive size/MD5 and individual role.
 - `rebalance` is manual and source independent; replace only oversized nonindividual groups, preserving every conforming archive. Do not merge healthy legacy groups.
@@ -128,7 +128,7 @@ The fingerprint cache assumes trustworthy filesystem metadata; periodic full sca
 ## 11. Uniform compression and batch growth alerts — 0.13.0
 
 - `compression_level = 3` (0–9) and `compression_threads = 2` (1–64) apply to every type on create/rebuild. Remove category options and max_files from configuration.
-- `batch_size_alert_percent = 200` alerts inclusively on original bytes as a percentage of max_bytes; 0 disables. Exclude single-member archives.
+- `batch_size_alert_percent = 200` alerts inclusively on original bytes as a percentage of max_megabytes; 0 disables. Exclude single-member archives.
 - Aggregate growth alerts into final Cronitor failure only after jobs finish; do not interrupt or change successful operational exit 0, and do not emit complete afterward. Operational errors remain nonzero.
 - Restore/rebalance are source independent. Bootstrap validates recovery generations before backup mutation; metadata generations do not replace data retention/copies.
 

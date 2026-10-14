@@ -62,7 +62,7 @@ type = "local"
 logic = "simple"
 compression_level = 3
 compression_threads = 2
-# Dedicated archive at this % of max_bytes; keep normal batch open.
+# Dedicated archive at this % of max_megabytes; keep normal batch open.
 individual_batch_percent = 100
 # Final Cronitor failure only; 0 disables; does not interrupt jobs.
 batch_size_alert_percent = 200
@@ -75,7 +75,7 @@ check_destination_disk = true
 # When THIS job fails, true continues the next jobs; false stops the invocation.
 continue_on_job_error = true
 # Batch settings, if this job is changed to logic = "batch"
-# max_bytes = 1073741824
+# max_megabytes = 1024
 # compressor = "7z"
 # archive_format = "7z"
 # S3 setting; does not affect a local destination.
@@ -100,7 +100,7 @@ type = "s3"
 logic = "batch"
 compression_level = 3
 compression_threads = 2
-# Dedicated archive at this % of max_bytes; keep normal batch open.
+# Dedicated archive at this % of max_megabytes; keep normal batch open.
 individual_batch_percent = 100
 # Final Cronitor failure only; 0 disables; does not interrupt jobs.
 batch_size_alert_percent = 200
@@ -118,7 +118,7 @@ exclude_files = "./excludes.example.txt"
 # source_mount = "/mnt/dados"
 # There is no local mount for an S3 destination; keep this empty or omitted.
 # destination_mount = ""
-max_bytes = 1073741824 # original bytes; existing groups may grow
+max_megabytes = 1024 # MB of original data (1 MB = 1,048,576 bytes); existing groups may grow
 compressor = "7z" # or 7zz, any executable implementing the 7-Zip CLI
 archive_format = "7z" # 7z or zip
 # Cold default: GLACIER_IR, immediate retrieval, retrieval fees, 90-day minimum

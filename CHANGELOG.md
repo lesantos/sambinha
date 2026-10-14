@@ -2,6 +2,10 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.13.1 — 2026-10-14
+
+Replace `max_bytes` with `max_megabytes` and `--max-bytes` with `--max-megabytes`. Express the limit in MB (1 MB = 1,048,576 bytes), default 1024. Accept decimals; update examples and migration instructions while preserving batch sizes.
+
 ## 0.13.0 — 2026-10-14
 
 Introduce stable batch membership with logical IDs, mtime/name DFS traversal and uniform compression (level 3, two threads). Remove count/category boundaries. Divert files reaching `individual_batch_percent` (100%) without closing the normal batch. Edits preserve members even beyond max_bytes; empty groups follow retention.

@@ -7,7 +7,7 @@
 Omitted CLI options inherit the TOML. `backup` is optional and remains the default action. `--source`, `--destination`, `--type` and `--logic` require one selected job. `--no-dry-run` overrides simulation enabled in the file.
 
 ```bash
-sambinha --job documents-s3 --max-bytes 102400 --max-files 10 --dry-run
+sambinha --job documents-s3 --max-megabytes 100 --dry-run
 sambinha --job documents-local --deleted-days 30 --version-days 7
 sambinha --config /path/another.toml --job documents-local --destination /mnt/backup
 sambinha --help
@@ -18,7 +18,7 @@ Exit codes: **0** success, **1** operation/notification failure, **2** configura
 ## Batch rules
 
 1. Sort files and subdirectories together by mtime/name inside each directory, visiting subtrees depth first before the next sibling.
-2. New normal batches accumulate original bytes up to `max_bytes` (default 1 GiB), with no member-count/category boundaries. Compressed overhead may exceed this limit.
+2. New normal batches accumulate original bytes up to the `max_megabytes` limit in MB (default 1024; 1 MB = 1,048,576 bytes), with no member-count/category boundaries. Compressed overhead may exceed this limit.
 3. Divert files reaching `individual_batch_percent` (default 100%) without closing the open normal batch; never split files.
 4. Keep confirmed group membership and member order through growth/mtime changes; new files form new groups. Empty groups leave active state subject to history retention.
 5. All types use `compression_level = 3` and `compression_threads = 2` on create/rebuild. Immutable revision names, JSON controls and logical `batch_id` support history without active duplicates.

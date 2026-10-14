@@ -20,7 +20,7 @@ class Job:
     type: str = "local"
     logic: str = "simple"
     storage_class: str = "GLACIER_IR"
-    max_bytes: int = 1024 ** 3
+    max_megabytes: int | float = 1024
     individual_batch_percent: float = 100
     batch_size_alert_percent: float = 200
     compressor: str = "7z"
@@ -36,6 +36,11 @@ class Job:
     continue_on_job_error: bool = True
     compression_level: int = 3
     compression_threads: int = 2
+
+    @property
+    def max_bytes(self) -> int:
+        """Convert the configured MB (1 MB = 1,048,576 bytes) for packing."""
+        return int(self.max_megabytes * 1024 ** 2)
 
 
 @dataclass(frozen=True)
