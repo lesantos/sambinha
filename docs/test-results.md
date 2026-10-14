@@ -4,11 +4,13 @@
 
 ## 0.13.0 validation
 
-On 2026-10-14, Linux/Python 3.12.3, the full HTTP-enabled suite passed **425/425 tests in 961.016 seconds, with no failures or skips**, and **94% branch-inclusive coverage**. After final review, **58 focused tests passed**, including four new regressions: excluded-history retention during source-independent rebalance and three recovery-index producer bounds. The review reproduced failures before applying the fixes.
+On 2026-10-14, the exact release commit `9ec723f2387f8d7fa06dfb07eebc1f293f6de4f6` passed **429/429 tests in 171.741 seconds, with no failures or skips**, and **94% branch-inclusive application coverage**, on Linux/Python 3.12 in [GitHub CI](https://github.com/lesantos/sambinha/actions/runs/38633741928). HTTP S3 was enabled for the full suite.
+
+Local validation had previously passed 425 tests with 94% coverage; after final review, 58 focused tests passed, including four new regressions for excluded-history retention during source-independent rebalance and recovery-index producer bounds. These regressions were also included in the final complete CI run.
 
 Coverage includes mixed-sibling mtime DFS, uniform compression, large-file diversion, no count cap, stable growth/removal membership, deferred non-blocking alerts, minimum-change source-independent rebalance, schema migration, lost/corrupt state/destination, legacy indexes, fallback, interrupted publication, metadata bounds, backward system clocks and generation retention. The implemented planner reproduced the 31,909-file/19,291,846,150-byte simulation in 14 batches without writing to real backups.
 
-CI runs the entire collection with `SAMBINHA_HTTP_S3_TESTS=1` and requires >=85% coverage. Release publication requires green CI on the candidate commit. See the [workflow run](https://github.com/lesantos/sambinha/actions/workflows/tests.yml) for complete final-commit results, including regressions added after the initial local full run.
+CI runs the entire collection with `SAMBINHA_HTTP_S3_TESTS=1` and requires >=85% coverage. The [0.13.0 release](https://github.com/lesantos/sambinha/releases/tag/v0.13.0) was published after the exact tagged commit passed. Its wheel and source distribution passed isolated package checks; downloaded release assets matched their SHA-256 checksums. Gitleaks found no credentials in Git history or staged changes.
 
 ```bash
 SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v

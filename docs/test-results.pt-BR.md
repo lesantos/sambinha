@@ -4,11 +4,13 @@
 
 ## Validação da 0.13.0
 
-Em 2026-10-14, Linux/Python 3.12.3, a suíte completa com HTTP S3 habilitado passou **425/425 testes em 961,016 s, sem falhas ou skips**, com **94% de cobertura incluindo branches**. Depois da revisão final, **58 testes focados passaram**, incluindo quatro regressões novas: retenção de histórico excluído durante rebalanceamento sem origem e três limites do produtor de índices. A revisão reproduziu as falhas antes das correções.
+Em 2026-10-14, o commit exato do release `9ec723f2387f8d7fa06dfb07eebc1f293f6de4f6` passou **429/429 testes em 171,741 s, sem falhas ou skips**, com **94% de cobertura da aplicação incluindo branches**, em Linux/Python 3.12 no [CI do GitHub](https://github.com/lesantos/sambinha/actions/runs/38633741928). HTTP S3 estava habilitado na suíte completa.
+
+A validação local anterior passou 425 testes com 94% de cobertura; após a revisão final, 58 testes focados passaram, incluindo quatro regressões novas de retenção de histórico excluído no rebalanceamento sem origem e limites do produtor de índices. Essas regressões também passaram na rodada completa final do CI.
 
 A cobertura inclui DFS por data com irmãos mistos, compressão única, desvio de arquivos grandes, ausência de limite de quantidade, estabilidade após crescimento/remoção, alertas finais sem interromper jobs, rebalanceamento mínimo sem origem, migração de schema, perda/corrupção de estado/destino, índices legados, fallback, publicação interrompida, limites de metadados, relógio recuando e retenção de gerações. O planner implementado reproduziu a simulação de 31.909 arquivos/19.291.846.150 bytes em 14 lotes, sem escrever nos backups reais.
 
-O CI executa a coleção completa com `SAMBINHA_HTTP_S3_TESTS=1` e exige cobertura >=85%. O release só é publicado após CI verde no commit candidato. Consulte a [execução do workflow](https://github.com/lesantos/sambinha/actions/workflows/tests.yml) para o resultado integral do commit final, incluindo as regressões adicionadas após a rodada local inicial.
+O CI executa a coleção completa com `SAMBINHA_HTTP_S3_TESTS=1` e exige cobertura >=85%. O [release 0.13.0](https://github.com/lesantos/sambinha/releases/tag/v0.13.0) foi publicado após aprovação do commit exato da tag. Wheel e distribuição fonte passaram nas checagens isoladas; os arquivos baixados do release coincidiram com os checksums SHA-256. Gitleaks não encontrou credenciais no histórico Git ou nas alterações staged.
 
 ```bash
 SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v

@@ -50,10 +50,10 @@ Repositório: `/home/leandro/dev/sambinha`. Versão inicial: 0.12.0. Há altera�
 - [x] Implementar restore sem origem e recuperação de estado/gerações com cenários de falha.
 - [x] Implementar testes comportamentais, inclusive estabilidade após alteração/remoção, limites/igualdade, arquivo grande intercalado, alertas/continuação, mínimo de lotes afetados, restauração sem origem, perda/corrupção do estado e índice, falha de publicação/retomada.
 - [x] Atualizar documentação pertinente em PT-BR/EN, exemplos TOML, arquitetura/especificação, resultados de testes, changelogs e migração 0.12→0.13; buscar referências obsoletas.
-- [ ] Atualizar versão para 0.13.0, executar toda a suíte/checagens exigidas no CI, cobertura e integração HTTP S3 habilitada; registrar comandos e resultados exatos.
+- [x] Atualizar versão para 0.13.0, executar toda a suíte/checagens exigidas no CI, cobertura e integração HTTP S3 habilitada; registrar comandos e resultados exatos.
 - [x] Revisar diff completo, auditar segredos segundo scripts do projeto, construir e validar wheel/sdist.
-- [ ] Criar commit(s), tag de versão e release GitHub 0.13.0 com notas/artefatos, enviar branch/tag ao remoto autorizado.
-- [ ] Confirmar publicação e registrar links, hashes e resultados finais neste plano.
+- [x] Criar commit(s), tag de versão e release GitHub 0.13.0 com notas/artefatos, enviar branch/tag ao remoto autorizado.
+- [x] Confirmar publicação e registrar links, hashes e resultados finais neste plano.
 
 ## Como retomar após interrupção
 
@@ -168,3 +168,25 @@ Repositório: `/home/leandro/dev/sambinha`. Versão inicial: 0.12.0. Há altera�
 - SHA-256 wheel: `148ed10a220c1844eca25673a3142354221cd880a3779032d01cb41e2a2f4d50`; sdist: `a0918be9af8595f141654d4e11a9bf5fe0f517ec1575e9ced8b8acd50c61d12f`. Arquivo SHA256SUMS junto dos dois artefatos.
 - Todos os bloqueadores de revisão acima foram corrigidos e as regressões passaram. Aguardando somente commit/push e CI completo do SHA final para autorizar tag/release.
 - `git add -A` requereu execução escalada porque .git é somente leitura no sandbox; staging concluído. Auditoria gitleaks staged em andamento; repetir se houver nova alteração além deste plano.
+
+### Commit publicado; aguardando CI
+
+- Commit candidato enviado a `origin/main`: `9ec723f2387f8d7fa06dfb07eebc1f293f6de4f6`. Gitleaks staged e histórico completo (29 commits) sem vazamentos.
+- Workflows do candidato: https://github.com/lesantos/sambinha/actions/runs/38633741928 e https://github.com/lesantos/sambinha/actions/runs/38633752634. Conferir nome/conclusão de cada um; exigir Tests verde antes de tag/release.
+- Os pacotes finais permanecem em `dist/0.13.0` com hashes registrados acima. Nenhuma tag/release 0.13.0 criada ainda. Se retomar, consultar os workflows e remoto antes de repetir ações.
+
+### CI final aprovado — publicação autorizada
+
+- Workflow Tests do commit exato `9ec723f2387f8d7fa06dfb07eebc1f293f6de4f6`: **success**. https://github.com/lesantos/sambinha/actions/runs/38633741928
+- **429/429 testes em 171,741 s, zero skips/falhas**, HTTP S3 habilitado. Cobertura da aplicação incluindo branches **94%** (3097 statements, 143 miss, 1176 branches, 119 partial). Log persistido: `build/validation-0.13.0/github-tests.log`. Dependency Graph também passou.
+- Notas bilíngues finais prontas em `build/validation-0.13.0/release-notes.md`. Próximo: tag anotada v0.13.0 no commit testado; push tag; publicar wheel/sdist/SHA256SUMS; verificar assets; atualizar docs/resultados e plano em commit somente documental.
+
+### Concluído — release publicado e verificado
+
+- Release estável publicado: https://github.com/lesantos/sambinha/releases/tag/v0.13.0
+- Tag anotada `v0.13.0` no commit testado `9ec723f2387f8d7fa06dfb07eebc1f293f6de4f6`; tag object `34f9246dfec9ac9aa5383f7a45d13b0a36aafc6e`. Main e tag enviados ao GitHub.
+- Assets publicados e baixados novamente para `build/validation-0.13.0/published-assets`: wheel, sdist e SHA256SUMS; ambos os pacotes conferem com os hashes finais registrados acima. Release não é draft nem prerelease.
+- Guias bilíngues de resultados receberam os números e o link do CI final. Este plano e esses resultados seguem em um commit posterior exclusivamente documental; a tag permanece no commit funcional aprovado, sem retag.
+- Implementação, documentação, testes completos, auditoria, build e publicação concluídos. Nenhum dado real de backup foi alterado. Não há implementação pendente.
+- Para conferir o envio do fechamento documental após uma interrupção: `git status --short`, `git log -2 --oneline` e `git ls-remote origin refs/heads/main`. Se os três Markdown de fechamento ainda estiverem modificados, commitá-los e enviar main; nunca recriar o release já publicado.
+- Atenção operacional documentada: migrar TOMLs antigos removendo max_files e compressão por categoria antes de usar 0.13.0. Configurações reais fora do repositório não foram modificadas nesta tarefa.
