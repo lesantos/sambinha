@@ -10,7 +10,7 @@ from sambinha.cli import parser
 from sambinha.config import load, validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import fingerprint, scan, verify
-from sambinha.recovery import recover, verify_job
+from sambinha.recovery import recover, verify_local_metadata_job
 from sambinha.state import load_state, validate_file
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents
@@ -110,7 +110,7 @@ class VerificationModeTests(Sandbox):
         config = replace(self.config, jobs=(job,), verification_mode='simple')
         with patch.object(Storage, 'check_simple') as check, \
              patch.object(Storage, 'get', side_effect=AssertionError('download')):
-            result = verify_job(config, job, Mock(), Mock())
+            result = verify_local_metadata_job(config, job, Mock(), Mock())
         self.assertEqual(result['mode'], 'rclone_check')
         check.assert_called_once()
 
@@ -163,16 +163,16 @@ class SimpleModeIntegrationTests(Sandbox):
         self.file('file', b'original')
         self.assertEqual(self.execute(), 0)
         with redirect_stdout(io.StringIO()), patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
-            self.assertEqual(recover(self.config, 'verify'), 0)
+            self.assertEqual(recover(self.config, 'verify-local-metadata'), 0)
             restored = self.root / 'restored'
             self.assertEqual(recover(self.config, 'restore', output=restored), 0)
         self.assertEqual(contents(restored), contents(self.source))
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(recover(replace(self.config, verification_mode='hash'), 'verify'), 0)
+            self.assertEqual(recover(replace(self.config, verification_mode='hash'), 'verify-local-metadata'), 0)
         target = self.destination / 'file'
         target.write_bytes(b'corrupt!')
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(recover(self.config, 'verify'), 1)
+            self.assertEqual(recover(self.config, 'verify-local-metadata'), 1)
 
     def test_simple_batch_reuse_change_and_restore_keep_archive_integrity(self):
         self.file('a.txt', b'a')
@@ -186,7 +186,7 @@ class SimpleModeIntegrationTests(Sandbox):
         self.assertEqual(self.execute(now=1002), 0, self.output.getvalue())
         self.assertEqual(len(self.state()['retired']), 1)
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(recover(self.config, 'verify'), 0)
+            self.assertEqual(recover(self.config, 'verify-local-metadata'), 0)
             restored = self.root / 'restored'
             self.assertEqual(recover(self.config, 'restore', output=restored), 0)
         self.assertEqual(contents(restored), contents(self.source))

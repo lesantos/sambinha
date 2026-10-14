@@ -22,14 +22,14 @@ Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2**
 
 ## Regras dos lotes
 
-1. Novos lotes seguem uma ordenação determinística por diretório e, dentro dele, por data de modificação em nanossegundos, da mais antiga para a mais recente; empates seguem o caminho. Arquivos de vários diretórios são acumulados no mesmo lote. Um diretório pode ocupar mais de um lote quando os limites exigirem divisão.
-2. `max_bytes` limita a **soma dos tamanhos originais**, antes da compactação; cabeçalhos e dados incompressíveis podem tornar o arquivo compactado maior. `max_files` limita a quantidade de arquivos. Padrões: 1 GiB e 1000 arquivos.
-3. Lotes normais ficam no ancestral comum mais próximo dos arquivos, com nome `batch-<hash>.7z`. Os caminhos dentro deles são relativos à raiz da origem, preservando a árvore original.
-4. Lotes têm pelo menos dois arquivos quando o conjunto e os limites permitem. Um arquivo maior que o limite, uma origem com um único arquivo ou arquivos que não podem formar um par dentro dos limites são compactados individualmente. Um lote anterior com mais de dois arquivos pode ceder um arquivo para evitar sobra isolada.
-5. Arquivos individuais conservam o nome com a extensão substituída, em `<diretório>/.versions/<hash>/<nome>.7z`. Essa revisão evita colisões entre `nome.txt`/`nome.csv` e permite reter versões sem copiar objetos frios.
-6. Cada arquivo compactado tem `<nome>.7z.json` ao lado. O espelho em `<state_dir>/<job>/controls/` armazena apenas os controles, sem guardar os lotes compactados.
-7. Os lotes são criados em diretórios temporários e apagados inclusive em falhas. Snapshots, teste de integridade do 7-Zip e validação de caminhos/tamanhos do lote precedem o envio. O índice local só é atualizado após enviar os lotes, controles e arquivo de recuperação.
-8. Lotes existentes intactos são preservados com sua chave e ordem originais, inclusive lotes feitos antes da versão 0.3.1. Arquivos novos e membros de lotes alterados, removidos ou incompatíveis com os limites/formato atuais são reagrupados pela regra de ordenação. Um lote intacto não cede arquivos para completar um lote novo. Lotes com chave idêntica são reutilizados sem consulta remota; o índice local deve ser preservado e corresponde a um destino administrado exclusivamente pelo job.
+1. Ordene arquivos e subpastas juntos por mtime/nome em cada diretório; percorra subpastas em profundidade antes do próximo irmão.
+2. Novos lotes normais acumulam somente bytes originais até `max_bytes` (padrão 1 GiB), sem limite de quantidade nem separação por categoria. Compactados podem superar o limite por overhead.
+3. Desvie arquivos a partir de `individual_batch_percent` (100% por padrão) para lotes individuais sem fechar o lote normal aberto. Não divida arquivos.
+4. Preserve a associação e a ordem dos membros confirmados mesmo com crescimento/data nova; novos arquivos formam novos lotes. Remova grupos vazios do ativo respeitando o histórico.
+5. Use `compression_level = 3` e `compression_threads = 2` para todos os tipos ao criar/recriar compactados. Revisões imutáveis, controles JSON e `batch_id` lógico permitem histórico sem duplicidade ativa.
+6. Agregue alertas de grupos não individuais a partir de `batch_size_alert_percent` (200%; 0 desativa) e envie falha Cronitor somente ao final, sem interromper o processo nem mudar retorno operacional 0.
+7. `rebalance` é manual, sem origem, e altera apenas grupos excedidos, preservando conformes/individuais. Não é uma consolidação de todos os pequenos grupos.
+8. Valide snapshots/conteúdo antes dos envios; publique gerações confirmadas de recuperação após lotes/controles e reconcilie journals de publicação. Recupere estado ausente/inválido do destino antes de planejar mutações. Veja [semântica e migração completas](batch-lifecycle.pt-BR.md).
 
 ## Retenção, recuperação e limites
 
@@ -141,7 +141,7 @@ sambinha restore --job documents --path dir/file.txt --output /mnt/recovered/fil
 sambinha restore --job documents --path dir --path other.txt --output /mnt/recovered/selection
 sambinha restore --job documents --output /mnt/recovered/all
 sambinha restore --job documents --path dir --output /mnt/recovered/preview --dry-run
-sambinha verify --job documents
+sambinha verify-local-metadata --job documents
 sambinha --verify-interval-days 7
 ```
 
@@ -151,9 +151,9 @@ Jobs simples restauram a árvore atual sem índice e aceitam `--path` para arqui
 
 Downloads, extração e preparação da restauração batch usam uma pasta temporária dentro de `--output`. Lotes compactados e membros extraídos não selecionados são removidos após cada lote. Arquivos selecionados ficam no disco de saída até todo o conteúdo solicitado ser validado e são publicados sem sobrescrever. Em sistemas sem links físicos, a publicação precisa temporariamente do espaço de mais um arquivo. O temporário padrão da máquina não é usado para restaurar lotes.
 
-Em batch, `verify` compara caminhos/tamanho/data da origem com JSONs locais e informa atualizações necessárias, sem ler lotes, calcular hashes ou consultar S3. `verify-metadata` confere separadamente a sincronia dos JSONs locais/do destino e o tamanho dos lotes; JSONs e índices S3 usam STANDARD e só metadados são baixados. `integrity-test` manual lista/testa pelo 7-Zip sem arquivos extraídos; lotes S3 são baixados um por vez. `verify` simples continua usando `rclone check`. Configure `metadata_dir = "./metadata"` ao lado de state/logs. Veja [atividades, precisão das datas e garantias de publicação](batch-checks.pt-BR.md).
+Em batch, `verify-local-metadata` compara caminhos/tamanho/data da origem com JSONs locais e informa atualizações necessárias, sem ler lotes, calcular hashes ou consultar S3. `verify-destination-metadata` confere separadamente a sincronia dos JSONs locais/do destino e o tamanho dos lotes; JSONs e índices S3 usam STANDARD e só metadados são baixados. `verify-destination-integrity` manual lista/testa pelo 7-Zip sem arquivos extraídos; lotes S3 são baixados um por vez. `verify-local-metadata` simples continua usando `rclone check`. Configure `metadata_dir = "./metadata"` ao lado de state/logs. Veja [atividades, precisão das datas e garantias de publicação](batch-checks.pt-BR.md).
 
-`verify_interval_days` agenda verificações de índices batch; não se aplica a jobs simples. 0 desativa a agenda de checagens da origem. Testes de integridade são manuais. Apenas sucesso atualiza `last_verified`. `verify` manual verifica imediatamente. Em jobs simples, executa `rclone check` com as exclusões do job.
+`verify_interval_days` agenda verificações de índices batch; não se aplica a jobs simples. 0 desativa a agenda de checagens da origem. Testes de integridade são manuais. Apenas sucesso atualiza `last_verified`. `verify-local-metadata` manual verifica imediatamente. Em jobs simples, executa `rclone check` com as exclusões do job.
 
 ## Limites de remoção e ocupação dos discos
 
@@ -188,3 +188,8 @@ Nos jobs batch, cópias/históricos indexados em caminhos ligados na origem fica
 O rclone normalmente ignora links. O Sambinha usa `--skip-links` para suprimir avisos e `--links=false --copy-links=false` para prevalecer sobre variáveis de ambiente que habilitem links. [Documentação oficial do rclone](https://rclone.org/local/#skip-links). Esse comportamento é fixo e não exige configuração.
 
 Raízes do destino, caminhos de metadados/estado/trava e a saída da restauração continuam protegidos contra redirecionamento por links. A substituição fica limitada aos dados abaixo da raiz do job; os componentes dos diretórios são abertos sem seguir links durante a preparação. Membros inseguros em lotes e alterações concorrentes detectadas nos caminhos continuam causando erro explícito.
+
+
+## Lotes e recuperação na versão 0.13.0
+
+Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

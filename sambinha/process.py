@@ -104,7 +104,10 @@ class Runner:
         message = re.sub(r"(https://cronitor\.link/p/)[^\s?]+", r"\1[REDACTED]", message)
         return message
 
-    def run(self, args, *, cwd=None, retry=False, input=None, progress_directory=None, on_output=None):
+    def run(self, args, *, cwd=None, retry=False, input=None, progress_directory=None, on_output=None, env=None):
+        child_env = self.env
+        if env is not None:
+            child_env = {**(os.environ if self.env is None else self.env), **env}
         # One original attempt plus at most three retries, two seconds apart.
         for attempt in range(4 if retry else 1):
             try:
@@ -125,10 +128,10 @@ class Runner:
                 task = self.progress.task(stage, directory, measured=measured) if self.progress and stage else nullcontext()
                 with task as report:
                     if measured or on_output is not None:
-                        result = self._run_with_progress(command, cwd, input, report, on_output=on_output)
+                        result = self._run_with_progress(command, cwd, input, report, on_output=on_output, env=child_env)
                     else:
                         result = subprocess.run(command, cwd=cwd, input=input, capture_output=True,
-                                                text=True, timeout=self.timeout, check=False, env=self.env)
+                                                text=True, timeout=self.timeout, check=False, env=child_env)
                 if result.returncode == 0:
                     self.last_stderr = result.stderr
                     return result.stdout
@@ -139,11 +142,11 @@ class Runner:
                 raise error
             self.sleep(2)
 
-    def _run_with_progress(self, args, cwd, input, report, on_output=None):
+    def _run_with_progress(self, args, cwd, input, report, on_output=None, env=None):
         """Stream structured records and stats, retaining only an error tail when detailed."""
         process = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE if input is not None else None,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   text=True, bufsize=1, env=self.env)
+                                   text=True, bufsize=1, env=self.env if env is None else env)
         if input is not None:
             process.stdin.write(input)
             process.stdin.close()

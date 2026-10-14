@@ -17,7 +17,7 @@ Há também uma preocupação com o custo da nuvem. Guardar milhares de arquivos
 
 Você pode escolher entre duas maneiras de fazer a cópia. A **cópia simples** deixa cada arquivo no destino com seu nome e sua pasta, o que facilita abrir ou recuperar um documento específico. A **cópia por lotes** reúne arquivos de várias pastas e os compacta com o 7-Zip. Ela é útil quando há muitos arquivos pequenos e você quer reduzir a quantidade de objetos guardados na nuvem.
 
-Ao formar novos lotes, o Sambinha agrupa os arquivos de cada diretório pela data de modificação, da mais antiga para a mais recente. Empates seguem o nome do arquivo. Assim, arquivos antigos tendem a ficar juntos. Nas próximas execuções, os lotes existentes que continuam intactos e respeitam os limites e o formato configurados são preservados, mesmo quando entram arquivos novos ou a ordenação muda. Somente os arquivos novos e os membros dos lotes afetados precisam ser agrupados novamente; o índice local permite reutilizar os demais sem reenviá-los.
+Novos lotes usam percurso em profundidade, ordenando arquivos e subpastas juntos por data de alteração (antigos primeiro, desempate pelo nome). Arquivos grandes recebem lotes individuais sem fechar o lote normal. Não há separação por categoria ou limite de quantidade. A associação dos membros confirmados permanece estável mesmo com crescimento ou remoção; somente rebalanceamento manual redistribui grupos acima do limite. Veja [lotes persistentes e recuperação](batch-lifecycle.pt-BR.md).
 
 As duas maneiras funcionam tanto com uma pasta local quanto com o S3. Também é possível proteger a mesma pasta de duas formas: por exemplo, manter uma cópia simples em um disco externo e uma cópia compactada na nuvem.
 
@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.12.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.13.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -283,7 +283,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.12.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.13.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -302,18 +302,18 @@ Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperaç�
 ### Atividades independentes dos lotes
 
 ```bash
-sambinha verify --job documents-s3          # Diário: tamanho/data da origem contra JSONs locais
-sambinha verify-metadata --job documents-s3 # Mensal: sincronia dos JSONs e tamanho dos lotes
-sambinha integrity-test --job documents-s3  # Manual: teste de integridade do 7-Zip
+sambinha verify-local-metadata --job documents-s3         # Diário: tamanho/data da origem contra JSONs locais
+sambinha verify-destination-metadata --job documents-s3   # Mensal: sincronia dos JSONs e tamanho dos lotes
+sambinha verify-destination-integrity --job documents-s3                # Manual: teste de integridade do 7-Zip
 ```
 
-Em jobs batch, `verify` usa a origem atual e os JSONs locais, sem ler lotes, calcular hashes ou consultar o S3. Informa `needs_update`, arquivos novos/alterados/removidos e lotes afetados; execute `backup` para aplicar atualizações. Uma checagem concluída retorna 0 mesmo se houver atualizações necessárias. `metadata_dir = "./metadata"` deixa o cache ao lado de state/logs; ausente/vazio preserva `state/JOB/controls`. JSONs inalterados não são reenviados.
+Em jobs batch, `verify-local-metadata` usa a origem atual e os JSONs locais, sem ler lotes, calcular hashes ou consultar o S3. Informa `needs_update`, arquivos novos/alterados/removidos e lotes afetados; execute `backup` para aplicar atualizações. Uma checagem concluída retorna 0 mesmo se houver atualizações necessárias. `metadata_dir = "./metadata"` deixa o cache ao lado de state/logs; ausente/vazio preserva `state/JOB/controls`. JSONs inalterados não são reenviados.
 
-`verify-metadata` compara os JSONs completos conhecidos locais/do destino e os metadados de tamanho dos lotes. Controles e índice de recuperação são enviados em STANDARD independentemente da classe dos lotes. Só esses arquivos de metadados são baixados, nunca os lotes. Estado/catálogo local ausente pode ser recuperado pelo índice. Regras de ciclo de vida devem preservar o acesso imediato aos metadados.
+`verify-destination-metadata` compara os JSONs completos conhecidos locais/do destino e os metadados de tamanho dos lotes. Controles e índice de recuperação são enviados em STANDARD independentemente da classe dos lotes. Só esses arquivos de metadados são baixados, nunca os lotes. Estado/catálogo local ausente pode ser recuperado pelo índice. Regras de ciclo de vida devem preservar o acesso imediato aos metadados.
 
-`integrity-test` compara separadamente a listagem e executa `7z t`, sem comparações MD5/SHA nem arquivos extraídos no disco. Lotes locais são lidos diretamente; lotes S3 são baixados/removidos um por vez e Glacier/Deep Archive precisam de restore prévio pela AWS. Datas 7z/ZIP-NTFS preservam 100 ns; ZIPs antigos podem preservar um/dois segundos. Essa perda aceita entra na comparação dos lotes; os JSONs preservam o `mtime_ns` original.
+`verify-destination-integrity` compara separadamente a listagem e executa `7z t`, sem comparações MD5/SHA nem arquivos extraídos no disco. Lotes locais são lidos diretamente; lotes S3 são baixados/removidos um por vez e Glacier/Deep Archive precisam de restore prévio pela AWS. Datas 7z/ZIP-NTFS preservam 100 ns; ZIPs antigos podem preservar um/dois segundos. Essa perda aceita entra na comparação dos lotes; os JSONs preservam o `mtime_ns` original.
 
-`verify_interval_days` permite a checagem local leve após backups batch bem-sucedidos; 0 desativa. Integridade é manual. `verify` simples continua usando `rclone check`. Veja [atividades e garantias de publicação](batch-checks.pt-BR.md) para migração do cache, agenda, falhas e espaço em disco.
+`verify_interval_days` permite a checagem local leve após backups batch bem-sucedidos; 0 desativa. Integridade é manual. `verify-local-metadata` simples continua usando `rclone check`. Veja [atividades e garantias de publicação](batch-checks.pt-BR.md) para migração do cache, agenda, falhas e espaço em disco.
 
 ### Proteção contra remoções e monitoramento dos discos
 
@@ -325,7 +325,7 @@ Cada tarefa emite `summary`: arquivos novos, modificados, removidos e intactos, 
 
 ### Performance e perfis de compactação
 
-As opções de performance incluem cache de fingerprints com leitura completa periódica, transferências simples agrupadas, compactação/envio de lotes com concorrência limitada, cache de filtros por job e níveis/threads por categoria. Desde 0.9.0 os inventários são independentes por job para observar alterações feitas pelos anteriores. Confira o [guia de performance](performance.pt-BR.md).
+As opções de performance incluem cache de fingerprints com leitura completa periódica, transferências simples agrupadas, compactação/envio de lotes com concorrência limitada, cache de filtros por job e nível/threads únicos para todos os tipos. Desde 0.9.0 os inventários são independentes por job para observar alterações feitas pelos anteriores. Confira o [guia de performance](performance.pt-BR.md).
 
 ```toml
 [backup]
@@ -339,17 +339,13 @@ name = "media"
 source = "~/Files"
 destination = "/mnt/backup/media"
 logic = "batch"
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
+compression_level = 3
+compression_threads = 2
+individual_batch_percent = 100
+batch_size_alert_percent = 200
 ```
 
-No **modo hash**, o cache exige dispositivo, inode, tamanho, datas de modificação/alteração em nanossegundos e permissões iguais. A leitura completa ocorre a cada sete dias por padrão; `--no-fingerprint-cache` desativa o reaproveitamento. No **modo simples**, essas opções não ativam hashes: as conferências usam tamanho e data de modificação. Arquivos alterados continuam validados antes/depois dos envios conforme o modo escolhido. Novos lotes separam categorias sem mudar a ordem por data dentro do diretório. Isso pode criar lotes individuais em categorias intercaladas. Lotes antigos intactos mantêm sua configuração; novos ajustes valem na criação/recriação. Nível 0 não compacta; 1–9 aumentam o esforço. Threads vão de 1 a 64 por arquivo compactado, dependendo do suporte do algoritmo.
+No modo hash, o cache exige dispositivo/inode/tamanho/mtime/ctime/permissões iguais, com leitura completa periódica. O modo simples usa tamanho/data. Compressão única (`compression_level`, `compression_threads`) se aplica a todos os tipos e somente a arquivos compactados criados/recriados. Lotes confirmados mantêm membros mesmo ao crescer; veja [planejamento, alertas e rebalanceamento manual](batch-lifecycle.pt-BR.md).
 
 Metadados e logs têm permissões privadas. O índice é validado antes da retenção e restauração; caminhos inseguros, links e conflitos entre dados ativos e histórico são rejeitados. Credenciais conhecidas são ocultadas em erros, logs e telemetria. Consulte [segurança](../SECURITY.pt-BR.md).
 
@@ -370,3 +366,8 @@ Confira estas interações ao compartilhar caminhos:
 As contagens de alertas de exclusão são independentes por job, para que combinar comandos não altere o limite. Jobs com origens iguais agora fazem inventários independentes, o que pode aumentar o IO; os caches persistentes continuam funcionando. O progresso atribui faixas iguais aos jobs porque os tamanhos das origens posteriores só são conhecidos quando eles começam. Dentro de cada job, arquivos/lotes continuam ponderados por bytes.
 
 Uma execução mantém configuração, log, progresso global, ciclo Cronitor e trava compartilhados. Retorna falha se algum job executado falhar. Comandos separados têm logs/notificações separados e liberam a trava entre comandos; um comando combinado mantém a trava durante toda a execução. Erros de leitura/validação da configuração e dependências globais indisponíveis ainda impedem a execução. Esses detalhes não alteram os resultados bem-sucedidos de cópia ou verificação para os mesmos jobs e ordem, sem gravações externas entre eles.
+
+
+## Lotes e recuperação na versão 0.13.0
+
+Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

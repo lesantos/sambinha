@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from sambinha.errors import BackupError, JobError, job_errors
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_job
+from sambinha.recovery import recover, verify_local_metadata_job
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.test_disks import Usage
@@ -126,8 +126,8 @@ class JobFailurePolicyTests(Sandbox):
                 def verify(config, job, *args, **kwargs):
                     if job.name == 'test':
                         raise BackupError('verificação falhou')
-                    return verify_job(config, job, *args, **kwargs)
-                with patch('sambinha.recovery.verify_job', side_effect=verify):
+                    return verify_local_metadata_job(config, job, *args, **kwargs)
+                with patch('sambinha.recovery.verify_local_metadata_job', side_effect=verify):
                     self.assert_failure_policy(config)
 
     def test_manual_verification_failure_obeys_policy(self):
@@ -141,11 +141,11 @@ class JobFailurePolicyTests(Sandbox):
                 output, notifications = io.StringIO(), []
                 original = Storage.get
                 def fail_index(storage, key, target):
-                    if storage.job.name == 'test' and key == '.sambinha/control.tar.gz':
+                    if storage.job.name == 'test' and key.startswith('.sambinha/'):
                         raise BackupError('índice inválido')
                     return original(storage, key, target)
                 with patch.object(Storage, 'get', fail_index), redirect_stdout(output):
-                    result = recover(config, 'verify-metadata', notifier=lambda *args: notifications.append(args))
+                    result = recover(config, 'verify-destination-metadata', notifier=lambda *args: notifications.append(args))
                 self.assertEqual(result, 1)
                 events = [json.loads(line) for line in output.getvalue().splitlines()]
                 error = next(e for e in events if e['event'] == 'error')

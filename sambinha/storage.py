@@ -14,10 +14,11 @@ from . import rclone
 
 
 class Storage(SimpleStorageMixin):
-    def __init__(self, job: Job, config: Config, runner, log=None, *, temporary_directory=None):
+    def __init__(self, job: Job, config: Config, runner, log=None, *, temporary_directory=None, source_required=True):
         self.job, self.config, self.runner = job, config, runner
         self.log = log
         self.temporary_directory = temporary_directory
+        self.source_required = source_required
 
     def path(self, key):
         if self.job.type == "local" and path_has_symlink(self.job.destination, key):
@@ -25,10 +26,11 @@ class Storage(SimpleStorageMixin):
         return self.job.destination.rstrip("/") + "/" + safe_relative(key)
 
     def command(self, operation, *args, retry=False, standard=False, input=None, progress_directory=None,
-                on_output=None):
+                on_output=None, source_required=None):
+        source_required = self.source_required if source_required is None else source_required
         if operation in {"copyto", "copy", "sync", "delete", "purge"}:
-            check_mounts(self.job, self.runner)
-            check_disks(self.job, temporary_path=self.temporary_directory)
+            check_mounts(self.job, self.runner, check_source=source_required)
+            check_disks(self.job, temporary_path=self.temporary_directory, check_source=source_required)
         return rclone.command(self.config, self.job, self.runner, operation, *args,
                               retry=retry, standard=standard, input=input,
                               progress_directory=progress_directory, on_output=on_output)
@@ -56,8 +58,8 @@ class Storage(SimpleStorageMixin):
 
     def put(self, source, key, *, standard=False, protected_mtime_ns=None):
         if self.job.type == "local":
-            check_mounts(self.job, self.runner)
-            check_disks(self.job, temporary_path=self.temporary_directory)
+            check_mounts(self.job, self.runner, check_source=self.source_required)
+            check_disks(self.job, temporary_path=self.temporary_directory, check_source=self.source_required)
             prepare_write(self.job.destination, key)
         protection = ["--update"] if protected_mtime_ns is not None else []
         comparison = self.comparison_flags() if protected_mtime_ns is not None else ["--checksum"]
@@ -93,7 +95,8 @@ class Storage(SimpleStorageMixin):
         """Download an exact object to an application-owned staging directory."""
         target = Path(target)
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.command("copyto", self.path(key), target, "--checksum", retry=True, standard=True)
+        self.command("copyto", self.path(key), target, "--checksum", retry=True, standard=True,
+                     source_required=False)
 
     def stat(self, key, *, hashes=True):
         # S3's hash comes from object metadata/ETag; never download the body.

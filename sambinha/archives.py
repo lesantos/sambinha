@@ -15,12 +15,12 @@ def compress(ctx, batch, work: Path):
     for index, item in enumerate(batch.files):
         if preparing:
             preparing.update("Preparando lote", (ctx.job.source / item.path).parent, index, len(batch.files))
-        source, target = ctx.job.source / item.path, snapshot / item.path
+        source, target = ctx.source / item.path, snapshot / item.path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target, follow_symlinks=False)
     verify(snapshot, list(batch.files), mode=ctx.config.verification_mode,
            progress=ctx.progress.scope(0.2, 0.25) if ctx.progress else None)
-    verify(ctx.job.source, list(batch.files), mode=ctx.config.verification_mode,
+    verify(ctx.source, list(batch.files), mode=ctx.config.verification_mode,
            progress=ctx.progress.scope(0.25, 0.3) if ctx.progress else None)
     archive = work / ("archive." + ctx.job.archive_format)
     listing = work / "files.txt"

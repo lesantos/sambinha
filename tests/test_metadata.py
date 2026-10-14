@@ -13,7 +13,7 @@ from sambinha.metadata import control_directory, prepare_controls
 from sambinha.recovery import recover
 from sambinha.state import atomic_json, identity
 from sambinha.storage import Storage
-from sambinha.verification import verify_job, verify_metadata_job
+from sambinha.verification import verify_local_metadata_job, verify_destination_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox
 
 
@@ -23,7 +23,7 @@ class DailyMetadataTests(Sandbox):
         self.file('b.txt', b'beta')
         job = replace(self.config.jobs[0], logic='batch', type='s3', destination='aws:bucket/prefix')
         self.config = replace(self.config, jobs=(job,), metadata_dir=self.root / 'metadata')
-        batches = plan(scan(self.source, mode='simple'), job.max_bytes, job.max_files)
+        batches = plan(scan(self.source, mode='simple'), job.max_bytes)
         active = {}
         for batch in batches:
             active[batch.key] = {**batch.control(), 'archive_size': 200, 'archive_md5': 'a' * 32}
@@ -37,7 +37,7 @@ class DailyMetadataTests(Sandbox):
         with patch.object(Storage, 'get', side_effect=AssertionError('remote read')), \
              patch.object(Storage, 'stat', side_effect=AssertionError('remote stat')), \
              patch('sambinha.inventory.fingerprint', side_effect=AssertionError('source hash')):
-            result = verify_job(self.config, job, runner, Mock())
+            result = verify_local_metadata_job(self.config, job, runner, Mock())
         runner.run.assert_not_called()
         return result
 
@@ -70,15 +70,15 @@ class DailyMetadataTests(Sandbox):
         os.utime(path, ns=(stamp, stamp))
         self.assertFalse(self.daily(job)['needs_update'])
 
-    def test_daily_reports_batch_format_or_limit_changes(self):
+    def test_daily_reports_format_changes_but_limit_changes_preserve_groups(self):
         job, _ = self.baseline()
-        for changed in (replace(job, archive_format='zip'), replace(job, max_bytes=4)):
+        for changed, needs_update in ((replace(job, archive_format='zip'), True), (replace(job, max_bytes=4), False)):
             with self.subTest(job=changed):
                 self.config = replace(self.config, jobs=(changed,))
                 result = self.daily(changed)
-                self.assertTrue(result['needs_update'])
+                self.assertEqual(result['needs_update'], needs_update)
                 self.assertEqual(result['modified_files'], 0)
-                self.assertEqual(result['batches_to_update'], 1)
+                self.assertEqual(result['batches_to_update'], int(needs_update))
 
     def test_daily_rejects_missing_source_and_preserves_confirmed_catalog(self):
         job, _ = self.baseline()
@@ -110,7 +110,7 @@ class DailyMetadataTests(Sandbox):
             self.assertEqual(name, key + '.json')
             Path(target).write_text(json.dumps(state['active'][key]))
         with patch.object(Storage, 'get', download), patch.object(Storage, 'stat', return_value={'Size': 200}):
-            result = verify_metadata_job(self.config, job, Mock(), Mock())
+            result = verify_destination_metadata_job(self.config, job, Mock(), Mock())
         self.assertEqual(result['batches'], 1)
 
     def test_monthly_detects_remote_json_changes_and_missing_controls(self):
@@ -122,10 +122,10 @@ class DailyMetadataTests(Sandbox):
             Path(target).write_text(json.dumps(control))
         with patch.object(Storage, 'get', changed), patch.object(Storage, 'stat', return_value={'Size': 200}), \
              self.assertRaises(BackupError):
-            verify_metadata_job(self.config, job, Mock(), Mock())
+            verify_destination_metadata_job(self.config, job, Mock(), Mock())
         with patch.object(Storage, 'get', side_effect=BackupError('missing JSON')), \
              patch.object(Storage, 'stat', return_value={'Size': 200}), self.assertRaises(BackupError):
-            verify_metadata_job(self.config, job, Mock(), Mock())
+            verify_destination_metadata_job(self.config, job, Mock(), Mock())
 
     def test_cache_manifest_rejects_another_jobs_identity_and_symlinks(self):
         job, _ = self.baseline()
@@ -147,7 +147,7 @@ class MetadataPublicationTests(Sandbox):
     def setUp(self):
         super().setUp()
         self.config = replace(self.config, metadata_dir=self.root / 'metadata',
-                              jobs=(replace(self.config.jobs[0], logic='batch', max_files=2),))
+                              jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=20),))
         self.file('a.txt', b'alpha')
         self.file('b.txt', b'beta')
 
@@ -212,8 +212,8 @@ class MetadataPublicationTests(Sandbox):
         key = next(iter(self.state()['active']))
         (self.destination / key).write_bytes(b'corrupt')
         with patch.object(Storage, 'get', side_effect=AssertionError('daily archive read')):
-            self.assertFalse(verify_job(self.config, self.config.jobs[0], Mock(), Mock())['needs_update'])
-        self.assertEqual(recover(self.config, 'integrity-test'), 1)
+            self.assertFalse(verify_local_metadata_job(self.config, self.config.jobs[0], Mock(), Mock())['needs_update'])
+        self.assertEqual(recover(self.config, 'verify-destination-integrity'), 1)
 
     def test_recovery_index_failure_keeps_previous_active_catalog_until_retry(self):
         self.assertEqual(self.execute(), 0)

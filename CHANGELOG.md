@@ -2,6 +2,18 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.13.0 — 2026-10-14
+
+Introduce stable batch membership with logical IDs, mtime/name DFS traversal and uniform compression (level 3, two threads). Remove count/category boundaries. Divert files reaching `individual_batch_percent` (100%) without closing the normal batch. Edits preserve members even beyond max_bytes; empty groups follow retention.
+
+Add `batch_size_alert_percent` (200%; 0 disables) for nonindividual groups, aggregating final Cronitor failure while preserving successful operational exit status. Add source-independent manual `rebalance`, changing only oversized groups and preserving conforming/individual archives.
+
+Restore no longer depends on the source path, mount or capacity. Backups bootstrap missing/corrupt local state before planning. Immutable recovery generations with SHA-256/size confirmations, a durable journal and validated fallback support interrupted-run recovery; `recovery_index_versions = 3` bounds metadata generations. Preserve legacy controls/indexes, history and unique active paths. Document migration and recovery limits.
+
+Rename `integrity-test` to `verify-destination-integrity` and its Python entry point to `verify_destination_integrity_job`; the old CLI name is no longer accepted. Compare archive listings and recorded timestamps in UTC to avoid false mismatches caused by historical daylight saving offsets. Apply `TZ=UTC` only to listing subprocesses, preserving the configured environment. Add real 7z/ZIP regressions across timezones and update bilingual commands and documentation.
+
+Rename `verify` to `verify-local-metadata` and `verify-metadata` to `verify-destination-metadata`, including their Python job entry points. Update commands, tests and bilingual documentation. The old CLI names are no longer accepted; update scheduled commands accordingly. Existing verification behavior, configuration and log event names are preserved.
+
 ## 0.12.0 — 2026-10-14
 
 Restore batch data on the output filesystem, with per-batch temporary cleanup, protected publication and support for filesystems without POSIX attributes or hard links. Keep archive downloads and extraction off the machine's default temporary disk.

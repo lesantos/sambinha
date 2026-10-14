@@ -97,28 +97,32 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
     directory = root
     listing = progress.scope(0, 0.25) if progress else None
     inventory = progress.scope(0.25, 1) if progress else None
-    def fail(error):
-        raise error
-    for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
-        dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()]
-        if included_dirs is not None:
-            dirs[:] = [name for name in dirs if (Path(directory) / name).relative_to(root).as_posix() in included_dirs]
+    def walk(directory):
+        nonlocal visited, pending
+        with os.scandir(directory) as stream:
+            entries = [(entry, entry.stat(follow_symlinks=False)) for entry in stream]
+        entries.sort(key=lambda pair: (pair[1].st_mtime_ns, pair[0].name))
         visited += 1
-        pending += len(dirs) - 1
         if progress:
             listing.update("Listando origem", directory, visited, visited + pending + 1)
-        for name in files:
-            if (Path(directory) / name).is_symlink():
+        for entry, info in entries:
+            path = Path(entry.path)
+            relative = path.relative_to(root).as_posix()
+            if stat.S_ISLNK(info.st_mode):
                 continue
-            relative = (Path(directory) / name).relative_to(root).as_posix()
-            if relative.split("/")[0] == ".sambinha":
-                raise BackupError(".sambinha é reservado para metadados")
-            if included_files is not None and relative not in included_files:
-                continue
-            before = (Path(directory) / name).lstat()
-            if not stat.S_ISREG(before.st_mode):
-                raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
-            candidates.append((relative, before))
+            if stat.S_ISDIR(info.st_mode):
+                if included_dirs is None or relative in included_dirs:
+                    yield from walk(path)
+            else:
+                yield relative, info
+    for relative, before in walk(root):
+        if relative.split("/")[0] == ".sambinha":
+            raise BackupError(".sambinha é reservado para metadados")
+        if included_files is not None and relative not in included_files:
+            continue
+        if not stat.S_ISREG(before.st_mode):
+            raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+        candidates.append((relative, before))
     if progress:
         listing.update("Listando origem", directory, 1, 1)
     stage = "Inventário simples" if mode == "simple" else "Calculando hashes"
@@ -156,7 +160,7 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
             inventory.update(stage, directory, completed, total)
     if progress:
         inventory.update(stage, directory, 1, 1)
-    return sorted(result, key=lambda f: f.path)
+    return result
 
 
 def verify(root: Path, files: list[File], *, mode="hash", progress=None):

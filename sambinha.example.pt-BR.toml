@@ -4,6 +4,8 @@
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+# Gerações de metadados confirmadas; dados seguem retenção.
+recovery_index_versions = 3
 metadata_dir = "./metadata" # JSONs locais dos lotes, ao lado de state e logs.
 # Manter logs escritos nos últimos 14 dias; 0 desativa a limpeza automática.
 # Logs antigos inativos do Sambinha são removidos em execuções sem simulação.
@@ -22,12 +24,12 @@ deletion_alert_threshold = 1000
 # Verificação diária usa JSONs locais e tamanho/data; não consulta o S3.
 # 0 desativa a checagem após backup; use 1 para checar diariamente após backups.
 # Atividades independentes (selecione um job batch):
-# sambinha verify --job documents-s3              # diário; informa needs_update
-# sambinha verify-metadata --job documents-s3     # mensal; compara cópias dos JSONs
-# sambinha integrity-test --job documents-s3      # manual; teste de integridade do 7-Zip
+# sambinha verify-local-metadata --job documents-s3         # diário; informa needs_update
+# sambinha verify-destination-metadata --job documents-s3   # mensal; compara cópias dos JSONs
+# sambinha verify-destination-integrity --job documents-s3                # manual; teste de integridade do 7-Zip
 verify_interval_days = 0
 # Padrão: tamanho em bytes e data de modificação em nanossegundos, sem ler conteúdo.
-# Use "hash" nos inventários do backup; verify diário de lotes compara só tamanho/data.
+# Use "hash" nos inventários do backup; verify-local-metadata diário de lotes compara só tamanho/data.
 verification_mode = "simple"
 # As opções de cache/leitura completa abaixo só se aplicam aos hashes no modo hash.
 # P1: reutiliza hashes apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais.
@@ -58,6 +60,12 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
+compression_level = 3
+compression_threads = 2
+# Individual a partir deste % do max_bytes; mantém o lote normal aberto.
+individual_batch_percent = 100
+# Falha Cronitor só no final; 0 desativa; não interrompe jobs.
+batch_size_alert_percent = 200
 # Verificações de disco por job (padrão true); false ignora apenas essa checagem.
 # Para origens Seafile/FUSE com capacidade zero, use check_source_disk = false.
 # Destino inclui a saída de restauração; S3 não tem disco local de destino.
@@ -66,9 +74,8 @@ check_source_disk = true
 check_destination_disk = true
 # Se ESTE job falhar, true continua os próximos; false interrompe a execução.
 continue_on_job_error = true
-# Configurações de lotes, se esta tarefa mudar para logic = "batch".
+# Configurações de lotes, se esta tarefa mudar para logic = "batch"
 # max_bytes = 1073741824
-# max_files = 1000
 # compressor = "7z"
 # archive_format = "7z"
 # Configuração S3; não afeta destinos locais.
@@ -80,15 +87,7 @@ exclude_files = "./excludes.example.txt"
 # destination_mount = "/mnt/backup"
 # Limite absoluto de remoções do rclone nesta tarefa; versões antigas vão ao backup-dir.
 max_delete = 100
-# P6 separado por categoria. Níveis 0..9; threads 1..64. Aplica a lotes novos.
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
+# Compressão única, padrões para lotes criados/recriados.
 
 [[jobs]]
 name = "documents-s3"
@@ -99,6 +98,12 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
+compression_level = 3
+compression_threads = 2
+# Individual a partir deste % do max_bytes; mantém o lote normal aberto.
+individual_batch_percent = 100
+# Falha Cronitor só no final; 0 desativa; não interrompe jobs.
+batch_size_alert_percent = 200
 # Verificações de disco por job (padrão true); false ignora apenas essa checagem.
 # Para origens Seafile/FUSE com capacidade zero, use check_source_disk = false.
 # Destino inclui a saída de restauração; S3 não tem disco local de destino.
@@ -114,7 +119,6 @@ exclude_files = "./excludes.example.txt"
 # S3 não tem montagem local de destino; deixe vazio ou omita.
 # destination_mount = ""
 max_bytes = 1073741824 # 1 GiB de bytes originais, sem compactação
-max_files = 1000
 compressor = "7z" # ou 7zz, qualquer executável que implemente a CLI do 7-Zip
 archive_format = "7z" # 7z ou zip
 # Padrão frio: GLACIER_IR, acesso imediato, cobrança de recuperação, mínimo de 90 dias
@@ -131,11 +135,3 @@ archive_format = "7z" # 7z ou zip
 storage_class = "GLACIER_IR"
 max_delete_percent = 50
 deletion_min_files = 20
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2

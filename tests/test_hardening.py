@@ -122,11 +122,12 @@ class SecurityTests(Sandbox):
 @unittest.skipUnless(REAL_TOOLS, 'rclone required')
 class MassDeletionTests(Sandbox):
     def prepare(self, logic):
+        self.destination = self.root / ('destination-' + logic)
         for name in ('a', 'b', 'c', 'd'):
             self.file(name)
         changes = ({'max_delete': 1} if logic == 'simple' else
                    {'deletion_min_files': 2, 'max_delete_percent': 50})
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic, **changes),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic, destination=str(self.destination), **changes),))
         self.assertEqual(self.execute(), 0)
 
     def test_simple_and_batch_block_before_any_destination_or_state_change(self):

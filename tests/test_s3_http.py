@@ -101,11 +101,11 @@ class S3HTTPTests(suite.S3IntegrationTests):
         self.assertNotIn('PRIVATE-S3-SECRET', self.output.getvalue())
 
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
-        from sambinha.recovery import verify_job
+        from sambinha.recovery import verify_local_metadata_job
         from unittest.mock import Mock, patch
         self.file('file.txt', b'original')
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
-            result = verify_job(self.config, self.config.jobs[0], self.runner, Mock())
+            result = verify_local_metadata_job(self.config, self.config.jobs[0], self.runner, Mock())
         self.assertEqual(result['mode'], 'rclone_check')
         self.assertTrue(any(command[1] == 'check' for command in self.runner.commands))

@@ -2,8 +2,8 @@
 from .errors import BackupError
 
 
-def check_mounts(job, runner):
-    pairs = [("origem", job.source, job.source_mount)]
+def check_mounts(job, runner, *, check_source=True):
+    pairs = [("origem", job.source, job.source_mount)] if check_source else []
     if job.type == "local":
         from pathlib import Path
         pairs.append(("destino", Path(job.destination), job.destination_mount))

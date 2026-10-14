@@ -2,17 +2,17 @@
 
 [Português do Brasil](batch-checks.pt-BR.md)
 
-These activities apply to `logic = "batch"` and are independent of archive creation and restoration. Simple-job `verify` continues using `rclone check`.
+These activities apply to `logic = "batch"` and are independent of archive creation and restoration. Simple-job `verify-local-metadata` continues using `rclone check`.
 
 | Activity | Suggested frequency | Reads |
 | --- | --- | --- |
-| `sambinha verify --job documents-s3` | Daily | Source size/time and local JSON controls |
-| `sambinha verify-metadata --job documents-s3` | Monthly | Local/destination JSON controls and archive size metadata |
-| `sambinha integrity-test --job documents-s3` | Manually, when needed | Archive listing and compressed contents through 7-Zip |
+| `sambinha verify-local-metadata --job documents-s3` | Daily | Source size/time and local JSON controls |
+| `sambinha verify-destination-metadata --job documents-s3` | Monthly | Local/destination JSON controls and archive size metadata |
+| `sambinha verify-destination-integrity --job documents-s3` | Manually, when needed | Archive listing and compressed contents through 7-Zip |
 
 ## Daily verification
 
-`verify` compares selected source paths, sizes and modification times with committed local controls. It reports `new_files`, `modified_files`, `removed_files`, `excluded_files`, `batches_to_update`, `new_batches` and `needs_update`. It does not read archive contents, calculate MD5/SHA or contact S3. Source mounts and exclusion rules remain respected; an unavailable source causes an error instead of an empty inventory.
+`verify-local-metadata` compares selected source paths, sizes and modification times with committed local controls. It reports `new_files`, `modified_files`, `removed_files`, `excluded_files`, `batches_to_update`, `new_batches` and `needs_update`. It does not read archive contents, calculate MD5/SHA or contact S3. Source mounts and exclusion rules remain respected; an unavailable source causes an error instead of an empty inventory.
 
 A successful check returns 0 even when updates are needed; inspect `needs_update` in the `verification_complete` summary. Actual errors return a nonzero status. Run `backup` to perform the reported updates: verification itself never uploads or removes data. Equal size/time is deliberately considered unchanged, even if bytes changed. `verification_mode = "hash"` still controls backup inventories, not daily batch verification.
 
@@ -41,15 +41,17 @@ Local filesystems and S3 cannot participate in one distributed transaction. A fa
 
 Each remote `ARCHIVE.json` control and `.sambinha/control.tar.gz` recovery index is uploaded in **STANDARD**, independently of the archive's configured storage class, including GLACIER or DEEP_ARCHIVE. One bucket can hold objects in different classes; no extra bucket is required. The program does not manage bucket lifecycle rules: keep these metadata objects outside cold-storage transitions. The archives already receive their configured class at upload. See [AWS storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) and [lifecycle filters](https://docs.aws.amazon.com/AmazonS3/latest/userguide/intro-lifecycle-filters.html).
 
-`verify-metadata` checks the known active, excluded and retained controls. It compares complete JSON values between local and destination copies, without calculating content hashes. It also checks the archive's stored compressed size through metadata. S3 archive bodies are never downloaded and no Glacier restore is requested. Only small JSON files are downloaded; if local state and catalog are both missing, the immediately accessible recovery index can bootstrap the mirrors. Metadata requests/downloads can incur normal S3 request charges.
+`verify-destination-metadata` checks the known active, excluded and retained controls. It compares complete JSON values between local and destination copies, without calculating content hashes. It also checks the archive's stored compressed size through metadata. S3 archive bodies are never downloaded and no Glacier restore is requested. Only small JSON files are downloaded; if local state and catalog are both missing, the immediately accessible recovery index can bootstrap the mirrors. Metadata requests/downloads can incur normal S3 request charges.
 
 This establishes metadata agreement and archive presence/size. It does not prove that the stored compressed contents remain intact; that is the separate integrity activity. Legacy controls without an uploaded archive size cannot support the size check and cause an explicit error.
 
 ## Manual integrity tests and timestamp precision
 
-`integrity-test` runs `7z l -slt` to compare member paths, sizes and dates, followed by `7z t` to test the compressed stream's integrity. It does not compare MD5/SHA or write extracted files. Local archives are read in place. S3 archives are downloaded and deleted **one at a time**; use `TMPDIR` on a suitably sized mounted disk when the local temporary disk is too small. GLACIER/DEEP_ARCHIVE archives must first be made readable using AWS restore; this command never initiates that restore automatically.
+`verify-destination-integrity` runs `7z l -slt` to compare member paths, sizes and dates, followed by `7z t` to test the compressed stream's integrity. It does not compare MD5/SHA or write extracted files. Local archives are read in place. S3 archives are downloaded and deleted **one at a time**; use `TMPDIR` on a suitably sized mounted disk when the local temporary disk is too small. GLACIER/DEEP_ARCHIVE archives must first be made readable using AWS restore; this command never initiates that restore automatically.
 
 Testing can read and decompress the whole archive internally and use CPU/RAM, even though extracted files are not written to disk. Source files need not still exist. The test helps after moving backups, suspected storage corruption, or before relying on an archive for recovery.
+
+Archive listings and JSON timestamps are compared in **UTC**, independently of the machine timezone and historical daylight saving rules. Only the listing subprocess receives `TZ=UTC`; the configured environment and other commands retain their timezone.
 
 Local JSON controls preserve the source's integer `mtime_ns`. Archive timestamps can have less precision: 7z and ZIP/NTFS retain **100 ns**, so `123456789` fractional nanoseconds can become `123456700`. Legacy ZIP entries can retain only whole seconds or DOS two-second timestamps. The archive-listing comparison accepts truncation at that format's precision. This accepted loss does not reduce the precision of daily comparisons against the original JSON metadata.
 
@@ -58,3 +60,8 @@ Local JSON controls preserve the source's integer `mtime_ns`. Archive timestamps
 Batch restoration downloads, extracts and stages inside the `--output` directory, including when that directory is itself a mounted volume. Each compressed archive and unselected extracted members are removed before the next batch. Selected files stay on that disk until the entire selection has passed restoration validation, then are published without overwriting. Restoration still validates recorded archive/file checksums; the lighter verification policy does not remove these recovery protections.
 
 Reserve space on the output disk for restored files plus one compressed/extracted batch. Filesystems without hard links can temporarily need one additional file during publication. The machine's default temporary disk is not used for restoring batch data. Ordinary logs and backup state retain their configured locations.
+
+
+## Batches and recovery in 0.13.0
+
+See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

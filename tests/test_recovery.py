@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -12,7 +14,7 @@ from sambinha.batches import plan
 from sambinha.config import validate
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_job, verify_metadata_job
+from sambinha.recovery import recover, verify_local_metadata_job, verify_destination_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
@@ -55,14 +57,14 @@ class RestorePublicationTests(Sandbox):
 
 class ArchiveMetadataVerificationTests(Sandbox):
     def test_listing_checks_paths_sizes_and_dates_without_extraction(self):
-        from datetime import datetime
+        from datetime import datetime, timezone
         from sambinha.archive_recovery import check_archive
         path = self.file('file', b'payload')
         stamp = 1700000000123456789
         os.utime(path, ns=(stamp, stamp))
         batch = plan(scan(self.source), 1000, 2)[0]
         control = batch.control()
-        modified = datetime.fromtimestamp(stamp // 10**9).strftime('%Y-%m-%d %H:%M:%S') + '.1234567'
+        modified = datetime.fromtimestamp(stamp // 10**9, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') + '.1234567'
         listing = f'Path = file\nSize = 7\nModified = {modified}\n'
         storage = Mock(job=replace(self.config.jobs[0], logic='batch'))
         storage.path.return_value = str(self.root / batch.key)
@@ -71,6 +73,7 @@ class ArchiveMetadataVerificationTests(Sandbox):
         with patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
             check_archive(storage, runner, batch.key, control)
         self.assertEqual([call.args[0][1] for call in runner.run.call_args_list], ['l', 't'])
+        self.assertEqual(runner.run.call_args_list[0].kwargs, {'env': {'TZ': 'UTC'}})
         for changed in (listing.replace('Path = file', 'Path = other'),
                         listing.replace('Size = 7', 'Size = 8'),
                         listing.replace('.1234567', '.1234568'),
@@ -82,10 +85,10 @@ class ArchiveMetadataVerificationTests(Sandbox):
                 check_archive(storage, runner, batch.key, control)
 
     def test_legacy_zip_two_second_date_precision_is_accepted(self):
-        from datetime import datetime
+        from datetime import datetime, timezone
         from sambinha.archive_recovery import archive_date_matches
         stamp = 1700000001123456789
-        date = datetime.fromtimestamp(stamp // 10**9)
+        date = datetime.fromtimestamp(stamp // 10**9, timezone.utc)
         date = date.replace(second=date.second // 2 * 2)
         fields = {'Modified': date.strftime('%Y-%m-%d %H:%M:%S')}
         self.assertTrue(archive_date_matches(fields, {'mtime_ns': stamp, 'path': 'file'}, 'zip'))
@@ -99,7 +102,7 @@ class S3MetadataVerificationTests(Sandbox):
         runner = Mock()
         with patch('sambinha.storage.Storage.check_simple') as check, \
              patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
-            result = verify_job(self.config, job, runner, Mock())
+            result = verify_local_metadata_job(self.config, job, runner, Mock())
         self.assertEqual(result['mode'], 'rclone_check')
         check.assert_called_once()
         runner.run.assert_not_called()
@@ -115,7 +118,7 @@ class S3MetadataVerificationTests(Sandbox):
             Path(target).write_text(json.dumps(control), encoding='utf-8')
         with patch('sambinha.storage.Storage.stat', return_value={'Size': 200}) as stat, \
              patch('sambinha.storage.Storage.get', download):
-            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+            verify_destination_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
         self.assertEqual([c.args[0] for c in stat.call_args_list], [batch.key])
         self.assertTrue(all(c.kwargs == {'hashes': False} for c in stat.call_args_list))
 
@@ -124,7 +127,7 @@ class S3MetadataVerificationTests(Sandbox):
         config = replace(self.config, jobs=(job,), verification_mode='hash')
         with patch('sambinha.storage.Storage.check_simple') as check, \
              patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
-            result = verify_job(config, job, Mock(), Mock())
+            result = verify_local_metadata_job(config, job, Mock(), Mock())
         self.assertEqual(result['mode'], 'rclone_check')
         check.assert_called_once()
 
@@ -150,8 +153,9 @@ class S3MetadataVerificationTests(Sandbox):
                 self.assertEqual(key, batch.key + '.json')
                 Path(target).write_text(json.dumps(control))
         with patch('sambinha.storage.Storage.get', download), \
+             patch('sambinha.index_generations.listing', return_value={'.sambinha/control.tar.gz': index.stat().st_size, batch.key: 200, batch.key + '.json': 200}), \
              patch('sambinha.storage.Storage.stat', return_value={'Size': 200}):
-            verify_metadata_job(self.config, job, Mock(), Mock())
+            verify_destination_metadata_job(self.config, job, Mock(), Mock())
         self.assertEqual(downloads, ['.sambinha/control.tar.gz', batch.key + '.json'])
         self.assertFalse((self.config.state_dir / job.name / 'state.json').exists())
 
@@ -160,7 +164,7 @@ class S3MetadataVerificationTests(Sandbox):
         batch = plan(scan(self.source), 1000, 2)[0]
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')), self.assertRaises(BackupError):
-            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: batch.control()}})
+            verify_destination_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: batch.control()}})
 
     def test_s3_size_mismatch_fails_without_hashes_or_downloads(self):
         self.file('file')
@@ -170,7 +174,7 @@ class S3MetadataVerificationTests(Sandbox):
         with patch('sambinha.storage.Storage.stat', return_value={'Size': 201}), \
              patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')), \
              self.assertRaises(BackupError):
-            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+            verify_destination_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
 
     def test_s3_control_checks_all_json_fields_without_calculating_hashes(self):
         import copy
@@ -190,9 +194,9 @@ class S3MetadataVerificationTests(Sandbox):
                  patch('sambinha.storage.Storage.stat', return_value={'Size': 200}):
                 if fails:
                     with self.assertRaises(BackupError):
-                        verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+                        verify_destination_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
                 else:
-                    verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+                    verify_destination_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
 
     def test_invalid_remote_control_is_rejected_without_downloading_batch(self):
         self.file('file')
@@ -204,7 +208,7 @@ class S3MetadataVerificationTests(Sandbox):
             Path(target).write_text('{invalid')
         with patch('sambinha.storage.Storage.get', download), \
              patch('sambinha.storage.Storage.stat', return_value={'Size': 200}), self.assertRaises(BackupError):
-            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+            verify_destination_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
@@ -300,10 +304,40 @@ class RecoveryIntegrationTests(Sandbox):
                 with patch.object(Runner, 'run', record), \
                      patch('sambinha.storage.Storage.get', side_effect=AssertionError('archive download')), \
                      patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
-                    self.assertEqual(self.recover('integrity-test'), 0)
+                    self.assertEqual(self.recover('verify-destination-integrity'), 0)
                 archive_calls = [args for args in commands if args[0] == job.compressor]
                 self.assertEqual([args[1] for args in archive_calls], ['l', 't'])
                 self.assertTrue(all(Path(args[-1]).is_relative_to(job.destination) for args in archive_calls))
+
+    def test_archive_dates_match_in_utc_across_timezones_and_historical_dst(self):
+        path = self.file('file.txt', b'payload')
+        # January 2009 had UTC-2 daylight time in Sao Paulo; today it uses UTC-3.
+        stamp = 1231295252123456789
+        os.utime(path, ns=(stamp, stamp))
+        script = '''
+import json, os, sys
+from types import SimpleNamespace
+from sambinha.archive_recovery import check_archive
+from sambinha.process import Runner
+archive, key, control = sys.argv[1:]
+environment = dict(os.environ)
+runner = Runner(env=environment)
+storage = SimpleNamespace(job=SimpleNamespace(compressor='7z'), path=lambda key: archive)
+check_archive(storage, runner, key, json.loads(control))
+assert runner.env == environment == dict(os.environ)
+'''
+        for archive_format in ('7z', 'zip'):
+            job = replace(self.config.jobs[0], logic='batch', archive_format=archive_format,
+                          destination=str(self.root / archive_format))
+            self.config = replace(self.config, jobs=(job,), state_dir=self.root / f'state-{archive_format}')
+            self.assertEqual(self.execute(), 0)
+            key, control = next(iter(self.state()['active'].items()))
+            for zone in ('America/Sao_Paulo', 'America/New_York', 'Asia/Kolkata', 'UTC'):
+                with self.subTest(archive_format=archive_format, timezone=zone):
+                    result = subprocess.run([sys.executable, '-c', script, str(Path(job.destination) / key),
+                                             key, json.dumps(control)], capture_output=True, text=True,
+                                            env={**os.environ, 'TZ': zone})
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_batch_restore_uses_output_disk_and_removes_each_lots_temporary_files(self):
         from tests.test_disks import Usage
@@ -312,7 +346,7 @@ class RecoveryIntegrationTests(Sandbox):
         for i in range(3):
             self.file(f'{i}/selected.txt', b'selected')
             self.file(f'{i}/unselected.txt', b'unselected')
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_files=2),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=2),))
         self.assertEqual(self.execute(), 0)
         restored = self.root / 'mounted-output'
         restored.mkdir()
@@ -394,7 +428,7 @@ class RecoveryIntegrationTests(Sandbox):
         self.file('b', b'original')
         self.assertEqual(self.execute(), 0)
         (self.destination / 'b').write_bytes(b'corrupt!')
-        self.assertEqual(self.recover('verify'), 1)
+        self.assertEqual(self.recover('verify-local-metadata'), 1)
         restored = self.root / 'restored'
         self.assertEqual(self.recover('restore', output=restored), 0)
         self.assertEqual((restored / 'b').read_bytes(), b'corrupt!')
@@ -429,7 +463,7 @@ class RecoveryIntegrationTests(Sandbox):
         self.assertEqual(self.state()['last_verified'], 1000)
         self.assertEqual(self.execute(now=1001), 0)
         self.assertFalse(any(e['event'] == 'verification_complete' for e in self.events))
-        with patch('sambinha.recovery.verify_job', side_effect=BackupError('corrupt')):
+        with patch('sambinha.recovery.verify_local_metadata_job', side_effect=BackupError('corrupt')):
             self.assertEqual(self.execute(now=1000 + 7 * 86400), 1)
         self.assertEqual(self.state()['last_verified'], 1000)
 
@@ -457,7 +491,7 @@ class RecoveryIntegrationTests(Sandbox):
         config_file.write_text('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n')
         output = self.root / 'restored'
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(main(['verify', '--config', str(config_file), '--job', 'test']), 0)
+            self.assertEqual(main(['verify-local-metadata', '--config', str(config_file), '--job', 'test']), 0)
             self.assertEqual(main(['restore', '--config', str(config_file), '--job', 'test',
                                   '--output', str(output), '--path', 'file']), 0)
         self.assertEqual((output / 'file').read_bytes(), b'original')

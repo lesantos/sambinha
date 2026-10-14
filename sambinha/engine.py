@@ -4,6 +4,7 @@ from pathlib import Path
 import time
 
 from .archives import compress as compress
+from .batch_alerts import collect as collect_batch_alerts
 from .config import Config
 from .context import Context as Context
 from .errors import BackupError, JobError
@@ -23,7 +24,8 @@ from .strategies.batch import upload_batch as upload_batch, upload_index as uplo
 STRATEGIES = {"batch": batch}
 
 
-def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False) -> int:
+def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False,
+        action='backup') -> int:
     runner = runner or Runner(config.timeout, env=config.environment)
     redactor = Runner(env=config.environment, secrets=(config.cronitor_url,)).safe_error
     progress = Progress(redact=redactor)
@@ -54,6 +56,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
             log.event("notification_error", error=str(exc))
 
     deletion_alerts = []
+    batch_alerts = []
     log.event("start", dry_run=config.dry_run, sources=[str(j.source) for j in config.jobs])
     try:
         runner.load_config_secrets(config.rclone_config)
@@ -76,7 +79,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                 forecast = DeletionForecast(config.deletion_alert_threshold, log,
                                             lambda message: telemetry("fail", message))
                 execution = JobExecution(config, job, runner, log, job_progress, forecast, clock,
-                                         allow_mass_deletion, STRATEGIES)
+                                         allow_mass_deletion, STRATEGIES, rebalancing=action == 'rebalance')
                 log.event("directory", job=job.name, source=str(job.source), destination=job.destination)
                 try:
                     execution.execute()
@@ -86,13 +89,17 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                 finally:
                     if forecast.sent:
                         deletion_alerts.append(forecast.message)
+                    if execution.context is not None:
+                        batch_alerts.extend(collect_batch_alerts(execution.context))
                     execution.summary(success)
                     if success:
                         job_progress.update("Concluindo tarefa", progress.directory, 1, 1)
                 if not success and not job.continue_on_job_error:
                     break
             if failed:
-                telemetry("fail", "; ".join(errors + deletion_alerts))
+                telemetry("fail", "; ".join(errors + deletion_alerts + batch_alerts))
+            elif batch_alerts:
+                telemetry("fail", "; ".join(batch_alerts + deletion_alerts))
             elif not deletion_alerts:
                 telemetry("complete")
     except KeyboardInterrupt:
@@ -107,7 +114,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
         failed = True
         raise
     finally:
-        log.event("end", success=not failed, deletion_alert=bool(deletion_alerts))
+        log.event("end", success=not failed, deletion_alert=bool(deletion_alerts), batch_size_alert=bool(batch_alerts))
         if not failed:
             progress.finish()
         progress.close()

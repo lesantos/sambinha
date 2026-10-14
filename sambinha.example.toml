@@ -4,6 +4,8 @@
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+# Confirmed metadata generations; data follows retention.
+recovery_index_versions = 3
 metadata_dir = "./metadata" # Local batch JSON mirrors, beside state and logs.
 # Keep logs written in the last 14 days; 0 disables automatic cleanup.
 # Old inactive Sambinha logs are removed during non-simulated invocations.
@@ -22,12 +24,12 @@ deletion_alert_threshold = 1000
 # Daily source verification uses only local JSONs and size/time; no S3 reads.
 # 0 disables the check after backup; set 1 to check once per day after backups.
 # Independent activities (select a batch job):
-# sambinha verify --job documents-s3              # daily; reports needs_update
-# sambinha verify-metadata --job documents-s3     # monthly; compare JSON replicas
-# sambinha integrity-test --job documents-s3      # manual; 7-Zip integrity test
+# sambinha verify-local-metadata --job documents-s3         # daily; reports needs_update
+# sambinha verify-destination-metadata --job documents-s3   # monthly; compare JSON replicas
+# sambinha verify-destination-integrity --job documents-s3                # manual; 7-Zip integrity test
 verify_interval_days = 0
 # Default: compare size in bytes and nanosecond modification time without reading contents.
-# Use "hash" for backup inventories; daily batch verify still compares only size/time.
+# Use "hash" for backup inventories; daily batch verify-local-metadata still compares only size/time.
 verification_mode = "simple"
 # P1: in hash mode, reuse hashes only when device/inode/size/mtime/ctime/mode all match.
 # These options never enable content hashing in simple mode.
@@ -58,6 +60,12 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
+compression_level = 3
+compression_threads = 2
+# Dedicated archive at this % of max_bytes; keep normal batch open.
+individual_batch_percent = 100
+# Final Cronitor failure only; 0 disables; does not interrupt jobs.
+batch_size_alert_percent = 200
 # Per-job disk checks (default true); false skips only that capacity check.
 # For Seafile/FUSE sources reporting zero capacity, set check_source_disk = false.
 # Destination also covers restore output; S3 has no local destination disk.
@@ -66,9 +74,8 @@ check_source_disk = true
 check_destination_disk = true
 # When THIS job fails, true continues the next jobs; false stops the invocation.
 continue_on_job_error = true
-# Batch settings, if this job is changed to logic = "batch".
+# Batch settings, if this job is changed to logic = "batch"
 # max_bytes = 1073741824
-# max_files = 1000
 # compressor = "7z"
 # archive_format = "7z"
 # S3 setting; does not affect a local destination.
@@ -80,15 +87,7 @@ exclude_files = "./excludes.example.txt"
 # destination_mount = "/mnt/backup"
 # Absolute rclone deletion limit for this job; old versions go to backup-dir.
 max_delete = 100
-# Separate P6 settings. Levels 0..9; threads 1..64. Apply to newly built lots.
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
+# Uniform compression, defaults for newly created/rebuilt archives.
 
 [[jobs]]
 name = "documents-s3"
@@ -99,6 +98,12 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
+compression_level = 3
+compression_threads = 2
+# Dedicated archive at this % of max_bytes; keep normal batch open.
+individual_batch_percent = 100
+# Final Cronitor failure only; 0 disables; does not interrupt jobs.
+batch_size_alert_percent = 200
 # Per-job disk checks (default true); false skips only that capacity check.
 # For Seafile/FUSE sources reporting zero capacity, set check_source_disk = false.
 # Destination also covers restore output; S3 has no local destination disk.
@@ -113,8 +118,7 @@ exclude_files = "./excludes.example.txt"
 # source_mount = "/mnt/dados"
 # There is no local mount for an S3 destination; keep this empty or omitted.
 # destination_mount = ""
-max_bytes = 1073741824 # 1 GiB of original, uncompressed file bytes
-max_files = 1000
+max_bytes = 1073741824 # original bytes; existing groups may grow
 compressor = "7z" # or 7zz, any executable implementing the 7-Zip CLI
 archive_format = "7z" # 7z or zip
 # Cold default: GLACIER_IR, immediate retrieval, retrieval fees, 90-day minimum
@@ -131,11 +135,3 @@ archive_format = "7z" # 7z or zip
 storage_class = "GLACIER_IR"
 max_delete_percent = 50
 deletion_min_files = 20
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2

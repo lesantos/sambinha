@@ -10,7 +10,7 @@ from sambinha.config import validate
 from sambinha.engine import preflight
 from sambinha.filtering import Selection
 from sambinha.inventory import fingerprint, scan
-from sambinha.profiles import category, settings
+from sambinha.profiles import settings
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
@@ -47,18 +47,13 @@ class InventoryPerformanceTests(Sandbox):
             self.assertEqual(selection.include_paths(['omit.tmp', 'keep']), {'keep'})
         self.assertEqual(listing.call_count, 1)
 
-    def test_profiles_classify_case_insensitive_extensions_and_separate_new_batches(self):
-        for name, expected in (('README', 'text'), ('notes.MD', 'text'), ('movie.MP4', 'video'),
-                               ('photo.JPEG', 'photo'), ('image.dng', 'photo'), ('blob.bin', 'other')):
-            self.assertEqual(category(name), expected)
+    def test_one_profile_packs_mixed_file_types_together(self):
+        for name in ('README', 'notes.MD', 'movie.MP4', 'photo.JPEG', 'image.dng', 'blob.bin'):
             self.file(name)
         files = scan(self.source)
-        batches = plan(files, 100000, 1000, category=category)
-        for batch in batches:
-            self.assertEqual(len({category(f.path) for f in batch.files}), 1)
-            kind, level, threads = settings(self.config.jobs[0], batch.files)
-            self.assertEqual(level, getattr(self.config.jobs[0], f'compression_{kind}_level'))
-            self.assertEqual(threads, getattr(self.config.jobs[0], f'compression_{kind}_threads'))
+        batches = plan(files, 100000)
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(settings(self.config.jobs[0], batches[0].files), ('uniform', 3, 2))
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
@@ -95,7 +90,7 @@ class PerformanceIntegrationTests(Sandbox):
         for i in range(6):
             self.file(f'dir/file-{i}.txt', str(i).encode())
         self.config = replace(self.config, batch_workers=2,
-                              jobs=(replace(self.config.jobs[0], logic='batch', max_files=2),))
+                              jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=2),))
         from sambinha.engine import upload_batch
         gate = threading.Barrier(2)
         mutex = threading.Lock()
@@ -122,7 +117,7 @@ class PerformanceIntegrationTests(Sandbox):
     def test_modifying_one_file_does_not_rebuild_other_lots(self):
         for i in range(6):
             self.file(f'dir/{i}.txt', str(i).encode())
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_files=2),))
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=2),))
         self.assertEqual(self.execute(), 0)
         before = self.state()['active']
         (self.source / 'dir/0.txt').write_bytes(b'updated')

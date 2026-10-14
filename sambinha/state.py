@@ -58,6 +58,12 @@ def validate_controls(controls, batch):
                     or not control["files"]):
                 raise ValueError("controle de lote")
             members = control["files"]
+            if 'individual' in control and (type(control['individual']) is not bool or
+                                            control['individual'] and len(members) != 1):
+                raise ValueError('lote individual inválido')
+            if 'batch_id' in control and (not isinstance(control['batch_id'], str) or
+                                          not re.fullmatch('[0-9a-f]{24}', control['batch_id'])):
+                raise ValueError('identidade de lote inválida')
             if "archive_size" in control or "archive_md5" in control:
                 if (type(control.get("archive_size")) is not int or control["archive_size"] < 0
                         or not isinstance(control.get("archive_md5"), str)
@@ -86,6 +92,11 @@ def atomic_json(path: Path, data, *, preserve_permissions=True):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -97,10 +108,15 @@ def load_state(path: Path, identity: dict):
         return {"schema": 1, "identity": identity, "active": {}, "retired": []}
     try:
         data = json.loads(path.read_text())
-        if data["schema"] != 1 or data["identity"] != identity:
+        if type(data["schema"]) is not int or data["schema"] not in {1, 2}:
+            raise BackupError("Versão de estado não suportada")
+        if data["identity"] != identity:
             raise BackupError("Estado pertence a outra origem/destino/lógica; use outro nome de job")
         if not isinstance(data["active"], dict) or not isinstance(data["retired"], list):
             raise ValueError("estrutura")
+        if 'generation' in data and (not isinstance(data['generation'], str) or
+                                     not re.fullmatch('[0-9]{20}-[0-9a-f]{32}', data['generation'])):
+            raise ValueError('geração inválida')
         batch = identity.get("logic") == "batch"
         validate_controls(data["active"], batch)
         if not isinstance(data.get("excluded", {}), dict):

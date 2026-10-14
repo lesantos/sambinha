@@ -143,12 +143,12 @@ class LogRetentionTests(Sandbox):
         self.assertFalse(expired.exists())
 
     def test_restore_and_verify_cleanup_and_simulation(self):
-        for action in ('restore', 'verify'):
+        for action in ('restore', 'verify-local-metadata'):
             for dry_run in (True, False):
                 with self.subTest(action=action, dry_run=dry_run):
                     expired = self.old_log(30 * DAY, now=time.time())
                     config = replace(self.config, dry_run=dry_run)
                     with redirect_stdout(io.StringIO()), patch('sambinha.recovery.restore_job'), \
-                         patch('sambinha.recovery.verify_job'):
+                         patch('sambinha.recovery.verify_local_metadata_job'):
                         self.assertEqual(recover(config, action, runner=Mock(), output=self.root / 'restored'), 0)
                     self.assertEqual(expired.exists(), dry_run)

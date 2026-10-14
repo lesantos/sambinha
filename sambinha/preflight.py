@@ -9,10 +9,10 @@ from .disks import check_disks
 from .errors import BackupError, job_errors
 from .filtering import Selection
 from .inventory import File, scan
+from .index_generations import backup_state
 from .mounts import check_mounts
 from .process import credential_values, show_progress
 from .retention import DAY
-from .state import identity, load_state
 
 
 class JobInventory(NamedTuple):
@@ -20,6 +20,7 @@ class JobInventory(NamedTuple):
     selected_dirs: set[str] | None
     fingerprints: dict
     last_full_scan: float
+    previous: dict
 
 
 def _check_destination(config, job, runner, checking):
@@ -48,12 +49,7 @@ def _check_destination(config, job, runner, checking):
 
 
 def _read_inventory(config, job, runner, now, reading):
-    try:
-        previous = load_state(config.state_dir / job.name / "state.json", identity(job))
-    except BackupError:
-        # Context will reject the corrupt index for this job; no cached
-        # fingerprints from it are trusted during this job's preflight.
-        previous = {}
+    previous = backup_state(config, job, runner)
     force = (not config.fingerprint_cache or "last_full_scan" not in previous or
              now < previous["last_full_scan"] or
              now - previous["last_full_scan"] >= config.fingerprint_full_scan_days * DAY)
@@ -63,7 +59,7 @@ def _read_inventory(config, job, runner, now, reading):
                  cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
                  mode=config.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
     return JobInventory(files, selected_dirs, fingerprints,
-                        now if force else previous["last_full_scan"])
+                        now if force else previous["last_full_scan"], previous)
 
 
 def preflight(config, runner, now=None, *, progress=None, on_job_error=None):

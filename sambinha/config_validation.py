@@ -1,6 +1,7 @@
 """Ordered validators for global settings, jobs and destination boundaries."""
 from __future__ import annotations
 from pathlib import Path
+import math
 import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
@@ -35,7 +36,7 @@ def _validate_global(config: Config):
         raise ConfigError("fingerprint_cache deve ser booleano")
     if not isinstance(config.verification_mode, str) or config.verification_mode not in {"simple", "hash"}:
         raise ConfigError("verification_mode deve ser simple ou hash")
-    for name in ("fingerprint_full_scan_days", "transfer_workers", "batch_workers"):
+    for name in ("fingerprint_full_scan_days", "transfer_workers", "batch_workers", "recovery_index_versions"):
         if type(getattr(config, name)) is not int or getattr(config, name) < 1:
             raise ConfigError(f"{name} deve ser um inteiro positivo")
     if not isinstance(config.cronitor_url, str) or (config.cronitor_url and
@@ -68,8 +69,11 @@ def _validate_job(job: Job, seen: set[str]):
         raise ConfigError("simple exige S3 acessível sem restore; use GLACIER_IR ou batch")
     if type(job.max_bytes) is not int or job.max_bytes < 1:
         raise ConfigError("max_bytes deve ser positivo")
-    if type(job.max_files) is not int or job.max_files < 2:
-        raise ConfigError("max_files deve ser pelo menos 2")
+    for name, minimum, maximum in (("individual_batch_percent", 0, 100),
+                                   ("batch_size_alert_percent", -1, float('inf'))):
+        value = getattr(job, name)
+        if type(value) not in (int, float) or not math.isfinite(value) or not minimum < value <= maximum or name == "batch_size_alert_percent" and value < 0:
+            raise ConfigError(f"{name}: percentual fora do intervalo permitido")
     if not isinstance(job.compressor, str) or not job.compressor:
         raise ConfigError("compressor deve indicar um executável compatível com 7-Zip")
     if job.archive_format not in {"7z", "zip"}:
@@ -82,12 +86,10 @@ def _validate_job(job: Job, seen: set[str]):
             raise ConfigError("max_delete_percent deve estar entre 0 e 100")
         if type(job.deletion_min_files) is not int or job.deletion_min_files < 1:
             raise ConfigError("deletion_min_files deve ser pelo menos 1")
-    for kind in ("text", "video", "photo", "other"):
-        level, threads = getattr(job, f"compression_{kind}_level"), getattr(job, f"compression_{kind}_threads")
-        if type(level) is not int or not 0 <= level <= 9:
-            raise ConfigError(f"compression_{kind}_level deve estar entre 0 e 9")
-        if type(threads) is not int or not 1 <= threads <= 64:
-            raise ConfigError(f"compression_{kind}_threads deve estar entre 1 e 64")
+    if type(job.compression_level) is not int or not 0 <= job.compression_level <= 9:
+        raise ConfigError("compression_level deve estar entre 0 e 9")
+    if type(job.compression_threads) is not int or not 1 <= job.compression_threads <= 64:
+        raise ConfigError("compression_threads deve estar entre 1 e 64")
 
 
 def _validate_job_paths(config: Config, job: Job):

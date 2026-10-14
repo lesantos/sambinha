@@ -19,7 +19,7 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(config.deleted_days, 10)
         self.assertEqual(config.version_days, 2)
         self.assertEqual(config.jobs[0].max_bytes, 1024**3)
-        self.assertEqual(config.jobs[0].max_files, 1000)
+        self.assertEqual(config.jobs[0].compression_level, 3)
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
         self.assertEqual(config.log_retention_days, 14)
@@ -59,8 +59,8 @@ class ConfigurationTests(Sandbox):
     def test_metadata_directory_loads_relative_to_configuration_and_rejects_overlap(self):
         self.assertEqual(load(self.toml('metadata_dir="metadata"')).metadata_dir, self.root / 'metadata')
         self.assertIsNone(load(self.toml('metadata_dir=""')).metadata_dir)
-        self.assertEqual(parser().parse_args(['verify-metadata']).action, 'verify-metadata')
-        self.assertEqual(parser().parse_args(['integrity-test']).action, 'integrity-test')
+        self.assertEqual(parser().parse_args(['verify-destination-metadata']).action, 'verify-destination-metadata')
+        self.assertEqual(parser().parse_args(['verify-destination-integrity']).action, 'verify-destination-integrity')
         for value in ('source', 'destination', 'logs'):
             with self.subTest(value=value), self.assertRaises(ConfigError):
                 load(self.toml(f'metadata_dir="{value}"'))
@@ -108,11 +108,11 @@ class ConfigurationTests(Sandbox):
 
     def test_invalid_job_values(self):
         for values in ({"name": "../bad"}, {"type": "ftp"}, {"logic": "unknown"},
-                       {"storage_class": "wrong"}, {"max_bytes": 0}, {"max_files": 1},
+                       {"storage_class": "wrong"}, {"max_bytes": 0}, {"individual_batch_percent": 0},
                        {"compressor": ""}, {"archive_format": "rar"}, {"destination": ""},
                        {"max_delete": -1}, {"max_delete": True},
-                       {"compression_video_level": 10},
-                       {"compression_text_threads": 65}):
+                       {"compression_level": 10},
+                       {"compression_threads": 65}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, jobs=(replace(self.config.jobs[0], **values),)))
         batch = replace(self.config.jobs[0], logic='batch')
@@ -128,7 +128,7 @@ class ConfigurationTests(Sandbox):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, **values))
         self.assertEqual(parser().parse_args(['restore', '--job', 'test', '--output', '/tmp/restored']).action, 'restore')
-        self.assertEqual(parser().parse_args(['verify']).action, 'verify')
+        self.assertEqual(parser().parse_args(['verify-local-metadata']).action, 'verify-local-metadata')
         self.assertFalse(parser().parse_args(['--no-fingerprint-cache']).fingerprint_cache)
 
     def test_destination_and_internal_overlap(self):

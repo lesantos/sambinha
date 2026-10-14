@@ -28,21 +28,16 @@ This document consolidates the original backup requirements and all product chan
 - Default S3 storage to `GLACIER_IR`, with configurable storage classes. Document access and billing characteristics in code/examples/guides without hardcoded prices. Simple S3 backups require a class readable without asynchronous restore.
 - Store batch JSON controls and `.sambinha/control.tar.gz` in `STANDARD`, even when data archives use colder classes.
 
-## 3. Batch planning, ordering and reuse — 0.3.1
+## 3. Stable batches and manual rebalance — 0.13.0
 
-- Group new files deterministically by directory. Within the same directory, consider files by original modification time in nanoseconds, **oldest to newest**, with path as the tie breaker.
-- Give existing batches priority over rebuilding the directory from scratch. Preserve every intact compatible batch, its key, member order and stored compression, including batches made by earlier releases.
-- Minimize affected batches: only new files and members of edited, removed or incompatible batches must be repacked. An intact batch must not be changed to fill a new batch or accommodate a file inserted earlier in the sort order.
-- Respect `max_bytes`, default 1 GiB of original uncompressed bytes, and `max_files`, default 1000. A directory may span batches; small directory groups may share a batch. Archive overhead may make compressed size exceed the original-byte limit.
-- New batches must separate compression categories while preserving the oldest-first processing order within each directory. Category boundaries may produce singleton archives.
-- Prefer at least two members when limits and category permit. A preceding new batch with more than two members may lend a file to a new trailing singleton if both remain valid and use the same category. Oversized/unpairable files use individual archives.
-- Store normal archives at the nearest common ancestor as `batch-<hash>.<format>`. Individual revisions use `<directory>/.versions/<hash>/<basename-with-archive-extension>`, avoiding collisions and retaining the requested basename.
-- Preserve the source-relative directory tree inside archives. Support configurable 7-Zip-compatible compressors, with `7z` as default and `7z`/`zip` archive formats.
-- Write a JSON control next to every archive, listing original file paths, sizes, SHA-256, MD5, timestamps and permissions. Newly uploaded archives must additionally record compressed size and MD5, enabling S3 checks without downloading the archive.
-- Maintain a configurable local control mirror without retaining compressed data archives. Send a compressed recovery index containing state and controls to the destination.
-- Use temporary staging and remove it after success or failure. Validate source snapshots, archive integrity and exact member paths/sizes before upload. Commit the new index only after all required archives, controls and the recovery index are uploaded successfully.
+- Sort mixed siblings (files and directories) by mtime/name and traverse depth first. No categories or member-count limit.
+- Pack original bytes up to `max_bytes`; divert files reaching `individual_batch_percent` (default 100%) without closing the normal batch.
+- Preserve confirmed groups and member order. Growth/lower limits do not redistribute members; removal only drops that member and empty groups follow retention.
+- Every selected path occurs in one active group. Immutable revision keys and stable logical IDs coexist; controls carry original metadata, hashes when available, archive size/MD5 and individual role.
+- `rebalance` is manual and source independent; replace only oversized nonindividual groups, preserving every conforming archive. Do not merge healthy legacy groups.
+- Publish confirmed recovery generations after complete archives/controls, reconcile interrupted publication journals, and recover missing/invalid local state before planning.
 
-Acceptance: inserting an older new file must leave intact prior batch keys unchanged; editing or removing one member must not rebuild unaffected batches. Limit/format changes may replace only incompatible batches. Every selected file must occur exactly once in the active index.
+Acceptance: edits/deletions leave neighbor groups intact; interleaved large files do not fragment normal groups; growth never rebalances automatically; manual rebalance changes the minimum required existing groups; exact path coverage without duplicates. See [full rules and migration](batch-lifecycle.md).
 
 ## 4. Restore command — selected functionality 1 / 0.4.0
 
@@ -50,7 +45,7 @@ Acceptance: inserting an older new file must leave intact prior batch keys uncha
 - Accept repeatable literal source-relative `--path` selections and a required `--output` for simple and batch jobs. Simple jobs select current destination files/directories; batch jobs reject paths absent from the active index.
 - Require a new or empty output directory separate from sources, backups, state and logs. Do not overwrite existing files or follow output symlinks.
 - Stage the selected content and verify original size, SHA-256 and MD5 before publishing requested files. Restore ordinary permission bits and modification timestamps, without privileged mode bits.
-- Work even when the original source is unavailable. Simple recovery requires its local index. Batch recovery may recover a missing index from `.sambinha/control.tar.gz`, reading only one regular `state.json` member limited to 64 MiB without arbitrary tar extraction.
+- Work even when the original source is unavailable. Simple restore needs no batch index. Batch recovery uses validated confirmed generations or the legacy index, bounding metadata reads without arbitrary tar extraction.
 - S3 **restoration** may download selected objects; selecting one file from an archive downloads that archive. Document retrieval costs and the need for prior AWS restore for `GLACIER`/`DEEP_ARCHIVE`.
 - Restore the active revision through this command. Earlier historical versions remain recoverable manually through controls and history paths.
 - Simulation must report selected file count/bytes without downloading selected content or creating the restore output. If a missing batch index must be recovered for selection, that recovery-index download belongs to restoration, not integrity verification.
@@ -58,19 +53,14 @@ Acceptance: inserting an older new file must leave intact prior batch keys uncha
 
 Acceptance: restore binary and Unicode files byte-exactly, including selections and lost-source recovery; corruption must fail before requested output files are published, and existing output data must remain intact.
 
-## 5. Integrity verification — selected functionality 2 / 0.4.0
+## 5. Independent verification commands
 
-- Provide `sambinha verify` for immediate checking, plus configurable periodic checks through `verify_interval_days`.
-- Local simple verification must read and hash destination files. Local batch verification must validate recorded archive checksums when available, test the archive and verify extracted members against original metadata.
-- S3 verification must use **only object metadata**, comparing size and whole-object MD5 with the local index. For batches, check both data archives and JSON controls.
-- **Never download S3 object bodies, archives, JSON controls or recovery indexes as part of verification**, including error paths. Never request a Glacier restore to complete a check. Metadata API requests may still incur charges.
-- Do not treat a multipart ETag as a whole-object MD5. Use the checksum supplied by rclone's S3 metadata interface; an unavailable required checksum must produce an explicit error.
-- Require the local index for S3 verification. Legacy archives without recorded upload size/checksum must fail explicitly, without download fallback or automatic rebuilding of intact archives just to establish a baseline.
-- State the limitation: metadata verification does not decompress archived members or prove their extraction against an adversarially modified index.
-- Keep automatic checks disabled by default (`verify_interval_days = 0`) for compatibility. With a positive interval, check after successful backups when due; the first enabled execution must check immediately. This schedule depends on backup executions and does not install a separate timer.
-- Update `last_verified` only after a successful periodic check. Failure must return error, retain the previous successful timestamp and notify Cronitor when configured. Manual verification does not update the periodic timestamp. Simulation must report planned verification without checking content or downloading objects.
+- `verify-local-metadata`: compare source paths/size/time with local JSON controls, without archive reads or S3 requests; report `needs_update`. Lowering the size limit does not request rebuilds.
+- `verify-destination-metadata`: compare complete JSON controls and destination archive sizes; may download controls/recovery metadata, never archive bodies.
+- `verify-destination-integrity`: list/test archives through 7-Zip without extraction. Download/delete S3 archives one at a time; Glacier/Deep Archive require prior availability.
+- Simple jobs use rclone check. `verify_interval_days` schedules only the local check after successful batch backups; update `last_verified` only on success. No verification command rebalances.
 
-Acceptance: run real rclone against an HTTP server allowing HEAD and rejecting GET; S3 verification must succeed using metadata without requesting object bodies. Missing local state, legacy checksums, corruption or unavailable hashes must fail without downloads.
+Acceptance: distinguish metadata from content, account for archive timestamp precision, never initiate Glacier restore automatically and preserve state on error.
 
 ## 6. Protection against mass removals — selected functionality 3 / 0.4.0
 
@@ -135,19 +125,12 @@ All six improvements were selected for implementation, in priority order P1 thro
 
 The fingerprint cache assumes trustworthy filesystem metadata; periodic full scans remain necessary. Worker/thread choices affect CPU, memory and staging space. Validate reductions in reads/process calls and bounded concurrency; do not promise a fixed production speedup without workload measurements.
 
-## 11. Separate text, video, photo and other compression profiles
+## 11. Uniform compression and batch growth alerts — 0.13.0
 
-| Category | Typical files | Level setting/default | Thread setting/default |
-| --- | --- | --- | --- |
-| Text | `.md`, `.txt`, structured text/source code and extensionless README/LICENSE | `compression_text_level = 3` | `compression_text_threads = 2` |
-| Video | `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm` | `compression_video_level = 0` | `compression_video_threads = 1` |
-| Photo | `.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.tiff`, `.raw`, `.dng` | `compression_photo_level = 1` | `compression_photo_threads = 1` |
-| Other | Names/extensions outside the built-in categories | `compression_other_level = 3` | `compression_other_threads = 2` |
-
-- Classify case-insensitive extensions and known extensionless documentation names; do not assume content inspection.
-- Allow levels 0–9 and threads 1–64 per archive. Level 0 packages without compression; higher levels spend more effort. Actual thread use depends on the compressor's format/algorithm.
-- Keep the within-directory oldest-first processing order. A new category boundary starts a new batch and may create singletons; compatible intact legacy archives remain intact even if they mix categories.
-- Document the balance between compression time, uploaded bytes and storage cost, especially for already compressed media. Allow each category's settings to be adjusted independently.
+- `compression_level = 3` (0–9) and `compression_threads = 2` (1–64) apply to every type on create/rebuild. Remove category options and max_files from configuration.
+- `batch_size_alert_percent = 200` alerts inclusively on original bytes as a percentage of max_bytes; 0 disables. Exclude single-member archives.
+- Aggregate growth alerts into final Cronitor failure only after jobs finish; do not interrupt or change successful operational exit 0, and do not emit complete afterward. Operational errors remain nonzero.
+- Restore/rebalance are source independent. Bootstrap validates recovery generations before backup mutation; metadata generations do not replace data retention/copies.
 
 ## 12. Bilingual documentation — 0.6.0
 
@@ -230,3 +213,8 @@ Select file and terminal log levels independently; default to errors and summari
 Skip the destination data scan on native exFAT/FAT only when all mounts below the destination also lack link support. Always validate roots without following links; unknown filesystems and link-capable nested mounts retain the scan.
 
 The destination-link rule supersedes the destination behavior in section 17: replace conflicting data links with regular files/directories without following or copying their targets, and ignore links without conflicts. For local simple sync, inspect destination entries only within real directories shared with the source, then apply native exclusions to found conflicts; do not build a full source inventory. For batch writes, prepare exact archive/control paths without following directory components, and rebuild indexed archives/control files that became links. Dry runs never replace links. Update the two formerly deferred destination-link tests and remove their unconditional skips; cover broken links, file/directory conflicts, unchanged targets, exclusions, late-created links and metadata-root protection.
+
+
+## Batches and recovery in 0.13.0
+
+See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

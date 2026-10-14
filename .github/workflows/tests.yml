@@ -27,7 +27,6 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y rclone p7zip-full
       - run: python -m pip install -e . -r requirements-test.txt
       - run: python -m coverage run --branch -m unittest discover -v
-      - run: python -m coverage report --include='sambinha/*' --fail-under=85
-      - run: python -m unittest tests.test_s3_http -v
         env:
           SAMBINHA_HTTP_S3_TESTS: '1'
+      - run: python -m coverage report --include='sambinha/*' --fail-under=85

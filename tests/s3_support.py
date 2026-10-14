@@ -27,6 +27,14 @@ class MotoRunner(Runner):
         return bucket, key
 
     def run(self, args, **kwargs):
+        try:
+            return self._transport(args, **kwargs)
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            message = 'object not found' if code in {'404', 'NoSuchKey', 'NotFound'} else code
+            raise BackupError(f'rclone S3: {message}') from exc
+
+    def _transport(self, args, **kwargs):
         if args[0] != 'rclone':
             return super().run(args, **kwargs)
         self.commands.append(list(args))

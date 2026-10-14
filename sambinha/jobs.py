@@ -26,12 +26,19 @@ class JobExecution:
     clock: Callable[[], float]
     allow_mass_deletion: bool
     strategies: Mapping[str, Callable[[Context], None]]
+    rebalancing: bool = False
     context: Context | None = field(default=None, init=False)
 
     def execute(self):
         """Finish this job before any later job inspects its source or rules."""
         with frozen_rules(replace(self.config, jobs=(self.job,))) as effective:
             self.job = effective.jobs[0]
+            if self.rebalancing:
+                from .rebalance import execute
+                self.context = execute(effective, self.job, self.runner, self.log, self.progress,
+                                       self.forecast, self.clock(),
+                                       on_context=lambda ctx: setattr(self, "context", ctx))
+                return
             inventories = preflight(effective, self.runner, self.clock(), progress=self.progress.scope(0, 0.2))
             if self.job.logic == "simple":
                 simple(effective, self.job, self.runner, self.log, self.clock(), self.progress,
@@ -41,7 +48,7 @@ class JobExecution:
 
     def _execute_batch(self, effective: Config, inventory: JobInventory):
         ctx = Context(effective, self.job, self.runner, self.log, inventory.files, self.clock(),
-                      selected_dirs=inventory.selected_dirs, forecast=self.forecast,
+                      selected_dirs=inventory.selected_dirs, forecast=self.forecast, state=inventory.previous,
                       progress=self.progress.scope(0.2, 0.9))
         self.context = ctx
         cached_inventory = inventory.fingerprints if self.config.fingerprint_cache else {}
@@ -64,13 +71,13 @@ class JobExecution:
         if not due:
             return
         if self.config.dry_run:
-            ctx.event("would_verify", mode="s3_metadata" if ctx.job.type == "s3" else "contents")
+            ctx.event("would_verify", mode="source_metadata")
             return
-        from .recovery import verify_job
+        from .recovery import verify_local_metadata_job
 
         checking = self.progress.scope(0.9, 1)
         show_progress(self.runner, checking)
-        verify_job(effective, ctx.job, self.runner, self.log, ctx.state, progress=checking)
+        verify_local_metadata_job(effective, ctx.job, self.runner, self.log, ctx.state, progress=checking)
         verified = copy.deepcopy(ctx.state)
         verified["last_verified"] = ctx.now
         ctx.state = verified

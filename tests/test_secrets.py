@@ -227,6 +227,23 @@ class SecretsConfigurationTests(Sandbox):
             runner.require(["rclone"])
         lookup.assert_called_once_with("rclone", path="/private/bin")
 
+    def test_command_environment_overrides_are_scoped_and_preserve_other_values(self):
+        script = 'import os,json; print(json.dumps([os.environ["TZ"],os.environ["SAMBINHA_TEST_VALUE"]]))'
+        for explicit in (False, True):
+            for streaming in (False, True):
+                with self.subTest(explicit=explicit, streaming=streaming), \
+                     patch.dict(os.environ, {'TZ': 'America/Sao_Paulo', 'SAMBINHA_TEST_VALUE': 'inherited'}):
+                    environment = {**os.environ, 'SAMBINHA_TEST_VALUE': 'configured'} if explicit else None
+                    runner = Runner(env=environment)
+                    before = dict(os.environ)
+                    result = runner.run([sys.executable, '-c', script], env={'TZ': 'UTC'},
+                                        on_output=(lambda record: None) if streaming else None)
+                    output = runner.last_stderr if streaming else result
+                    self.assertEqual(json.loads(output), ['UTC', 'configured' if explicit else 'inherited'])
+                    self.assertEqual(dict(os.environ), before)
+                    if explicit:
+                        self.assertEqual(runner.env['TZ'], 'America/Sao_Paulo')
+
     def test_private_environment_without_path_uses_os_default_lookup(self):
         with patch.dict(os.environ, {'PATH': '/parent-only'}), patch('shutil.which', return_value='/bin/rclone') as lookup:
             Runner(env={}).require(['rclone'])

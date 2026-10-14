@@ -1,4 +1,4 @@
-"""Recovery action orchestration with stable restore/verify entry points."""
+"""Recovery action orchestration for restoration and metadata/integrity checks."""
 from contextlib import nullcontext
 import tarfile
 
@@ -11,7 +11,8 @@ from .progress import Progress
 from .recovery_index import read_index as read_index
 from .restore import matches as matches, restore_job as restore_job, validate_output as validate_output
 from .state import identity as identity, indexed_files as indexed_files, lock
-from .verification import integrity_job, verify_job as verify_job, verify_metadata_job
+from .verification import (verify_destination_integrity_job, verify_destination_metadata_job,
+                           verify_local_metadata_job)
 
 
 def recover(config, action, *, output=None, selectors=(), runner=None, notifier=None):
@@ -37,18 +38,21 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
             for job in config.jobs:
                 try:
                     runner.require([job.compressor] if job.logic == "batch"
-                                   and action in {"restore", "integrity-test"} else [])
-                    if action != "verify" or job.logic == "simple":
+                                   and action in {"restore", "verify-destination-integrity"} else [])
+                    if action != "verify-local-metadata" or job.logic == "simple":
                         check_disks(job, lambda event, **values: log.event(event, job=job.name, **values),
                                     temporary_path=output if action == "restore" else None,
-                                    check_temporary=action == "restore" or (action == "integrity-test" and job.type == "s3"))
+                                    check_source=action == "verify-local-metadata",
+                                    check_temporary=action == "restore" or
+                                    (action == "verify-destination-integrity" and job.type == "s3"))
                     if action == "restore":
                         restore_job(config, job, runner, log, output, selectors)
                     elif config.dry_run:
                         log.event("would_verify", job=job.name, action=action)
                     else:
-                        activities = {"verify": verify_job, "verify-metadata": verify_metadata_job,
-                                      "integrity-test": integrity_job}
+                        activities = {"verify-local-metadata": verify_local_metadata_job,
+                                      "verify-destination-metadata": verify_destination_metadata_job,
+                                      "verify-destination-integrity": verify_destination_integrity_job}
                         activities[action](config, job, runner, log, progress=progress)
                 except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
                     failed = True

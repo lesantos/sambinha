@@ -26,8 +26,8 @@ def check_disk(path, label, event=None):
         raise BackupError(f"Disco de {label} com ocupação de {percent:.2f}%, acima de 95%: {directory}")
 
 
-def check_disks(job, event=None, *, temporary_path=None, check_temporary=True):
-    if job.check_source_disk:
+def check_disks(job, event=None, *, temporary_path=None, check_temporary=True, check_source=True):
+    if check_source and job.check_source_disk:
         check_disk(job.source, "origem", event)
     if job.type == "local" and job.check_destination_disk:
         check_disk(job.destination, "destino", event)

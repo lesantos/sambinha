@@ -21,7 +21,7 @@ from tests.helpers import REAL_TOOLS, Sandbox, contents
 class IndependentJobTests(Sandbox):
     def verify(self, config):
         with redirect_stdout(io.StringIO()) as output:
-            result = recover(config, 'verify')
+            result = recover(config, 'verify-local-metadata')
         self.assertEqual(result, 0, output.getvalue())
 
     def chain(self, base, mode='hash', logic='simple'):
@@ -214,7 +214,6 @@ class IndependentJobTests(Sandbox):
                 first, second = config.jobs
                 destination = Path(first.destination)
                 destination.mkdir(parents=True)
-                (destination / 'unmanaged').write_bytes(b'old')
                 second = replace(second, source=destination)
                 config = replace(config, jobs=(first, second))
                 if separate:

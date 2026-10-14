@@ -1,6 +1,21 @@
-# Resultados dos testes do Sambinha 0.12.0
+# Resultados dos testes do Sambinha 0.13.0
 
 [English](test-results.md)
+
+## Validação da 0.13.0
+
+Em 2026-10-14, Linux/Python 3.12.3, a suíte completa com HTTP S3 habilitado passou **425/425 testes em 961,016 s, sem falhas ou skips**, com **94% de cobertura incluindo branches**. Depois da revisão final, **58 testes focados passaram**, incluindo quatro regressões novas: retenção de histórico excluído durante rebalanceamento sem origem e três limites do produtor de índices. A revisão reproduziu as falhas antes das correções.
+
+A cobertura inclui DFS por data com irmãos mistos, compressão única, desvio de arquivos grandes, ausência de limite de quantidade, estabilidade após crescimento/remoção, alertas finais sem interromper jobs, rebalanceamento mínimo sem origem, migração de schema, perda/corrupção de estado/destino, índices legados, fallback, publicação interrompida, limites de metadados, relógio recuando e retenção de gerações. O planner implementado reproduziu a simulação de 31.909 arquivos/19.291.846.150 bytes em 14 lotes, sem escrever nos backups reais.
+
+O CI executa a coleção completa com `SAMBINHA_HTTP_S3_TESTS=1` e exige cobertura >=85%. O release só é publicado após CI verde no commit candidato. Consulte a [execução do workflow](https://github.com/lesantos/sambinha/actions/workflows/tests.yml) para o resultado integral do commit final, incluindo as regressões adicionadas após a rodada local inicial.
+
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
+.venv/bin/python -m coverage report --include='sambinha/*' --fail-under=85
+```
+
+Os registros abaixo são históricos das versões anteriores.
 
 ## Validação da 0.12.0
 
@@ -171,3 +186,8 @@ sambinha/storage.py        103     12     38      3    88%   75-76, 81-82, 83->8
 --------------------------------------------------------------------
 TOTAL                     1965     85    794     71    94%
 ```
+
+
+## Lotes e recuperação na versão 0.13.0
+
+Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

@@ -10,7 +10,8 @@ from .storage import Storage
 class Context:
     """Per-job state, metrics, deletion guards and retention for batch strategies."""
 
-    def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None, progress=None):
+    def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None, progress=None,
+                 state=None, rebalancing=False):
         self.config, self.job, self.runner, self.log = config, job, runner, log
         self.files, self.now = files, now
         self.selection = Selection(job.exclude_files, config, runner,
@@ -18,12 +19,14 @@ class Context:
         self.selected_dirs = selected_dirs
         self.forecast = forecast
         self.progress = progress
-        self.storage = Storage(job, config, runner)
+        self.rebalancing = rebalancing
+        self.source = job.source
+        self.storage = Storage(job, config, runner, source_required=not rebalancing)
         self.directory = config.state_dir / job.name
         self.controls_directory = control_directory(config, job)
         self.state_path = self.directory / "state.json"
         self.identity = identity(job)
-        self.state = load_state(self.state_path, self.identity)
+        self.state = load_state(self.state_path, self.identity) if state is None else state
         if not config.dry_run:
             prepare_controls(config, job, self.state)
         self.metrics = {"reused_batches": 0, "rebuilt_batches": 0,

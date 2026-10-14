@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.12.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.13.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
@@ -46,7 +46,7 @@ continue_on_job_error = true
 ```bash
 .venv/bin/sambinha --config sambinha.toml --dry-run
 .venv/bin/sambinha --config sambinha.toml
-.venv/bin/sambinha verify --config sambinha.toml --job documents
+.venv/bin/sambinha verify-local-metadata --config sambinha.toml --job documents
 .venv/bin/sambinha restore --config sambinha.toml --job documents --output /mnt/recovered
 ```
 
@@ -54,7 +54,7 @@ A simulação executa `rclone sync --dry-run` e grava um log sem alterar os dado
 
 ## Comportamento essencial
 
-- **Armazenamento e verificação:** `logic = "simple"` delega a sincronização da árvore e as exclusões ao rclone; `"batch"` cria arquivos compactados com índice. `sambinha verify` usa `rclone check` nos jobs simples; em batch, `verify` compara tamanho/data da origem com JSONs locais. `verify-metadata` e `integrity-test` conferem separadamente as cópias e a integridade. Veja [checagens dos lotes](docs/batch-checks.pt-BR.md).
+- **Armazenamento e verificação:** `logic = "simple"` delega a sincronização da árvore e as exclusões ao rclone; `"batch"` cria arquivos compactados com índice. `sambinha verify-local-metadata` usa `rclone check` nos jobs simples; em batch, `verify-local-metadata` compara tamanho/data da origem com JSONs locais. `verify-destination-metadata` e `verify-destination-integrity` conferem separadamente as cópias e a integridade. Veja [checagens dos lotes](docs/batch-checks.pt-BR.md).
 - **Links simbólicos:** links na origem são ignorados e nunca recriados no destino. Links conflitantes no destino são substituídos por arquivos/diretórios reais sem alterar seus alvos; links sem conflito ficam intactos. [Decisão e limites](docs/usage.pt-BR.md#links-simbólicos).
 - **Retenção:** históricos dos jobs simples em `.sambinha/history/<id-da-execução>` expiram pelo maior valor entre `deleted_days` e `version_days`; jobs batch mantêm prazos separados para exclusões e versões. Logs mantêm 14 dias; `log_retention_days = 0` desativa a limpeza.
 - **Jobs:** executam sequencialmente. Cada job tem `continue_on_job_error = true` por padrão; use `false` para interromper quando esse job falhar. Qualquer falha deixa o código de saída diferente de zero, e os erros identificam o job.
@@ -69,3 +69,8 @@ A simulação executa `rclone sync --dry-run` e grava um log sem alterar os dado
 - [Performance e perfis de compactação/threads](docs/performance.pt-BR.md)
 - [Configuração S3 e classes de armazenamento](docs/s3.pt-BR.md) · [Credenciais e segurança](SECURITY.pt-BR.md)
 - [Histórico de versões](CHANGELOG.pt-BR.md) · [Testes](docs/test-results.pt-BR.md) · [Arquitetura](docs/architecture.pt-BR.md)
+
+
+## Lotes e recuperação na versão 0.13.0
+
+Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](docs/batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

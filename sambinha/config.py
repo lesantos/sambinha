@@ -21,7 +21,8 @@ class Job:
     logic: str = "simple"
     storage_class: str = "GLACIER_IR"
     max_bytes: int = 1024 ** 3
-    max_files: int = 1000
+    individual_batch_percent: float = 100
+    batch_size_alert_percent: float = 200
     compressor: str = "7z"
     archive_format: str = "7z"
     exclude_files: Path | None = None
@@ -33,14 +34,8 @@ class Job:
     check_source_disk: bool = True
     check_destination_disk: bool = True
     continue_on_job_error: bool = True
-    compression_text_level: int = 3
-    compression_text_threads: int = 2
-    compression_video_level: int = 0
-    compression_video_threads: int = 1
-    compression_photo_level: int = 1
-    compression_photo_threads: int = 1
-    compression_other_level: int = 3
-    compression_other_threads: int = 2
+    compression_level: int = 3
+    compression_threads: int = 2
 
 
 @dataclass(frozen=True)
@@ -68,6 +63,7 @@ class Config:
     metadata_dir: Path | None = None
     log_file_level: str = "summary"
     log_terminal_level: str = "summary"
+    recovery_index_versions: int = 3
 
 
 def local_path(value, base, environment=None):

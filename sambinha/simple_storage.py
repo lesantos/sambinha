@@ -116,7 +116,7 @@ class SimpleStorageMixin:
         if not selectors:
             self.command("copy", self.job.destination, output, "--create-empty-src-dirs",
                          *metadata_flags(output),
-                         *filters, retry=True, progress_directory=str(self.job.destination))
+                         *filters, retry=True, source_required=False, progress_directory=str(self.job.destination))
             return
         chosen = []
         for selector in sorted({safe_relative(value.rstrip("/")) for value in selectors},
@@ -136,7 +136,7 @@ class SimpleStorageMixin:
             if item["IsDir"]:
                 self.command("copy", self.path(selector), target, "--create-empty-src-dirs",
                              *metadata_flags(target),
-                             *filters, retry=True, progress_directory=self.path(selector))
+                             *filters, retry=True, source_required=False, progress_directory=self.path(selector))
             else:
                 # copyto addresses one exact file; rclone rejects directory
                 # filters on that command. Validate exclusions before calling it.
@@ -145,4 +145,4 @@ class SimpleStorageMixin:
                     if selector not in selected.include_paths({selector}):
                         raise BackupError(f"Caminho solicitado está excluído: {selector}")
                 self.command("copyto", self.path(selector), target, *metadata_flags(target),
-                             retry=True, progress_directory=str(Path(output) / Path(selector).parent))
+                             retry=True, source_required=False, progress_directory=str(Path(output) / Path(selector).parent))

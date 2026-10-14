@@ -82,7 +82,7 @@ class FilteringTests(Sandbox):
         excluded = self.file('skip.tmp', b'excluded')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         # Model an older mixed-profile lot, which must remain protected.
-        with patch('sambinha.strategies.batch.category', return_value='other'):
+        with self.subTest(compression='uniform'):
             self.assertEqual(self.execute(), 0)
         old_keys = list(self.state()['active'])
         self.exclude('*.tmp\n', logic='batch')

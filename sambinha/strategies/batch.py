@@ -3,17 +3,17 @@ from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 from pathlib import Path
-import tarfile
 import tempfile
 
 from ..archives import compress
 from ..batches import plan
 from ..context import Context
 from ..disks import check_disks
+from ..errors import BackupError
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
 from ..process import show_progress
-from ..profiles import category, settings
+from ..profiles import settings
 from ..protection import protect_newer
 from ..retention import retirement
 from ..state import atomic_json
@@ -21,21 +21,8 @@ from ..storage import Storage
 
 
 def upload_index(ctx, state):
-    # The recovery archive includes the index AND all active/retired controls.
-    # Index files always use STANDARD, allowing recovery without Glacier restore.
-    with tempfile.TemporaryDirectory(prefix="sambinha-index-") as temp:
-        work = Path(temp)
-        recovery_state = {k: v for k, v in state.items() if k != "index_pending"}
-        atomic_json(work / "state.json", recovery_state)
-        archive = work / "control.tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(work / "state.json", arcname="state.json")
-            controls = ctx.controls_directory
-            if controls.exists():
-                tar.add(controls, arcname="controls",
-                        filter=lambda member: None if member.name == "controls/.index.json" else member)
-        transferred = ctx.storage.put(archive, ".sambinha/control.tar.gz", standard=True)
-        ctx.event("transferred" if transferred else "identical", path=".sambinha/control.tar.gz")
+    from ..index_generations import publish
+    publish(ctx, state)
 
 
 def upload_batch(ctx, item):
@@ -44,9 +31,9 @@ def upload_batch(ctx, item):
     worker.runner = copy.copy(ctx.runner)
     worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
     show_progress(worker.runner, worker.progress)
-    worker.storage = Storage(ctx.job, ctx.config, worker.runner)
+    worker.storage = Storage(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
     with tempfile.TemporaryDirectory(prefix="sambinha-batch-") as temp:
-        check_disks(ctx.job)
+        check_disks(ctx.job, check_source=not ctx.rebalancing)
         archive = compress(worker, item, Path(temp))
         compressed = fingerprint(Path(temp), archive.name)
         control = item.control()
@@ -75,15 +62,15 @@ def _plan_batches(ctx):
     next_state = copy.deepcopy(ctx.state)
     old = {}
     selected = ctx.selection.include_paths(f["path"] for c in confirmed.values() for f in c["files"])
-    next_state["excluded"] = {}
-    for key, control in confirmed.items():
-        if any(f["path"] not in selected for f in control["files"]):
+    next_state["excluded"] = {} if not ctx.rebalancing else next_state.get("excluded", {})
+    for key, control in (ctx.state["active"] if ctx.rebalancing else confirmed).items():
+        if not ctx.rebalancing and any(f["path"] not in selected for f in control["files"]):
             next_state["excluded"][key] = control
             ctx.event("excluded_batch", archive=key, files=[f["path"] for f in control["files"]])
         else:
             old[key] = control
-    batches = plan(ctx.files, ctx.job.max_bytes, ctx.job.max_files,
-                   ctx.job.archive_format, previous=old, category=category)
+    batches = plan(ctx.files, ctx.job.max_bytes, extension=ctx.job.archive_format, previous=old,
+                   individual_percent=ctx.job.individual_batch_percent, rebalance=ctx.rebalancing)
     active = {b.key: b.control() for b in batches}
     current_files = {f.path: f.metadata() for f in ctx.files}
     # Content-addressed archive keys allow old lots to remain in place, avoiding
@@ -94,7 +81,7 @@ def _plan_batches(ctx):
         deleted = any(f["path"] not in current_files for f in control["files"])
         changed = any(f["path"] in current_files and current_files[f["path"]] != f for f in control["files"])
         days = max(ctx.config.deleted_days if deleted else 0,
-                   ctx.config.version_days if changed else 0)
+                   ctx.config.version_days if changed or ctx.rebalancing else 0)
         entry = retirement(key, [f["path"] for f in control["files"]],
                            "deleted" if deleted else "version", ctx.now, days, key + ".json")
         next_state["retired"].append(entry)
@@ -105,9 +92,39 @@ def _plan_batches(ctx):
     return batches, old, active, next_state
 
 
+def _available(ctx, item, control, entries=None):
+    """Repair a missing control without overwriting a healthy immutable archive."""
+    if ctx.job.type == 'local':
+        if path_has_symlink(ctx.job.destination, item.key):
+            return False
+        archive = Path(ctx.job.destination) / item.key
+        if not archive.is_file():
+            return False
+        size = archive.stat().st_size
+        control_path = Path(ctx.job.destination) / (item.key + '.json')
+        has_control = control_path.is_file() and not path_has_symlink(ctx.job.destination, item.key + '.json')
+    else:
+        if item.key not in entries:
+            return False
+        size = entries[item.key]
+        has_control = item.key + '.json' in entries
+    if 'archive_size' in control and size != control['archive_size']:
+        return False
+    if not has_control:
+        ctx.event('would_repair_control' if ctx.config.dry_run else 'repair_control', path=item.key + '.json')
+        if not ctx.config.dry_run:
+            with tempfile.TemporaryDirectory(prefix='sambinha-control-') as temp:
+                path = Path(temp) / 'control.json'
+                atomic_json(path, control)
+                ctx.storage.put(path, item.key + '.json', standard=True)
+    return True
+
+
 def _pending_uploads(ctx, batches, old, active):
     retired_keys = {entry["key"] for entry in ctx.state["retired"]}
     pending = []
+    from ..index_generations import listing
+    entries = listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys) else None
     for item in batches:
         mirror = ctx.controls_directory / (item.key + ".json")
         saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None
@@ -115,10 +132,8 @@ def _pending_uploads(ctx, batches, old, active):
                                                      for k in ("schema", "archive", "files"))
         if reusable:
             active[item.key] = saved_control
-        destination_link = (ctx.job.type == "local" and
-                            any(path_has_symlink(ctx.job.destination, key)
-                                for key in (item.key, item.key + ".json")))
-        if (item.key in old or reusable) and not destination_link:
+        available = (item.key in old or reusable) and _available(ctx, item, active[item.key], entries)
+        if available:
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
             continue
@@ -162,7 +177,8 @@ def batch(ctx: Context):
         ctx.expire()
         ctx.event("would_transfer", path=".sambinha/control.tar.gz")
         return
-    verify(ctx.job.source, ctx.files, mode=ctx.config.verification_mode,
+    verifying = [f for item in pending for f in item.files] if ctx.rebalancing else ctx.files
+    verify(ctx.source, verifying, mode=ctx.config.verification_mode,
            progress=ctx.progress.scope(0.85, 0.9) if ctx.progress else None)
     show_progress(ctx.runner, ctx.progress.scope(0.9, 1) if ctx.progress else None)
     # Publish the recovery index before the local commit. If upload fails, the
@@ -171,6 +187,8 @@ def batch(ctx: Context):
     next_state.pop("index_pending", None)
     ctx.state = next_state
     ctx.save()
+    from ..index_generations import finish
+    finish(ctx)
     before_cleanup = copy.deepcopy(ctx.state)
     ctx.expire()
     if ctx.state != before_cleanup:
@@ -181,3 +199,4 @@ def batch(ctx: Context):
         upload_index(ctx, ctx.state)
         ctx.state.pop("index_pending", None)
         ctx.save()
+        finish(ctx)

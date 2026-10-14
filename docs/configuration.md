@@ -2,13 +2,13 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.12.0**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.0**.
 
 ## How it protects your files
 
 **Simple backups** keep the original names and directory tree. **Batch backups** use 7-Zip to package files into immutable archives, reducing the number of objects stored in S3. Each archive has a JSON control file listing its original files and metadata. Both strategies support local and S3 destinations, and one source can have multiple independent backup jobs.
 
-New batches visit directories deterministically and sort files within each directory by modification time, oldest first, then by path for ties. New batches separate text, video, photo and other compression profiles without changing that time order. Existing intact batches keep their keys and member order, including archives from older versions. Only new files and members of affected or incompatible batches are repacked. Preserve the local index so intact batches can be reused without remote listings or uploads.
+New batches use depth-first traversal with files/subdirectories sorted together by mtime (oldest first, ties by name). Divert large files without closing the normal batch. There are no category or member-count boundaries. Confirmed membership stays stable through edits, growth and removals; only manual rebalance redistributes oversized groups. See [stable batches and recovery](batch-lifecycle.md).
 
 Batch jobs report an error before replacing files newer at the destination. Simple jobs pass `--update` to rclone, which preserves destination files it considers newer. Independent jobs continue after a job failure.
 
@@ -164,22 +164,22 @@ Restoration from S3 **downloads the selected objects** and can incur retrieval c
 ## Independent batch checks
 
 ```bash
-sambinha verify --job documents-s3          # Daily source size/time against local JSONs
-sambinha verify-metadata --job documents-s3 # Monthly JSON replica/size check
-sambinha integrity-test --job documents-s3  # Manual 7-Zip integrity test
+sambinha verify-local-metadata --job documents-s3         # Daily source size/time against local JSONs
+sambinha verify-destination-metadata --job documents-s3   # Monthly JSON replica/size check
+sambinha verify-destination-integrity --job documents-s3                # Manual 7-Zip integrity test
 ```
 
-For batch jobs, `verify` uses the current source and local JSON mirrors, without reading archives, calculating hashes or contacting S3. It reports `needs_update` and new/changed/deleted files and affected batches; run `backup` to apply updates. A successful check returns 0 even when updates are needed. `metadata_dir = "./metadata"` keeps mirrors beside state/logs; an omitted/empty setting preserves `state/JOB/controls`. Unchanged JSONs are not re-uploaded.
+For batch jobs, `verify-local-metadata` uses the current source and local JSON mirrors, without reading archives, calculating hashes or contacting S3. It reports `needs_update` and new/changed/deleted files and affected batches; run `backup` to apply updates. A successful check returns 0 even when updates are needed. `metadata_dir = "./metadata"` keeps mirrors beside state/logs; an omitted/empty setting preserves `state/JOB/controls`. Unchanged JSONs are not re-uploaded.
 
-`verify-metadata` compares the complete known local/destination JSONs and archive size metadata. Remote controls and the recovery index are uploaded in STANDARD regardless of archive class. Only these metadata files are downloaded, never archive bodies. A missing local state/catalog can be rebuilt from the recovery index. Bucket lifecycle rules must keep metadata immediately accessible.
+`verify-destination-metadata` compares the complete known local/destination JSONs and archive size metadata. Remote controls and the recovery index are uploaded in STANDARD regardless of archive class. Only these metadata files are downloaded, never archive bodies. A missing local state/catalog can be rebuilt from the recovery index. Bucket lifecycle rules must keep metadata immediately accessible.
 
-`integrity-test` separately compares archive listings and runs `7z t`, without MD5/SHA comparisons or extracted files on disk. Local archives are read in place; S3 archives are downloaded/deleted one at a time and Glacier/Deep Archive need prior AWS restore. 7z/ZIP-NTFS dates retain 100 ns; legacy ZIP dates can retain one/two seconds. This accepted precision loss is accounted for in archive comparisons; JSONs preserve the original `mtime_ns`.
+`verify-destination-integrity` separately compares archive listings and runs `7z t`, without MD5/SHA comparisons or extracted files on disk. Local archives are read in place; S3 archives are downloaded/deleted one at a time and Glacier/Deep Archive need prior AWS restore. 7z/ZIP-NTFS dates retain 100 ns; legacy ZIP dates can retain one/two seconds. This accepted precision loss is accounted for in archive comparisons; JSONs preserve the original `mtime_ns`.
 
-`verify_interval_days` optionally schedules the lightweight local check after successful batch backups; 0 disables it. Integrity testing is manual. Simple `verify` continues using `rclone check`. See [batch activities and publication guarantees](batch-checks.md) for cache migration, scheduling, failure recovery and disk requirements.
+`verify_interval_days` optionally schedules the lightweight local check after successful batch backups; 0 disables it. Integrity testing is manual. Simple `verify-local-metadata` continues using `rclone check`. See [batch activities and publication guarantees](batch-checks.md) for cache migration, scheduling, failure recovery and disk requirements.
 
 ## Performance settings and separate file profiles
 
-Performance settings provide fingerprint caching for batch inventories, native simple-job syncs with bounded rclone transfers, limited concurrent batch compression/uploads and per-category compression levels and threads. Simple jobs do not build a separate recursive inventory.
+Performance settings provide fingerprint caching for batch inventories, native simple-job syncs with bounded rclone transfers, limited concurrent batch compression/uploads and a uniform compression level and thread count. Simple jobs do not build a separate recursive inventory.
 
 ```toml
 [backup]
@@ -193,14 +193,10 @@ name = "media"
 source = "~/Files"
 destination = "/mnt/backup/media"
 logic = "batch"
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
+compression_level = 3
+compression_threads = 2
+individual_batch_percent = 100
+batch_size_alert_percent = 200
 ```
 
 Fingerprint settings apply to batch inventories. `transfer_workers` controls concurrent rclone transfers in simple jobs. `max_delete` is an absolute per-job cap; `--allow-mass-deletion` bypasses it for one run. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](performance.md).
@@ -284,3 +280,8 @@ Review these interactions when sharing paths:
 Deletion-alert counts are independent per job, so combining commands does not change the threshold. Jobs with identical sources now perform independent scans, which can cost more IO; their persistent fingerprint caches still work. Progress assigns equal ranges to jobs because later source sizes are unknown until those jobs start. Internal file/batch progress remains weighted by bytes.
 
 One invocation retains a shared configuration, audit log, overall progress, Cronitor lifecycle and writer lock. It returns failure if any executed job fails. Separate commands have separate logs/notifications and release the lock between commands; a combined command keeps the lock for its full duration. Parsing/configuration errors and unavailable shared runtime dependencies still prevent execution. These invocation details do not change successful copy or verification results for the same jobs and order, without external intervening writes.
+
+
+## Batches and recovery in 0.13.0
+
+See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

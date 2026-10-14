@@ -14,18 +14,11 @@ P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sha
 | P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Batch concurrency | `batch_workers = 2`; each worker compresses and uploads in private staging. The main thread publishes the index only after every new batch finishes successfully. |
 | P5 | Filter cache | Repeated historical-name selections reuse immutable results within one execution. Rules are still evaluated by rclone and frozen before work. |
-| P6 | Compression profiles | Per-job levels and thread counts for text, videos, photos and other files; new batches do not mix categories. |
+| P6 | Uniform compression | One per-job level/thread count for every file; no category boundaries. |
 
-## File categories and default settings
+## Uniform compression defaults
 
-| Category | Examples | Level | Threads |
-| --- | --- | ---: | ---: |
-| Text | `.md`, `.txt`, `.csv`, `.json`, `.yaml`, `.toml`, source code and extensionless README/LICENSE | 3 | 2 |
-| Video | `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm` | 0 | 1 |
-| Photo | `.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.tiff`, `.raw`, `.dng` | 1 | 1 |
-| Other | Extensions outside the configured built-in categories | 3 | 2 |
-
-Classification uses case-insensitive extensions and known extensionless documentation names. These are heuristics; content is not inspected to identify formats. RAW/TIFF images can benefit from raising `compression_photo_level`, while already compressed video usually benefits from level 0. Level 0 means no compression, though the archive still packages and checks files. Levels 1–9 increase effort; support and actual thread use depend on 7-Zip's format/algorithm. At most 64 threads may be configured per archive. Legacy mixed archives use the other profile if they need rebuilding as a mixed group; intact archives are preserved with their original settings.
+Every file uses `compression_level = 3` and `compression_threads = 2`, configurable per job. Levels range from 0–9 and threads from 1–64; actual parallelism depends on the 7-Zip format/algorithm. Extensions do not choose compression or batch boundaries. Replace obsolete category settings; intact groups retain their archive revisions.
 
 ```toml
 [backup]
@@ -40,22 +33,23 @@ name = "files"
 source = "~/Files"
 destination = "/mnt/backup/files"
 logic = "batch"
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
+compression_level = 3
+compression_threads = 2
+individual_batch_percent = 100
+batch_size_alert_percent = 200
 ```
 
-Keep the oldest-first order within a directory. A category boundary starts a new batch, so interleaved categories can produce more singleton archives. Existing compatible batches keep their original membership and keys. Settings affect newly created archives rather than forcing a reupload of intact data.
+Creation uses DFS mtime order without type/count boundaries. Divert individual files without closing the normal batch. Confirmed groups keep their members and may grow; compression changes affect creation/rebuilds. See [stable batches](batch-lifecycle.md).
 
 Concurrency increases temporary space, CPU and memory use. A batch worker stages original bytes and an archive; two workers can need roughly twice the staging space of one. Disk checks fail above 95% occupancy. Measure total backup time and uploaded size before raising worker/thread counts; increasing CPU concurrency can hurt a slow shared disk.
 
-Simple jobs delegate comparison behavior to rclone and do not build a Sambinha fingerprint inventory. `verification_mode = "simple"` uses rclone size/time comparison; `"hash"` passes `--checksum`. `max_delete` sets an absolute per-job deletion limit; rclone aborts when the limit is exceeded. Batch jobs continue to use the inventory cache, selected verification mode, and source consistency checks. Daily batch verification reads only source metadata and local JSON controls. Monthly `verify-metadata` downloads only metadata, while manual S3 `integrity-test` downloads archives one at a time without writing extracted files. Archives and their controls retain checksums in both modes. See [batch checks](batch-checks.md) for disk usage and scheduling.
+Simple jobs delegate comparison behavior to rclone and do not build a Sambinha fingerprint inventory. `verification_mode = "simple"` uses rclone size/time comparison; `"hash"` passes `--checksum`. `max_delete` sets an absolute per-job deletion limit; rclone aborts when the limit is exceeded. Batch jobs continue to use the inventory cache, selected verification mode, and source consistency checks. Daily batch verification reads only source metadata and local JSON controls. Monthly `verify-destination-metadata` downloads only metadata, while manual S3 `verify-destination-integrity` downloads archives one at a time without writing extracted files. Archives and their controls retain checksums in both modes. See [batch checks](batch-checks.md) for disk usage and scheduling.
 
 Interactive terminal progress shows stage, working subdirectory and one overall estimated backup percentage on stderr, never in JSON logs or stdout. Simple sync progress follows rclone's reported transfer statistics; batch phases and concurrent batches use weighted counters and bounded subprocess estimates. Only successful completion displays 100%. JSON logs and stdout show errors and summaries by default; simple sync asks rclone to generate only `ERROR` messages. Set `log_file_level` or `log_terminal_level` to `detailed` to request rclone `DEBUG` and include per-file events. Periodic progress statistics are emitted separately at `ERROR` without enabling other messages. Redirected/nonterminal stderr disables progress. See [verification modes](../README.md#choose-simple-or-hash-verification).
 
 References: [restic change detection](https://restic.readthedocs.io/en/stable/040_backup.html), [rclone concurrency](https://rclone.org/docs/).
+
+
+## Batches and recovery in 0.13.0
+
+See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

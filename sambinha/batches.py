@@ -1,4 +1,4 @@
-"""Deterministic tree packing, independent from compression and storage."""
+"""Stable batch membership and size-only packing in source traversal order."""
 from dataclasses import dataclass
 import hashlib
 import json
@@ -14,67 +14,85 @@ class Batch:
     files: tuple[File, ...]
     archive_size: int | None = None
     archive_md5: str | None = None
+    individual: bool | None = None
+    batch_id: str | None = None
 
     def control(self):
         control = {"schema": 1, "archive": self.key,
                    "files": [f.metadata() for f in self.files]}
         if self.archive_size is not None:
             control.update(archive_size=self.archive_size, archive_md5=self.archive_md5)
+        if self.individual is not None:
+            control['individual'] = self.individual
+        if self.batch_id is not None:
+            control['batch_id'] = self.batch_id
         return control
 
 
-def plan(files: list[File], max_bytes: int, max_files: int, extension="7z",
-         previous: dict[str, dict] | None = None, category=None) -> list[Batch]:
-    # Preserve every intact, compatible archive, including its original member
-    # order. New files must not shift the boundaries of already stored lots.
-    remaining = {item.path: item for item in files}
-    result = []
-    for key, control in sorted((previous or {}).items()):
-        members = tuple(File(**metadata) for metadata in control["files"])
-        size = sum(item.size for item in members)
-        if (members and key.endswith("." + extension) and len(members) <= max_files
-                and (size <= max_bytes or len(members) == 1)
-                and all(remaining.get(item.path) == item for item in members)):
-            result.append(Batch(key, members, control.get("archive_size"), control.get("archive_md5")))
-            for item in members:
-                remaining.pop(item.path)
-    # Files from each directory are contiguous. Small directory groups can
-    # share a batch with other directories; oversized groups may span batches.
-    groups = {}
-    for item in remaining.values():
-        groups.setdefault(str(PurePosixPath(item.path).parent), []).append(item)
-    ordered = [item for parent in sorted(groups)
-               for item in sorted(groups[parent], key=lambda f: (f.mtime_ns, f.path))]
-    chunks, current, size = [], [], 0
-    for item in ordered:
-        if current and (size + item.size > max_bytes or len(current) >= max_files
-                        or category is not None and category(item.path) != category(current[-1].path)):
-            chunks.append(current)
-            current, size = [], 0
-        if item.size > max_bytes:
-            chunks.append([item])
+def individual(control):
+    """Preserve dedicated roles, including singleton controls from older releases."""
+    return len(control['files']) == 1 or control.get('individual', False)
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def _make(members, extension, dedicated=False, batch_id=None):
+    members = tuple(members)
+    batch_id = batch_id or _digest([f.metadata() for f in members])
+    digest = _digest({'files': [f.metadata() for f in members],
+                      'individual': dedicated, 'batch_id': batch_id})
+    parent = posixpath.commonpath([str(PurePosixPath(f.path).parent) for f in members])
+    if dedicated or len(members) == 1:
+        name = PurePosixPath(members[0].path).with_suffix('.' + extension).name
+        key = str(PurePosixPath(parent) / '.versions' / digest / name)
+    else:
+        key = str(PurePosixPath(parent) / f'batch-{digest}.{extension}')
+    return Batch(key, members, individual=dedicated, batch_id=batch_id)
+
+
+def pack(files, max_bytes, extension='7z', individual_percent=100):
+    """Keep a normal batch open while diverting individual files; no count cap."""
+    chunks = []
+    current = None
+    size = 0
+    for item in files:
+        if item.size * 100 >= max_bytes * individual_percent:
+            chunks.append(([item], True))
             continue
+        if current is None or size + item.size > max_bytes:
+            current = []
+            chunks.append((current, False))
+            size = 0
         current.append(item)
         size += item.size
-    if current:
-        chunks.append(current)
-    # Repair a trailing singleton by borrowing from an adjacent larger batch
-    # when both resulting batches obey the limits and contain at least two.
-    for index in range(1, len(chunks)):
-        previous, chunk = chunks[index - 1], chunks[index]
-        if (len(chunk) == 1 and len(previous) > 2 and chunk[0].size + previous[-1].size <= max_bytes
-                and (category is None or category(chunk[0].path) == category(previous[-1].path))):
-            chunk.insert(0, previous.pop())
-    for chunk in chunks:
-        digest = hashlib.sha256(json.dumps([f.metadata() for f in chunk],
-            sort_keys=True).encode()).hexdigest()[:24]
-        parent = posixpath.commonpath([str(PurePosixPath(f.path).parent) for f in chunk])
-        if len(chunk) == 1:
-            name = PurePosixPath(chunk[0].path).with_suffix("." + extension).name
-            # Immutable revisions preserve the requested filename and prevent
-            # collisions between foo.txt/foo.csv or edits to a singleton.
-            key = str(PurePosixPath(parent) / ".versions" / digest / name)
+    return [_make(members, extension, dedicated) for members, dedicated in chunks]
+
+
+def plan(files: list[File], max_bytes: int, max_files=None, extension='7z',
+         previous=None, category=None, *, individual_percent=100, rebalance=False):
+    """Keep existing groups, even oversized; pack only new or manually moved files.
+
+    Legacy Python max_files/category arguments are ignored. Source inventories
+    supply DFS order; there is no reordering by current dates of known members.
+    """
+    remaining = {item.path: item for item in files}
+    result = []
+    moved = []
+    for key, control in (previous or {}).items():
+        members = tuple(remaining.pop(f['path']) for f in control['files'] if f['path'] in remaining)
+        if not members:
+            continue
+        dedicated = individual(control)
+        if rebalance and not dedicated and len(members) > 1 and sum(f.size for f in members) > max_bytes:
+            moved.extend(members)
+            continue
+        if (rebalance or key.endswith('.' + extension)) and [f.metadata() for f in members] == control['files']:
+            result.append(Batch(key, members, control.get('archive_size'), control.get('archive_md5'),
+                                control.get('individual'), control.get('batch_id')))
         else:
-            key = str(PurePosixPath(parent) / f"batch-{digest}.{extension}")
-        result.append(Batch(key, tuple(chunk)))
+            result.append(_make(members, extension, dedicated,
+                                control.get('batch_id') or _digest(key)))
+    result.extend(pack([*moved, *remaining.values()], max_bytes, extension, individual_percent))
     return result

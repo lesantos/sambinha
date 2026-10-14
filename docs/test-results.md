@@ -1,6 +1,21 @@
-# Sambinha 0.12.0 test results
+# Sambinha 0.13.0 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+## 0.13.0 validation
+
+On 2026-10-14, Linux/Python 3.12.3, the full HTTP-enabled suite passed **425/425 tests in 961.016 seconds, with no failures or skips**, and **94% branch-inclusive coverage**. After final review, **58 focused tests passed**, including four new regressions: excluded-history retention during source-independent rebalance and three recovery-index producer bounds. The review reproduced failures before applying the fixes.
+
+Coverage includes mixed-sibling mtime DFS, uniform compression, large-file diversion, no count cap, stable growth/removal membership, deferred non-blocking alerts, minimum-change source-independent rebalance, schema migration, lost/corrupt state/destination, legacy indexes, fallback, interrupted publication, metadata bounds, backward system clocks and generation retention. The implemented planner reproduced the 31,909-file/19,291,846,150-byte simulation in 14 batches without writing to real backups.
+
+CI runs the entire collection with `SAMBINHA_HTTP_S3_TESTS=1` and requires >=85% coverage. Release publication requires green CI on the candidate commit. See the [workflow run](https://github.com/lesantos/sambinha/actions/workflows/tests.yml) for complete final-commit results, including regressions added after the initial local full run.
+
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
+.venv/bin/python -m coverage report --include='sambinha/*' --fail-under=85
+```
+
+The records below are historical validation of earlier versions.
 
 ## 0.12.0 validation
 
@@ -171,3 +186,8 @@ sambinha/storage.py        103     12     38      3    88%   75-76, 81-82, 83->8
 --------------------------------------------------------------------
 TOTAL                     1965     85    794     71    94%
 ```
+
+
+## Batches and recovery in 0.13.0
+
+See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

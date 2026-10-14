@@ -17,14 +17,14 @@ Exit codes: **0** success, **1** operation/notification failure, **2** configura
 
 ## Batch rules
 
-1. Directories are visited in path order; files within each directory are sorted by nanosecond modification time, oldest first, with path as the tie breaker. New archives separate compression categories without disturbing this order. A directory can occupy several batches, and adjacent small directories can share one.
-2. `max_bytes` limits original, uncompressed sizes, default 1 GiB. Archive overhead can exceed that size. `max_files` defaults to 1000 and must be at least 2.
-3. Intact existing batches keep their original key, member order and compression settings when their limits and archive format remain compatible. Only affected members and new files are repacked. Intact batches do not lend files to fill a new batch.
-4. A new trailing singleton can borrow from a preceding new batch with more than two members, within the limits and the same compression category. Oversized files, impossible pairs and category boundaries can require singleton archives.
-5. Normal keys are `<common-ancestor>/batch-<hash>.7z`. Singleton keys are `<directory>/.versions/<hash>/<basename-with-new-extension>.7z`, avoiding collisions between matching stems and retaining immutable versions. Internal paths remain relative to the source root.
-6. Each archive has `<key>.json`. `<state_dir>/<job>/controls/` stores control files rather than archive bodies. New controls record compressed size and MD5 in addition to the original file metadata.
-7. Archive staging is temporary and cleaned after success or failure. Snapshots, 7-Zip tests and exact member path/size validation precede uploads. Concurrent workers have separate staging and subprocess reports.
-8. Archives and controls finish uploading before the recovery index and local state commit. Failed uploads preserve the previous committed index; interrupted attempts can leave immutable orphan objects. Preserve local state; dedicated remote prefixes avoid interactions between overlapping jobs.
+1. Sort files and subdirectories together by mtime/name inside each directory, visiting subtrees depth first before the next sibling.
+2. New normal batches accumulate original bytes up to `max_bytes` (default 1 GiB), with no member-count/category boundaries. Compressed overhead may exceed this limit.
+3. Divert files reaching `individual_batch_percent` (default 100%) without closing the open normal batch; never split files.
+4. Keep confirmed group membership and member order through growth/mtime changes; new files form new groups. Empty groups leave active state subject to history retention.
+5. All types use `compression_level = 3` and `compression_threads = 2` on create/rebuild. Immutable revision names, JSON controls and logical `batch_id` support history without active duplicates.
+6. Aggregate nonindividual growth alerts at `batch_size_alert_percent` (200%; 0 disables), sending final Cronitor failure without interrupting jobs or changing successful operational exit 0.
+7. `rebalance` is manual and source independent; change only oversized groups, preserving conforming/individual archives. Do not consolidate every healthy small group.
+8. Validate snapshots/content before uploads, publish confirmed recovery generations after complete archives/controls and reconcile publication journals. Recover missing/invalid state from the destination before planning mutations. See [complete semantics and migration](batch-lifecycle.md).
 
 ## Retention and exclusion rules
 
@@ -77,13 +77,13 @@ Batch downloads, extraction and staging use a temporary directory inside `--outp
 ## Integrity verification and scheduling
 
 ```bash
-sambinha verify --job documents
+sambinha verify-local-metadata --job documents
 sambinha --verify-interval-days 7
 ```
 
-Batch `verify` compares source paths/size/time with local JSON mirrors and reports needed updates, without archive reads, hashes or S3 requests. `verify-metadata` separately checks local/destination JSON agreement and archive size metadata; S3 JSONs and recovery indexes use STANDARD and only metadata files are downloaded. Manual `integrity-test` lists/tests archives through 7-Zip without extracted files; S3 archives are downloaded one at a time. Simple `verify` still runs `rclone check`. Configure `metadata_dir = "./metadata"` beside state/logs. See [batch activities, timestamp precision and publication guarantees](batch-checks.md).
+Batch `verify-local-metadata` compares source paths/size/time with local JSON mirrors and reports needed updates, without archive reads, hashes or S3 requests. `verify-destination-metadata` separately checks local/destination JSON agreement and archive size metadata; S3 JSONs and recovery indexes use STANDARD and only metadata files are downloaded. Manual `verify-destination-integrity` lists/tests archives through 7-Zip without extracted files; S3 archives are downloaded one at a time. Simple `verify-local-metadata` still runs `rclone check`. Configure `metadata_dir = "./metadata"` beside state/logs. See [batch activities, timestamp precision and publication guarantees](batch-checks.md).
 
-`verify_interval_days` schedules indexed batch checks; it does not apply to simple jobs. 0 disables scheduled source checks. Integrity tests are manual. Only success updates `last_verified`. Manual verification checks immediately. Simple-job `verify` runs `rclone check` with that job's exclusions.
+`verify_interval_days` schedules indexed batch checks; it does not apply to simple jobs. 0 disables scheduled source checks. Integrity tests are manual. Only success updates `last_verified`. Manual verification checks immediately. Simple-job `verify-local-metadata` runs `rclone check` with that job's exclusions.
 
 ## Summary and performance
 
@@ -116,3 +116,8 @@ In batch jobs, indexed copies/history at source-link paths stay protected. In si
 Rclone normally skips symlinks. Sambinha passes `--skip-links` to suppress warnings and `--links=false --copy-links=false` to override link-enabled environment settings. [Official rclone documentation](https://rclone.org/local/#skip-links). This behavior is unconditional and requires no configuration.
 
 Destination roots, metadata/state/lock paths and restore output remain protected against link redirection. Link replacement is limited to data paths below the job root; directory components are opened without following links during preparation. Unsafe archive members and detected concurrent path changes still cause an explicit error.
+
+
+## Batches and recovery in 0.13.0
+
+See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

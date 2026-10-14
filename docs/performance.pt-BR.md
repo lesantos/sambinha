@@ -14,18 +14,11 @@ P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhame
 | P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Lotes concorrentes | `batch_workers = 2`; staging separado por worker. A thread principal só confirma o índice depois de todos os uploads. |
 | P5 | Cache de filtros | Seleções repetidas de nomes históricos reaproveitam resultados imutáveis na execução; o rclone continua avaliando as regras congeladas. |
-| P6 | Perfis de compactação | Níveis/threads por tarefa para textos, vídeos, fotos e outros; novos lotes separam categorias. |
+| P6 | Compressão única | Um nível e quantidade de threads por job para todos os arquivos, sem fronteiras por categoria. |
 
-## Categorias e padrões
+## Compressão única e padrões
 
-| Categoria | Exemplos | Nível | Threads |
-| --- | --- | ---: | ---: |
-| Texto | `.md`, `.txt`, `.csv`, `.json`, `.yaml`, `.toml`, código e README/LICENSE sem extensão | 3 | 2 |
-| Vídeo | `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm` | 0 | 1 |
-| Foto | `.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.tiff`, `.raw`, `.dng` | 1 | 1 |
-| Outros | Extensões fora das categorias embutidas | 3 | 2 |
-
-A classificação ignora maiúsculas nas extensões e reconhece nomes comuns de documentação sem extensão; não identifica formato pelo conteúdo. RAW/TIFF podem se beneficiar de aumentar `compression_photo_level`; vídeos já compactados tendem a se beneficiar de nível 0. Nível 0 não compacta, mas mantém empacotamento/verificação. Níveis 1–9 aumentam esforço; suporte e uso efetivo de threads dependem do formato/algoritmo do 7-Zip. Até 64 threads podem ser configuradas por lote. Lotes antigos mistos usam o perfil de outros quando compactados juntos; lotes intactos mantêm sua configuração.
+Todos os arquivos usam `compression_level = 3` e `compression_threads = 2`, configuráveis por job. Níveis válidos: 0–9; threads: 1–64. O algoritmo e o formato do 7-Zip determinam o uso real de threads. Não se classifica por extensão para definir compactação ou fronteiras de lotes. Configurações antigas por categoria devem ser substituídas; grupos intactos preservam suas revisões.
 
 ```toml
 [backup]
@@ -40,22 +33,23 @@ name = "files"
 source = "~/Files"
 destination = "/mnt/backup/files"
 logic = "batch"
-compression_text_level = 3
-compression_text_threads = 2
-compression_video_level = 0
-compression_video_threads = 1
-compression_photo_level = 1
-compression_photo_threads = 1
-compression_other_level = 3
-compression_other_threads = 2
+compression_level = 3
+compression_threads = 2
+individual_batch_percent = 100
+batch_size_alert_percent = 200
 ```
 
-A ordem por data dentro de cada diretório é preservada. Mudar categoria inicia outro lote; categorias intercaladas podem gerar lotes individuais. Lotes existentes compatíveis mantêm membros/chaves; ajustes valem para novos lotes, sem reenvio forçado de dados intactos.
+A formação inicial usa DFS por data, desviando arquivos individuais sem fechar o lote normal. Grupos confirmados mantêm seus membros mesmo ao crescer; novos arquivos não reabrem grupos antigos. Só rebalanceamento manual redistribui lotes excedidos. Veja [lotes persistentes](batch-lifecycle.pt-BR.md).
 
 Concorrência aumenta espaço temporário, CPU e memória. Cada worker usa originais e arquivo compactado; dois podem precisar aproximadamente do dobro do staging de um. Checks de disco falham acima de 95%. Meça tempo total e tamanho enviado antes de aumentar workers/threads; mais concorrência pode prejudicar um disco lento compartilhado.
 
-Jobs simples delegam ao rclone as comparações e não criam inventário de fingerprints do Sambinha. `verification_mode = "simple"` usa a comparação tamanho/data do rclone; `"hash"` passa `--checksum`. `max_delete` define um limite absoluto por job; o rclone aborta se o exceder. Jobs batch continuam usando inventário, cache, modo de verificação e checagem de consistência da origem. A verificação diária batch lê apenas metadados da origem e JSONs locais. O `verify-metadata` mensal baixa apenas metadados, enquanto o `integrity-test` manual no S3 baixa lotes um por vez sem gravar arquivos extraídos. Lotes e controles mantêm checksums nos dois modos. Veja [checagens dos lotes](batch-checks.pt-BR.md) para uso de disco e agendamento.
+Jobs simples delegam ao rclone as comparações e não criam inventário de fingerprints do Sambinha. `verification_mode = "simple"` usa a comparação tamanho/data do rclone; `"hash"` passa `--checksum`. `max_delete` define um limite absoluto por job; o rclone aborta se o exceder. Jobs batch continuam usando inventário, cache, modo de verificação e checagem de consistência da origem. A verificação diária batch lê apenas metadados da origem e JSONs locais. O `verify-destination-metadata` mensal baixa apenas metadados, enquanto o `verify-destination-integrity` manual no S3 baixa lotes um por vez sem gravar arquivos extraídos. Lotes e controles mantêm checksums nos dois modos. Veja [checagens dos lotes](batch-checks.pt-BR.md) para uso de disco e agendamento.
 
 O progresso interativo exibe etapa, subdiretório em trabalho e percentual global no stderr, sem entrar nos logs JSON ou stdout. Jobs simples acompanham as estatísticas de transferência reportadas pelo rclone; fases batch usam contadores ponderados e estimativas limitadas. Só a conclusão bem-sucedida exibe 100%. O padrão dos logs JSON e stdout mostra erros e resumos; no sync simples, o rclone só gera mensagens de nível `ERROR`. Configure `log_file_level` ou `log_terminal_level` como `detailed` para solicitar `DEBUG` ao rclone e incluir eventos por arquivo. As estatísticas periódicas do progresso são emitidas separadamente no nível `ERROR`, sem habilitar as demais mensagens. Redirecionar stderr ou executar sem terminal desativa o progresso. Veja os [modos de verificação](../README.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
 
 Referências: [detecção de mudanças do restic](https://restic.readthedocs.io/en/stable/040_backup.html), [concorrência do rclone](https://rclone.org/docs/).
+
+
+## Lotes e recuperação na versão 0.13.0
+
+Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

@@ -14,7 +14,8 @@ from .recovery import recover
 def parser():
     result = argparse.ArgumentParser(prog="sambinha", description="Backup local/S3 simples ou por lotes")
     result.add_argument("--version", action="version", version=__version__)
-    result.add_argument("action", nargs="?", choices=("backup", "restore", "verify", "verify-metadata", "integrity-test"),
+    result.add_argument("action", nargs="?", choices=("backup", "restore", "verify-local-metadata",
+                                                   "verify-destination-metadata", "verify-destination-integrity", "rebalance"),
                         default="backup")
     result.add_argument("--config", type=Path, default=Path("sambinha.toml"))
     result.add_argument("--job", help="Executar apenas o job nomeado")
@@ -34,12 +35,12 @@ def parser():
                  "state_dir", "log_dir", "metadata_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
                  "source_mount", "destination_mount"):
         result.add_argument("--" + name.replace("_", "-"), default=None)
-    for name in ("deleted_days", "version_days", "log_retention_days", "max_bytes", "max_files", "timeout", "deletion_alert_threshold",
+    for name in ("deleted_days", "version_days", "log_retention_days", "max_bytes", "compression_level", "compression_threads", "recovery_index_versions", "timeout", "deletion_alert_threshold",
                  "deletion_min_files", "verify_interval_days", "fingerprint_full_scan_days",
-                 "transfer_workers", "batch_workers",
-                 *(f"compression_{kind}_{setting}" for kind in ("text", "video", "photo", "other")
-                   for setting in ("level", "threads"))):
+                 "transfer_workers", "batch_workers"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=None)
+    for name in ("individual_batch_percent", "batch_size_alert_percent"):
+        result.add_argument("--" + name.replace("_", "-"), type=float, default=None)
     return result
 
 
@@ -52,11 +53,11 @@ def main(argv=None):
     allowed = arguments.pop("allow_mass_deletion")
     try:
         config = load(path, arguments)
-        if action != "backup":
+        if action not in {"backup", "rebalance"}:
             return recover(config, action, output=output, selectors=selectors, notifier=notify)
         if output is not None or selectors:
             raise BackupError("--output e --path exigem restore")
-        return run(config, allow_mass_deletion=allowed)
+        return run(config, allow_mass_deletion=allowed, action=action)
     except (BackupError, OSError) as exc:
         print(f"sambinha: {exc}", file=sys.stderr)
         return 2

@@ -28,21 +28,16 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 - Usar `GLACIER_IR` como padrão S3, com classes configuráveis. Documentar acesso e características de cobrança no código/exemplos/guias, sem preços fixos. A cópia simples S3 exige uma classe legível sem restore assíncrono.
 - Guardar controles JSON e `.sambinha/control.tar.gz` em `STANDARD`, mesmo quando os lotes de dados usam classes mais frias.
 
-## 3. Planejamento, ordenação e reutilização de lotes — 0.3.1
+## 3. Lotes persistentes e rebalanceamento — 0.13.0
 
-- Agrupar arquivos novos de forma determinística por diretório. Dentro do mesmo diretório, considerar a data original de modificação em nanossegundos, **da mais antiga para a mais recente**, com desempate pelo caminho.
-- Dar prioridade aos lotes existentes em vez de reconstruir todo o diretório. Preservar cada lote intacto compatível, sua chave, ordem dos membros e compactação armazenada, inclusive lotes de versões anteriores.
-- Minimizar os lotes afetados: reagrupar somente arquivos novos e membros de lotes editados, removidos ou incompatíveis. Não alterar um lote intacto para completar um novo lote ou acomodar um arquivo inserido antes na ordenação.
-- Respeitar `max_bytes`, padrão de 1 GiB de bytes originais sem compactação, e `max_files`, padrão de 1000. Um diretório pode ocupar vários lotes; grupos pequenos de diretórios podem compartilhar lote. Cabeçalhos podem fazer o tamanho compactado superar o limite de bytes originais.
-- Novos lotes devem separar categorias de compactação preservando a ordem de processamento por data dentro do diretório. Mudanças de categoria podem gerar lotes individuais.
-- Preferir pelo menos dois membros quando limites e categoria permitirem. Um lote novo anterior com mais de dois membros pode ceder um arquivo para uma sobra individual nova, desde que ambos continuem válidos e usem a mesma categoria. Arquivos grandes demais ou sem par viável usam lotes individuais.
-- Armazenar lotes normais no ancestral comum mais próximo como `batch-<hash>.<format>`. Revisões individuais usam `<directory>/.versions/<hash>/<basename-with-archive-extension>`, evitando colisões e preservando o nome solicitado.
-- Preservar a árvore relativa à origem dentro dos arquivos compactados. Aceitar compactadores configuráveis compatíveis com 7-Zip, com `7z` como padrão e formatos `7z`/`zip`.
-- Criar controle JSON ao lado de cada lote com caminhos originais, tamanhos, SHA-256, MD5, datas e permissões. Lotes novos enviados também devem registrar tamanho compactado e MD5 para permitir verificação S3 sem baixar o lote.
-- Manter espelho local configurável dos controles, sem reter os arquivos compactados de dados. Enviar ao destino um índice de recuperação compactado contendo estado e controles.
-- Usar staging temporário e removê-lo após sucesso ou falha. Validar snapshots da origem, integridade do arquivo compactado e caminhos/tamanhos exatos dos membros antes do envio. Confirmar o novo índice somente após enviar com sucesso todos os lotes, controles e índice de recuperação necessários.
+- Ordenar irmãos (arquivos e subpastas juntos) por mtime/nome e percorrer em profundidade. Sem categorias nem limite de quantidade.
+- Empacotar bytes originais até `max_bytes`; desviar arquivos a partir de `individual_batch_percent` (padrão 100%) para lotes individuais mantendo o lote normal aberto.
+- Preservar grupos e ordem dos membros já confirmados. Crescimento e redução do limite não redistribuem membros; remoção só tira o membro, e grupo vazio segue retenção.
+- Cada caminho deve aparecer em apenas um lote ativo; nomes de revisão são imutáveis e o ID lógico persiste. Controles contêm tamanho/data/permissões, hashes quando disponíveis, tamanho/MD5 do compactado e papel individual.
+- `rebalance` é manual, funciona sem origem, altera somente grupos não individuais excedidos e preserva todos os conformes. Não reúne lotes antigos conformes.
+- Publicar gerações confirmadas do índice após lotes/controles completos e reconciliar journal após falhas. Recuperar estado ausente/inválido antes de planejar.
 
-Aceitação: inserir um arquivo novo mais antigo deve manter as chaves dos lotes anteriores intactos; editar ou remover um membro não pode reconstruir lotes não afetados. Mudanças de limites/formato só podem substituir lotes incompatíveis. Cada arquivo selecionado deve aparecer exatamente uma vez no índice ativo.
+Aceitação: alteração/remoção não afeta grupos vizinhos; arquivos grandes intercalados não fragmentam lotes normais; crescimento não provoca redistribuição automática; rebalanceamento muda o mínimo necessário de lotes existentes; cobertura exata sem duplicação de caminhos. Veja [regras completas e migração](batch-lifecycle.pt-BR.md).
 
 ## 4. Comando de restauração — funcionalidade selecionada 1 / 0.4.0
 
@@ -58,19 +53,14 @@ Aceitação: inserir um arquivo novo mais antigo deve manter as chaves dos lotes
 
 Aceitação: restaurar dados binários e nomes Unicode byte a byte, incluindo seleção e recuperação sem a origem; corrupção deve falhar antes de publicar os arquivos solicitados, e dados existentes na saída devem permanecer intactos.
 
-## 5. Verificação de integridade — funcionalidade selecionada 2 / 0.4.0
+## 5. Verificações independentes
 
-- Disponibilizar `sambinha verify` para checagem imediata e verificações periódicas configuráveis por `verify_interval_days`.
-- Na cópia simples local, ler e conferir hashes do destino. Nos lotes locais, conferir checksum do lote quando registrado, testar o arquivo compactado e validar membros extraídos pelos metadados originais.
-- No S3, usar **somente metadados dos objetos**, comparando tamanho e MD5 do objeto inteiro com o índice local. Para lotes, conferir tanto os dados compactados quanto os controles JSON.
-- **Nunca baixar corpos de objetos S3, lotes, controles JSON ou índices de recuperação como parte da verificação**, inclusive em falhas. Nunca solicitar restore Glacier para concluir uma checagem. Consultas de metadados ainda podem gerar cobrança de API.
-- Não tratar ETag multipart como MD5 do objeto inteiro. Usar o checksum da interface de metadados S3 do rclone; checksum necessário ausente deve causar erro explícito.
-- Exigir índice local para verificar S3. Lotes antigos sem tamanho/checksum de envio registrado devem falhar explicitamente, sem download alternativo ou reconstrução automática de lotes intactos apenas para estabelecer a referência.
-- Registrar a limitação: verificar metadados não descompacta membros nem comprova extração diante de um índice alterado por atacante.
-- Manter verificações automáticas desativadas por padrão (`verify_interval_days = 0`) por compatibilidade. Com intervalo positivo, verificar após backups bem-sucedidos quando devido; a primeira execução habilitada verifica imediatamente. A agenda depende das execuções de backup e não instala um timer separado.
-- Atualizar `last_verified` apenas após uma verificação periódica bem-sucedida. Falha deve retornar erro, manter a data anterior de sucesso e notificar o Cronitor quando configurado. Verificação manual não atualiza a data periódica. Simulação informa a verificação prevista sem ler conteúdo nem baixar objetos.
+- `verify-local-metadata`: origem contra JSONs locais por caminho/tamanho/data, sem ler compactados ou consultar S3; `needs_update` informa alterações. Reduzir o limite não exige reconstrução.
+- `verify-destination-metadata`: compara controles JSON completos e tamanhos dos compactados no destino; pode baixar controles/índice, mas não arquivos compactados.
+- `verify-destination-integrity`: lista/testa compactados pelo 7-Zip sem extração. No S3, baixa e remove um lote por vez; Glacier/Deep Archive exige disponibilidade prévia.
+- Jobs simples usam rclone check. `verify_interval_days` só agenda a checagem local depois de backups batch bem-sucedidos, atualizando `last_verified` apenas no sucesso. Nenhuma checagem rebalanceia.
 
-Aceitação: executar rclone real contra servidor HTTP que permite HEAD e recusa GET; a verificação S3 deve funcionar por metadados sem requisitar corpos de objetos. Índice local/checksums antigos ausentes, corrupção ou hashes indisponíveis devem falhar sem downloads.
+Aceitação: distinguir metadados de conteúdo, respeitar limitações de datas dos formatos, não solicitar restore Glacier automaticamente e preservar estado em erros.
 
 ## 6. Proteção contra remoções em massa — funcionalidade selecionada 3 / 0.4.0
 
@@ -134,19 +124,12 @@ As seis melhorias foram selecionadas para implementação, na prioridade de P1 a
 
 O cache pressupõe metadados de filesystem confiáveis; leituras completas periódicas continuam necessárias. Workers/threads afetam CPU, memória e espaço temporário. Validar redução de leituras/processos e concorrência limitada, sem prometer ganho fixo em produção sem medir a carga.
 
-## 11. Perfis separados para textos, vídeos, fotos e outros
+## 11. Compressão única e alertas de crescimento — 0.13.0
 
-| Categoria | Arquivos típicos | Opção de nível/padrão | Opção de threads/padrão |
-| --- | --- | --- | --- |
-| Texto | `.md`, `.txt`, texto estruturado/código e README/LICENSE sem extensão | `compression_text_level = 3` | `compression_text_threads = 2` |
-| Vídeo | `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm` | `compression_video_level = 0` | `compression_video_threads = 1` |
-| Foto | `.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.tiff`, `.raw`, `.dng` | `compression_photo_level = 1` | `compression_photo_threads = 1` |
-| Outros | Nomes/extensões fora das categorias embutidas | `compression_other_level = 3` | `compression_other_threads = 2` |
-
-- Classificar extensões sem diferenciar maiúsculas e nomes conhecidos de documentação sem extensão; não pressupor identificação pelo conteúdo.
-- Aceitar níveis 0–9 e threads 1–64 por lote. Nível 0 empacota sem compactar; níveis maiores aumentam esforço. O uso real de threads depende do formato/algoritmo do compactador.
-- Preservar a ordem de processamento por data dentro do diretório. Mudança de categoria inicia outro lote e pode gerar individuais; lotes antigos intactos compatíveis são preservados mesmo quando misturam categorias.
-- Documentar o equilíbrio entre tempo de compactação, bytes enviados e custo de armazenamento, especialmente para mídia já compactada. Permitir ajustes independentes de cada categoria.
+- `compression_level = 3` (0–9) e `compression_threads = 2` (1–64) para todos os tipos, somente na criação/recriação. Opções anteriores por categoria e max_files saem da configuração.
+- `batch_size_alert_percent = 200` alerta a partir do percentual de max_bytes em bytes originais; 0 desativa. Desconsiderar lotes de um arquivo.
+- Agregar alertas e enviar falha Cronitor somente ao final dos jobs, sem interromper e sem mudar retorno operacional 0; não enviar complete depois. Erros operacionais seguem não zero.
+- Restauração e rebalanceamento independem da origem. Bootstrap valida índices/graus de recuperação antes de alterar backup; gerações de metadados não substituem retenção/cópias dos dados.
 
 ## 12. Documentação bilíngue — 0.6.0
 
@@ -229,3 +212,8 @@ Escolher níveis de log do arquivo e do terminal independentemente, com erros e 
 Dispensar a varredura dos dados do destino em exFAT/FAT nativo somente quando todas as montagens abaixo do destino também não aceitam links. Sempre validar raízes sem seguir links; sistemas desconhecidos e montagens internas que aceitam links mantêm a varredura.
 
 A regra de links no destino substitui o comportamento do destino na seção 17: trocar links conflitantes nos dados por arquivos/diretórios reais sem seguir ou copiar seus alvos, e ignorar links sem conflito. No sync simples local, examinar entradas do destino somente em diretórios reais compartilhados com a origem e aplicar as exclusões nativas aos conflitos encontrados; não criar inventário completo da origem. Nas escritas batch, preparar caminhos exatos de lotes/controles sem seguir componentes de diretórios e reconstruir lotes/controles indexados que viraram links. Simulações nunca substituem links. Atualizar os dois testes anteriormente adiados de links no destino e retirar seus skips incondicionais; cobrir links quebrados, conflitos arquivo/diretório, alvos intactos, exclusões, links criados após inventário e proteção de raízes de metadados.
+
+
+## Lotes e recuperação na versão 0.13.0
+
+Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

@@ -103,7 +103,7 @@ class LogLevelTests(Sandbox):
         config = replace(self.config, dry_run=True, log_file_level="detailed", log_terminal_level="error")
         output = io.StringIO()
         with redirect_stdout(output):
-            self.assertEqual(recover(validate(config), "verify", runner=Mock()), 0)
+            self.assertEqual(recover(validate(config), "verify-local-metadata", runner=Mock()), 0)
         events = [json.loads(line)["event"] for line in next(config.log_dir.glob("*.jsonl")).read_text().splitlines()]
         self.assertIn("would_verify", events)
         self.assertEqual(events[-1], "end")

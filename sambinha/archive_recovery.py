@@ -1,5 +1,5 @@
 """Validate and unpack archive members into private staging directories."""
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 
 from .disks import check_disk
@@ -19,7 +19,8 @@ def check_content(root, metadata, *, mode=None, check_mtime=False):
 
 def archive_members(storage, runner, archive):
     """Read safe file entries without extracting archive contents."""
-    listing = runner.run([storage.job.compressor, "l", "-slt", "-ba", str(archive)])
+    # Keep 7-Zip and Python on UTC, independent of historical DST rules.
+    listing = runner.run([storage.job.compressor, "l", "-slt", "-ba", str(archive)], env={"TZ": "UTC"})
     members = {}
     for record in listing.strip().split("\n\n"):
         fields = dict(line.split(" = ", 1) for line in record.splitlines() if " = " in line)
@@ -39,14 +40,14 @@ def archive_members(storage, runner, archive):
 
 
 def archive_date_matches(fields, metadata, archive_format):
-    """Compare local wall-clock timestamps at the archive format's precision."""
+    """Compare UTC timestamps at the archive format's precision."""
     modified = fields.get("Modified", "")
     match = re.fullmatch(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?", modified)
     if not match:
         raise BackupError(f"Data de modificação ausente ou inválida no lote: {metadata['path']}")
     seconds, nanoseconds = divmod(metadata["mtime_ns"], 10 ** 9)
-    expected = datetime.fromtimestamp(seconds)
-    actual = datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S")
+    expected = datetime.fromtimestamp(seconds, timezone.utc)
+    actual = datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
     fraction = int((match[2] or '').ljust(9, '0'))
     characteristics = fields.get("Characteristics", "").replace(':', ' ').upper().split()
     if archive_format == "zip" and "NTFS" not in characteristics:

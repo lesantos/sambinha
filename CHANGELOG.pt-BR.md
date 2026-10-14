@@ -2,6 +2,18 @@
 
 [English](CHANGELOG.md)
 
+## 0.13.0 — 2026-10-14
+
+Adota lotes persistentes com IDs lógicos, DFS por data/nome e compressão única (nível 3, duas threads). Remove o limite de quantidade e fronteiras por categoria. Arquivos a partir de `individual_batch_percent` (100%) são desviados sem fechar o lote normal. Alterações mantêm membros mesmo acima de max_bytes; grupos vazios seguem retenção.
+
+Adiciona alertas `batch_size_alert_percent` (200%; 0 desativa) para lotes não individuais, agregados em falha Cronitor apenas ao final, mantendo o retorno operacional bem-sucedido. Adiciona `rebalance` manual, independente da origem, que altera só grupos excedidos e preserva conformes/individuais.
+
+Restauração deixa de depender da origem/montagem/capacidade da origem. Backups recuperam estado ausente/corrompido antes de planejar. Gerações imutáveis do índice com confirmação SHA-256/tamanho, journal durável e fallback validado permitem retomada após interrupções; `recovery_index_versions = 3` limita gerações de metadados. Preserva leitura de controles/índices legados, histórico e proteção contra caminhos duplicados. Documenta migração e limites de recuperação.
+
+Renomeia `integrity-test` para `verify-destination-integrity` e a função Python para `verify_destination_integrity_job`; o nome antigo deixa de ser aceito na CLI. Compara datas dos lotes e do índice em UTC para evitar falsos erros causados por diferenças históricas de horário de verão. Aplica `TZ=UTC` apenas aos subprocessos de listagem, preservando o ambiente configurado. Adiciona regressões reais 7z/ZIP em vários fusos e atualiza comandos e documentação bilíngue.
+
+Renomeia `verify` para `verify-local-metadata` e `verify-metadata` para `verify-destination-metadata`, incluindo as funções Python dos jobs. Atualiza comandos, testes e documentação bilíngue. Os nomes antigos da CLI deixam de ser aceitos; ajuste os comandos agendados. Preserva o comportamento das verificações, a configuração e os nomes dos eventos de log.
+
 ## 0.12.0 — 2026-10-14
 
 Restaura dados batch no disco de saída, com limpeza dos temporários por lote, publicação protegida e suporte a sistemas sem atributos POSIX ou links físicos. Downloads e extração deixam de ocupar o temporário padrão da máquina.
