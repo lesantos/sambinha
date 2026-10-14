@@ -162,7 +162,7 @@ class SimpleModeIntegrationTests(Sandbox):
     def test_simple_verify_and_restore_and_hash_verify_without_index_hashes(self):
         self.file('file', b'original')
         self.assertEqual(self.execute(), 0)
-        with redirect_stdout(io.StringIO()), patch('sambinha.recovery.fingerprint', side_effect=AssertionError('hash read')):
+        with redirect_stdout(io.StringIO()), patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
             self.assertEqual(recover(self.config, 'verify'), 0)
             restored = self.root / 'restored'
             self.assertEqual(recover(self.config, 'restore', output=restored), 0)

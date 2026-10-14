@@ -73,7 +73,7 @@ class TransferMetadataTests(Sandbox):
     def test_native_exfat_sync_does_not_scan_destination_entries(self):
         table = mount_table(("/", "ext4"), (self.destination, "exfat"))
         with patch("sambinha.filesystems._MOUNTINFO") as info, \
-             patch("sambinha.storage.conflicting_links", side_effect=AssertionError('extra traversal')):
+             patch("sambinha.simple_storage.conflicting_links", side_effect=AssertionError('extra traversal')):
             info.read_text.return_value = table
             Storage(self.config.jobs[0], self.config, Mock()).sync_simple(
                 self.source, ".sambinha/history/run", max_delete=100)
@@ -82,7 +82,7 @@ class TransferMetadataTests(Sandbox):
         outside = self.root / 'outside'
         outside.mkdir()
         self.destination.symlink_to(outside, target_is_directory=True)
-        with patch("sambinha.storage.needs_destination_link_scan", return_value=False), \
+        with patch("sambinha.simple_storage.needs_destination_link_scan", return_value=False), \
              self.assertRaises(BackupError):
             Storage(self.config.jobs[0], self.config, Mock()).sync_simple(
                 self.source, ".sambinha/history/run", max_delete=100)
@@ -166,7 +166,7 @@ class FilesystemIntegrationTests(Sandbox):
 
         with patch("sambinha.filesystems._MOUNTINFO") as info, \
              patch.object(Path, "chmod", guarded_chmod), \
-             patch("sambinha.recovery.os.fchmod", side_effect=AssertionError("unsupported chmod")):
+             patch("sambinha.restore.os.fchmod", side_effect=AssertionError("unsupported chmod")):
             info.read_text.return_value = table
             self.assertEqual(recover(self.config, "restore", output=output, notifier=lambda *args: None), 0)
         self.assertEqual(contents(output), contents(self.source))

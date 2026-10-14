@@ -2,7 +2,15 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
-## Unreleased
+## 0.11.0 — 2026-10-14
+
+Refactor backup orchestration into dedicated execution context, job lifecycle, preflight, archive creation and simple/batch strategy modules. Give preflight inventories named, typed fields; split batch planning, upload selection and bounded workers into separate functions. Share index identity and active-file lookup with recovery, and keep the existing engine import entry points. Preserve CLI/configuration, ordering, retention, state schemas, storage operations, error policies and telemetry.
+
+Separate recovery index loading, archive validation, staging/publication and verification from action orchestration. Isolate rclone command construction from storage mutation guards and native tree operations. Group configuration validation by global options, job options, paths and destination overlap, preserving validation order and error messages. Keep the existing configuration, Storage and recovery function entry points.
+
+Move test doubles to the modules that own their responsibilities. Correct an existing invalid-filter test to allow the empty destination root already prepared by native sync, while still requiring no destination entries, no committed index and failure notification; application behavior is unchanged.
+
+This release also includes the previously committed destination-link changes below.
 
 Avoid the extra destination scan on native exFAT/FAT without link-capable submounts; retain root checks and conservative scanning for unknown filesystems.
 

@@ -32,7 +32,7 @@ class InventoryPerformanceTests(Sandbox):
         self.file('file')
         job = replace(self.config.jobs[0], logic='batch')
         config = replace(self.config, jobs=(job, replace(job, name='second', destination=str(self.root / 'second'))))
-        with patch('sambinha.engine.scan', wraps=scan) as inventory:
+        with patch('sambinha.preflight.scan', wraps=scan) as inventory:
             result = preflight(validate(config), Mock(), now=1000)
         self.assertEqual(inventory.call_count, 2)
         self.assertEqual(result['test'][0], result['second'][0])
@@ -114,7 +114,7 @@ class PerformanceIntegrationTests(Sandbox):
             finally:
                 with mutex:
                     running -= 1
-        with patch('sambinha.engine.upload_batch', upload):
+        with patch('sambinha.strategies.batch.upload_batch', upload):
             self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assertEqual(peak, 2)
         self.assertEqual(len(self.state()['active']), 3)

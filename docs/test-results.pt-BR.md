@@ -1,6 +1,23 @@
-# Resultados dos testes do Sambinha 0.10.2
+# Resultados dos testes do Sambinha 0.11.0
 
 [English](test-results.md)
+
+## Validação da 0.11.0
+
+Em 2026-10-14, Linux, Python 3.12.3: a execução completa com cobertura de ramos e `SAMBINHA_HTTP_S3_TESTS=1` aprovou **349/349 testes em 847,735 segundos, sem falhas nem skips**. Todos os 23 testes S3 por HTTP passaram. A cobertura da aplicação, incluindo ramos, é **93%**, acima do mínimo de 85%.
+
+A execução cobre o refactor de orquestração e os refactors adicionais de recuperação, transporte de armazenamento e validadores de configuração. Uma execução focada também aprovou 32 testes de configuração/armazenamento/verificação. Comparações de árvores sintáticas confirmam lógica inalterada nas funções extraídas de recuperação/sync nativo e as mesmas verificações de configuração na mesma ordem. O wheel contém os fontes atuais exatos, importa os 39 módulos isoladamente e informa versão 0.11.0. O Gitleaks não encontrou vazamentos no histórico Git nem no conteúdo de trabalho.
+
+A execução anterior ao refactor tinha uma falha: o teste de filtro inválido exigia destino inexistente, embora o sync nativo já criasse uma raiz vazia antes de o rclone interpretar o filtro. O teste agora permite esse comportamento existente, ainda exigindo destino sem entradas, índice não confirmado e notificação de falha. O comportamento da aplicação foi preservado.
+
+Reproduza:
+
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
+.venv/bin/python -m coverage report --include='sambinha/*' --fail-under=85
+```
+
+As seções abaixo preservam os registros de validações anteriores.
 
 ## Alterações não publicadas de links no destino
 

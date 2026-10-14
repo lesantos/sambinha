@@ -82,7 +82,7 @@ class FilteringTests(Sandbox):
         excluded = self.file('skip.tmp', b'excluded')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         # Model an older mixed-profile lot, which must remain protected.
-        with patch('sambinha.engine.category', return_value='other'):
+        with patch('sambinha.strategies.batch.category', return_value='other'):
             self.assertEqual(self.execute(), 0)
         old_keys = list(self.state()['active'])
         self.exclude('*.tmp\n', logic='batch')
@@ -176,5 +176,8 @@ class FilteringTests(Sandbox):
         self.file('file')
         self.exclude('[\n')
         self.assertEqual(self.execute(), 1)
-        self.assertFalse(self.destination.exists())
+        # Native sync may prepare an empty root before rclone parses its rules.
+        if self.destination.exists():
+            self.assertEqual(list(self.destination.iterdir()), [])
+        self.assertFalse(self.config.state_dir.joinpath('test/state.json').exists())
         self.assertEqual(self.notifications[-1][1], 'fail')

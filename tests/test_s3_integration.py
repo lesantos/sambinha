@@ -299,7 +299,7 @@ class S3IntegrationTests(Sandbox):
         self.file('skip.tmp', b'old')
         self.use_batch()
         # Previous releases could mix text and other files in the same lot.
-        with patch('sambinha.engine.category', return_value='other'):
+        with patch('sambinha.strategies.batch.category', return_value='other'):
             self.assertEqual(self.execute(), 0)
         old_keys = list(self.state()['active'])
         rules = self.root / 'exclude.txt'

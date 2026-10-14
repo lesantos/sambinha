@@ -2,7 +2,15 @@
 
 [English](CHANGELOG.md)
 
-## Não publicado
+## 0.11.0 — 2026-10-14
+
+Refatora a orquestração em módulos próprios para contexto, ciclo de vida do job, pré-verificações, criação de arquivos compactados e estratégias simples/batch. Dá nomes e tipos aos campos do inventário; separa planejamento de lotes, seleção de envios e execução de workers limitados. Compartilha identidade do índice e consulta aos arquivos ativos com a recuperação, mantendo os pontos de importação existentes do engine. Preserva CLI/configuração, ordem, retenção, esquemas de estado, operações de armazenamento, políticas de erro e telemetria.
+
+Separa leitura do índice de recuperação, validação de arquivos compactados, preparação/publicação e verificação da coordenação de ações. Isola montagem de comandos rclone das proteções de alteração e operações nativas de árvores. Agrupa validação por opções globais, opções de job, caminhos e sobreposição de destinos, preservando ordem e mensagens de erro. Mantém os pontos de entrada existentes de configuração, Storage e funções de recuperação.
+
+Move os mocks dos testes para os módulos responsáveis. Corrige um teste preexistente de filtro inválido para aceitar a raiz vazia já preparada pelo sync nativo, ainda exigindo destino sem entradas, índice não confirmado e notificação de falha; o comportamento da aplicação permanece igual.
+
+A versão também inclui as alterações de links no destino já commitadas abaixo.
 
 Evita a varredura extra do destino em exFAT/FAT nativo sem montagens internas que aceitem links; mantém as checagens de raízes e a varredura conservadora para sistemas desconhecidos.
 

@@ -98,7 +98,7 @@ class IndependentJobTests(Sandbox):
             self.assertTrue(success)
             stages.append(('summary', ctx.job.name))
             return original_summary(ctx, success)
-        with patch('sambinha.engine.scan', side_effect=inventory), patch.object(Context, 'summary', summary):
+        with patch('sambinha.preflight.scan', side_effect=inventory), patch.object(Context, 'summary', summary):
             self.assertEqual(self.execute(config), 0, self.output.getvalue())
         self.assertEqual([stage[0] for stage in stages], ['scan', 'summary', 'scan', 'summary'])
 

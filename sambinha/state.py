@@ -12,6 +12,18 @@ from .errors import BackupError
 from .inventory import safe_relative
 
 
+def identity(job):
+    """Describe the job that owns an index without depending on recovery."""
+    return {"source": str(job.source), "destination": job.destination,
+            "type": job.type, "logic": job.logic, "namespace": ".sambinha"}
+
+
+def indexed_files(state, logic):
+    """Expose the active file metadata independently of the strategy layout."""
+    if logic == "simple":
+        return dict(state["active"])
+    return {f["path"]: f for control in state["active"].values() for f in control["files"]}
+
 def private_directory(path: Path):
     # Metadata roots are private, and must not redirect writes through links.
     if any(p.is_symlink() for p in (path, *path.parents)):

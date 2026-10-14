@@ -1,0 +1,20 @@
+"""rclone argument construction and execution, independent of storage policy."""
+from .filtering import SKIP_LINK_FLAGS
+
+
+def command(config, job, runner, operation, *args, retry=False, standard=False, input=None,
+            progress_directory=None, on_output=None):
+    flags = ["--retries", "1", "--low-level-retries", "1", *SKIP_LINK_FLAGS]
+    if config.rclone_config:
+        flags += ["--config", config.rclone_config]
+    if job.type == "s3":
+        # GLACIER_IR is cold storage with immediate access, retrieval fees,
+        # minimum billed size 128 KiB and minimum duration 90 days. GLACIER
+        # and DEEP_ARCHIVE need restore and bill at least 90/180 days.
+        # STANDARD costs more per GB, without archival restore constraints.
+        flags += ["--s3-storage-class", "STANDARD" if standard else job.storage_class]
+    progress = {"progress_directory": progress_directory} if progress_directory is not None else {}
+    if on_output is not None:
+        progress["on_output"] = on_output
+    return runner.run([config.rclone, operation, *map(str, args), *flags],
+                           retry=retry, input=input, **progress)

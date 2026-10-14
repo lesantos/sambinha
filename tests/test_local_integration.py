@@ -308,7 +308,7 @@ class LocalIntegrationTests(Sandbox):
             result = original(source, target, **kwargs)
             Path(source).write_bytes(b'changed')
             return result
-        with patch('sambinha.engine.shutil.copy2', changed):
+        with patch('sambinha.archives.shutil.copy2', changed):
             self.assertEqual(self.execute(), 1)
         self.assertFalse(self.destination.exists())
 

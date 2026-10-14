@@ -88,7 +88,7 @@ class JobFailurePolicyTests(Sandbox):
                     if root == self.source:
                         raise PermissionError('inventário ilegível')
                     return scan(root, *args, **kwargs)
-                with patch('sambinha.engine.scan', side_effect=inventory):
+                with patch('sambinha.preflight.scan', side_effect=inventory):
                     self.assert_failure_policy(config)
 
     def test_missing_exclusion_file_obeys_policy(self):

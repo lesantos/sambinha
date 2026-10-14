@@ -198,3 +198,8 @@ class Runner:
         if callback_errors:
             raise callback_errors[0]
         return subprocess.CompletedProcess(args, returncode, "", output)
+
+
+def show_progress(runner, progress):
+    if isinstance(runner, Runner):
+        runner.progress = progress

@@ -99,7 +99,7 @@ class ProgressTests(Sandbox):
         self.assertFalse(progress.visible)
 
     def test_interrupted_backup_does_not_log_a_successful_end(self):
-        with patch('sambinha.engine.preflight', side_effect=KeyboardInterrupt), \
+        with patch('sambinha.jobs.preflight', side_effect=KeyboardInterrupt), \
              redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
             run(self.config, runner=Mock())
         records = [json.loads(line) for line in next(self.config.log_dir.glob('*.jsonl')).read_text().splitlines()]
@@ -174,7 +174,7 @@ class ProgressTests(Sandbox):
     def test_failure_never_displays_complete_percentage(self):
         terminal = Terminal()
         with patch('sys.stderr', terminal), redirect_stdout(io.StringIO()), \
-             patch('sambinha.engine.preflight', side_effect=RuntimeError('failure')), \
+             patch('sambinha.jobs.preflight', side_effect=RuntimeError('failure')), \
              self.assertRaises(RuntimeError):
             run(self.config, runner=Mock())
         self.assertNotIn('100.0%', terminal.getvalue())
