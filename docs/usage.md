@@ -72,6 +72,8 @@ Select one job and a new or empty output directory separate from sources, destin
 
 Simple restore copies the current tree when no `--path` is supplied and does not require an index. Batch recovery can use the local index or download `.sambinha/control.tar.gz` and read only its bounded regular `state.json` member. It does not import arbitrary archive members into the state directory. Recovery works without the original source. S3 restoration downloads selected files or entire selected batches and may incur retrieval costs; GLACIER/DEEP_ARCHIVE need prior AWS restore. Restore historical simple versions with rclone from `.sambinha/history/<run-id>`.
 
+Batch downloads, extraction and staging use a temporary directory inside `--output`. Archives and unselected extracted members are removed after each batch. Selected files are kept on the output disk until all requested content is validated, then published without overwriting. On filesystems without hard links, publication temporarily needs an additional file's space. The machine's default temporary disk is not used for batch restoration.
+
 ## Integrity verification and scheduling
 
 ```bash
@@ -79,9 +81,9 @@ sambinha verify --job documents
 sambinha --verify-interval-days 7
 ```
 
-Simple verification runs rclone's `check` command with the job filters. Batch verification follows `verification_mode` and validates archive checksums, 7-Zip integrity, member paths and indexed sizes/hashes when present. S3 batch checks only request metadata and check JSON controls; batches compare size/MD5. They never download object bodies or recovery archives, including failure paths. A multipart ETag alone is not a whole-object MD5. Required hashes, legacy archive checksums or a local index missing cause explicit errors. This metadata check does not decompress archived members or authenticate an adversarially modified index.
+Batch `verify` compares source paths/size/time with local JSON mirrors and reports needed updates, without archive reads, hashes or S3 requests. `verify-metadata` separately checks local/destination JSON agreement and archive size metadata; S3 JSONs and recovery indexes use STANDARD and only metadata files are downloaded. Manual `integrity-test` lists/tests archives through 7-Zip without extracted files; S3 archives are downloaded one at a time. Simple `verify` still runs `rclone check`. Configure `metadata_dir = "./metadata"` beside state/logs. See [batch activities, timestamp precision and publication guarantees](batch-checks.md).
 
-`verify_interval_days` schedules indexed batch checks; it does not apply to simple jobs. 0 disables scheduled checks. Only success updates `last_verified`. Manual verification checks immediately. Simple-job `verify` runs `rclone check` with that job's exclusions.
+`verify_interval_days` schedules indexed batch checks; it does not apply to simple jobs. 0 disables scheduled source checks. Integrity tests are manual. Only success updates `last_verified`. Manual verification checks immediately. Simple-job `verify` runs `rclone check` with that job's exclusions.
 
 ## Summary and performance
 
@@ -89,17 +91,17 @@ Batch jobs emit indexed file and batch counts. Simple jobs log the `rclone sync`
 
 ## Compatibility and operational limits
 
-Existing 0.3.x state remains compatible; intact legacy batches stay intact. Such archives lack upload checksums and cannot receive a complete metadata integrity check until they are replaced after changes. The earlier 0.2.0 rename introduced `sambinha`, `sambinha.toml` and `.sambinha`; states from another metadata namespace are rejected. Keep an old destination and state together, and use a new destination/state to migrate an older namespace. Begin with simulation.
+Existing 0.3.x state remains compatible; intact legacy batches stay intact. Legacy archives without a recorded upload size cannot receive the monthly archive-size check until replaced after changes; daily source checks and manual 7-Zip tests remain available. The earlier 0.2.0 rename introduced `sambinha`, `sambinha.toml` and `.sambinha`; states from another metadata namespace are rejected. Keep an old destination and state together, and use a new destination/state to migrate an older namespace. Begin with simulation.
 
 Symbolic links are ignored. Special files and newline-bearing source filenames are rejected. `.sambinha` at the source root is reserved. Each job must keep its own source/destination separate and all jobs must stay outside state/log directories. Destinations cannot overlap each other; one job's destination may be a later job's source. See [the interaction rules](configuration.md#sequential-jobs-and-overlapping-paths). Local POSIX ownership changes are not required; S3 has no native POSIX mode bits. Without filesystem snapshots, concurrent source writes can abort a backup. In hash mode, the fingerprint cache assumes trustworthy filesystem metadata and forces periodic content scans; disable it when full reads on every run are required.
 
-Batch reuse trusts the local mirror and exclusive remote prefix ownership. External object deletion/corruption is detected by explicit/scheduled verification, not by every unchanged backup. Simple sync comparison behavior follows rclone and its backend settings. Batch hash mode compares remote checksums and unavailable required checksums fail.
+Batch reuse trusts the local mirror and exclusive remote prefix ownership. Daily checks detect source updates; monthly metadata checks detect missing/different controls or archive sizes; manual integrity tests detect archive corruption. Simple sync comparison behavior follows rclone and its backend settings.
 
 ## Verification modes and terminal progress — 0.6.1
 
 Interactive copies and syncs read rclone's structured JSON statistics. The terminal shows checked/copied file counts, removals, moves and elapsed time; an activity indicator continues updating while waiting for the next sample. The transfer percentage uses byte counters (file counts for zero-byte transfers). During discovery and deletions before copying, there may be no reliable total: the terminal shows activity without a percentage until transfer totals are known. This fast mode performs no extra inventory scan. The line adapts to terminal width, abbreviating paths and counters to avoid wrapping; resizing clears any reflowed rows. Moves into backup history alone do not count as completed transfer progress. These terminal details remain outside the JSON audit/stdout.
 
-`[backup].verification_mode = "simple"` is the default, even for existing configurations without this key; `"hash"` enables SHA-256/MD5 content checks. The CLI override is `--verification-mode simple|hash`. Hash cache and periodic-full-scan options only apply to hash mode. Switching to hash recomputes absent hashes; batch mode switches can rebuild archives. A hash verification requires a hash-mode backup first if the index has no hashes. Restores check sizes and any hashes recorded in their index; archive checksums remain enabled in both modes.
+`[backup].verification_mode = "simple"` is the default, even for existing configurations without this key; `"hash"` enables SHA-256/MD5 content checks. The CLI override is `--verification-mode simple|hash`. Hash cache and periodic-full-scan options only apply to hash mode. Switching to hash recomputes absent hashes; batch mode switches can rebuild archives. Daily batch verification deliberately uses size/time regardless of the backup inventory mode. Restores check sizes and any hashes recorded in their index; archive checksums remain enabled in both modes.
 
 Interactive stderr shows stage, directory and backup completion, with file/byte counts for inventories, known-directory estimates during discovery, rclone's transfer percentage for bulk copies and elapsed-time estimates for other opaque subprocess operations. The percentage covers the entire backup across stages, directories and jobs; it never decreases and only reaches 100% after success. Per-file events appear in JSONL or stdout only when their respective log level is `detailed`. Bulk copies display the actual subdirectory. Progress is never included in JSON logs or stdout, and is disabled when stderr is not a terminal. See the [complete guide](configuration.md#log-retention).
 

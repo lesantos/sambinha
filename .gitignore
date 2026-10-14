@@ -9,6 +9,7 @@ htmlcov/
 *.cover
 logs/
 state/
+metadata/
 sambinha.toml
 .env
 .env.*

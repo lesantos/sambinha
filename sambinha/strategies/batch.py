@@ -11,6 +11,7 @@ from ..batches import plan
 from ..context import Context
 from ..disks import check_disks
 from ..inventory import fingerprint, path_has_symlink, verify
+from ..metadata import cached_control, write_control
 from ..process import show_progress
 from ..profiles import category, settings
 from ..protection import protect_newer
@@ -29,9 +30,10 @@ def upload_index(ctx, state):
         archive = work / "control.tar.gz"
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(work / "state.json", arcname="state.json")
-            controls = ctx.directory / "controls"
+            controls = ctx.controls_directory
             if controls.exists():
-                tar.add(controls, arcname="controls")
+                tar.add(controls, arcname="controls",
+                        filter=lambda member: None if member.name == "controls/.index.json" else member)
         transferred = ctx.storage.put(archive, ".sambinha/control.tar.gz", standard=True)
         ctx.event("transferred" if transferred else "identical", path=".sambinha/control.tar.gz")
 
@@ -59,7 +61,7 @@ def upload_batch(ctx, item):
         show_progress(worker.runner, worker.progress.scope(0.95, 1) if worker.progress else None)
         transferred = worker.storage.put(control_path, item.key + ".json", standard=True)
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
-        atomic_json(ctx.directory / "controls" / (item.key + ".json"), control)
+        write_control(ctx.config, ctx.job, item.key, control)
         return control, events
 
 
@@ -107,7 +109,7 @@ def _pending_uploads(ctx, batches, old, active):
     retired_keys = {entry["key"] for entry in ctx.state["retired"]}
     pending = []
     for item in batches:
-        mirror = ctx.directory / "controls" / (item.key + ".json")
+        mirror = ctx.controls_directory / (item.key + ".json")
         saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None
         reusable = saved_control is not None and all(saved_control.get(k) == item.control()[k]
                                                      for k in ("schema", "archive", "files"))
@@ -146,6 +148,9 @@ def _upload_pending(ctx, pending, active):
 def batch(ctx: Context):
     """Plan, upload, publish, commit, then expire retired archives in that order."""
     batches, old, active, next_state = _plan_batches(ctx)
+    if not ctx.config.dry_run:
+        for key, control in {**ctx.state.get("excluded", {}), **old}.items():
+            cached_control(ctx.config, ctx.job, key, control)
     pending = _pending_uploads(ctx, batches, old, active)
     _upload_pending(ctx, pending, active)
     next_state["active"] = active

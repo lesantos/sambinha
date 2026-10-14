@@ -6,6 +6,7 @@ import tomllib
 
 from .config_validation import LOG_LEVELS as LOG_LEVELS, STORAGE_CLASSES as STORAGE_CLASSES
 from .config_validation import validate as validate
+from .config_locations import key_lines
 from .errors import ConfigError
 from .paths import destinations_overlap as destinations_overlap, overlap as overlap
 from .secrets import expand, read_environment
@@ -64,6 +65,7 @@ class Config:
     fingerprint_full_scan_days: int = 7
     transfer_workers: int = 4
     batch_workers: int = 2
+    metadata_dir: Path | None = None
     log_file_level: str = "summary"
     log_terminal_level: str = "summary"
 
@@ -77,15 +79,24 @@ def local_path(value, base, environment=None):
 
 def load(path: Path, overrides: dict | None = None) -> Config:
     try:
-        with path.open("rb") as stream:
-            data = tomllib.load(stream)
+        source = path.read_bytes().decode("utf-8")
+        data = tomllib.loads(source)
+
+        def unknown_parameters(values, allowed, section, prefix):
+            unknown = set(values) - allowed
+            if unknown:
+                locations = key_lines(source)
+                details = '; '.join(
+                    f'{name!r} (linha {locations[prefix + (name,)]})'
+                    for name in values if name in unknown)
+                raise ConfigError(f"Parâmetros desconhecidos em {section}: {details}; arquivo: {path}")
+
         if set(data) - {"backup", "jobs"}:
             raise ConfigError("Seções desconhecidas no TOML")
         global_values = dict(data.get("backup", {}))
         job_keys = set(Job.__dataclass_fields__)
         config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"}
-        if set(global_values) - config_keys:
-            raise ConfigError("Parâmetros desconhecidos em [backup]")
+        unknown_parameters(global_values, config_keys, "[backup]", ("backup",))
         raw_jobs = data.get("jobs", [])
         if not isinstance(raw_jobs, list):
             raise ConfigError("Use [[jobs]]")
@@ -107,15 +118,18 @@ def load(path: Path, overrides: dict | None = None) -> Config:
         global_values["environment"] = environment if secrets_file is not None else None
         for name in ("state_dir", "log_dir"):
             global_values[name] = local_path(global_values.get(name, "state" if name == "state_dir" else "logs"), base, environment)
+        metadata_dir = global_values.get("metadata_dir")
+        global_values["metadata_dir"] = (local_path(metadata_dir, base, environment)
+                                         if metadata_dir is not None and metadata_dir != "" else None)
         if global_values.get("rclone_config"):
             global_values["rclone_config"] = str(local_path(global_values["rclone_config"], base, environment))
         global_values["cronitor_url"] = expand(
             global_values.get("cronitor_url", environment.get("CRONITOR_URL", "")), environment)
         jobs = []
-        for raw in raw_jobs:
+        for index, raw in enumerate(raw_jobs):
             raw = dict(raw)
-            if set(raw) - job_keys:
-                raise ConfigError("Parâmetros desconhecidos em [[jobs]]")
+            job_name = raw.get("name", f"#{index + 1} (sem nome)")
+            unknown_parameters(raw, job_keys, f"[[jobs]] (job {job_name!r})", ("jobs", index))
             if selected and raw.get("name") != selected:
                 continue
             raw.update({k: v for k, v in overrides.items() if k in job_keys})

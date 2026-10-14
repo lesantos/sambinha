@@ -4,6 +4,7 @@
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+metadata_dir = "./metadata" # Local batch JSON mirrors, beside state and logs.
 # Keep logs written in the last 14 days; 0 disables automatic cleanup.
 # Old inactive Sambinha logs are removed during non-simulated invocations.
 log_retention_days = 14
@@ -18,11 +19,15 @@ version_days = 2
 # Soft Cronitor alert for more than this many impending permanent deletions.
 # Does not stop backups or change deadlines; run daily for advance notice.
 deletion_alert_threshold = 1000
-# S3 verification never downloads bodies; local checks follow verification_mode.
-# 0 disables scheduled verification; set 7 for a weekly check during backups.
+# Daily source verification uses only local JSONs and size/time; no S3 reads.
+# 0 disables the check after backup; set 1 to check once per day after backups.
+# Independent activities (select a batch job):
+# sambinha verify --job documents-s3              # daily; reports needs_update
+# sambinha verify-metadata --job documents-s3     # monthly; compare JSON replicas
+# sambinha integrity-test --job documents-s3      # manual; 7-Zip integrity test
 verify_interval_days = 0
 # Default: compare size in bytes and nanosecond modification time without reading contents.
-# Use "hash" for SHA-256/MD5 content checks; also accepts --verification-mode hash.
+# Use "hash" for backup inventories; daily batch verify still compares only size/time.
 verification_mode = "simple"
 # P1: in hash mode, reuse hashes only when device/inode/size/mtime/ctime/mode all match.
 # These options never enable content hashing in simple mode.

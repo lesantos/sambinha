@@ -2,6 +2,14 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.12.0 — 2026-10-14
+
+Restore batch data on the output filesystem, with per-batch temporary cleanup, protected publication and support for filesystems without POSIX attributes or hard links. Keep archive downloads and extraction off the machine's default temporary disk.
+
+Separate daily `verify` (source paths/size/time against local JSON mirrors, no S3 reads), monthly `verify-metadata` (replica agreement and archive size metadata) and manual `integrity-test` (7-Zip listing/integrity without extracted files). Add configurable `metadata_dir`, an identity-bound local active catalog, migration from committed local state and atomic JSON publication. Advance active state only after updated archives and both local/remote controls succeed; retain STANDARD for S3 JSON controls and recovery indexes. Document accepted archive timestamp precision loss, lifecycle considerations and scheduling.
+
+Report unknown TOML parameters with job name, parameter names, source lines and configuration path. Update bilingual guides and complete examples. Add regressions for cache-only daily checks, metadata divergence, publication failures/retries, storage classes, timestamp precision, destination-disk restore, corruption and overwrite/link protection.
+
 ## 0.11.0 — 2026-10-14
 
 Refactor backup orchestration into dedicated execution context, job lifecycle, preflight, archive creation and simple/batch strategy modules. Give preflight inventories named, typed fields; split batch planning, upload selection and bounded workers into separate functions. Share index identity and active-file lookup with recovery, and keep the existing engine import entry points. Preserve CLI/configuration, ordering, retention, state schemas, storage operations, error policies and telemetry.

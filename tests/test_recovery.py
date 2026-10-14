@@ -12,8 +12,84 @@ from sambinha.batches import plan
 from sambinha.config import validate
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_job
+from sambinha.recovery import recover, verify_job, verify_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents
+
+
+class RestorePublicationTests(Sandbox):
+    def test_existing_file_is_never_overwritten_with_or_without_hard_links(self):
+        import errno
+        from sambinha.restore import publish_file
+        source = self.file('file', b'restored')
+        metadata = scan(self.source)[0].metadata()
+        output = self.root / 'restored'
+        output.mkdir()
+        target = output / 'file'
+        target.write_bytes(b'existing')
+        for fallback in (False, True):
+            with self.subTest(fallback=fallback):
+                if fallback:
+                    with patch('sambinha.restore.os.link', side_effect=OSError(errno.EOPNOTSUPP, 'no links')):
+                        with self.assertRaises(BackupError):
+                            publish_file(source, output, metadata, preserve_permissions=True)
+                else:
+                    with self.assertRaises(BackupError):
+                        publish_file(source, output, metadata, preserve_permissions=True)
+                self.assertEqual(target.read_bytes(), b'existing')
+                self.assertEqual(source.read_bytes(), b'restored')
+
+    def test_parent_changed_to_symlink_is_rejected_without_writing_outside_output(self):
+        from sambinha.restore import publish_file
+        source = self.file('dir/file', b'restored')
+        metadata = scan(self.source)[0].metadata()
+        output = self.root / 'restored'
+        output.mkdir()
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (output / 'dir').symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(BackupError):
+            publish_file(source, output, metadata, preserve_permissions=True)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(source.read_bytes(), b'restored')
+
+
+class ArchiveMetadataVerificationTests(Sandbox):
+    def test_listing_checks_paths_sizes_and_dates_without_extraction(self):
+        from datetime import datetime
+        from sambinha.archive_recovery import check_archive
+        path = self.file('file', b'payload')
+        stamp = 1700000000123456789
+        os.utime(path, ns=(stamp, stamp))
+        batch = plan(scan(self.source), 1000, 2)[0]
+        control = batch.control()
+        modified = datetime.fromtimestamp(stamp // 10**9).strftime('%Y-%m-%d %H:%M:%S') + '.1234567'
+        listing = f'Path = file\nSize = 7\nModified = {modified}\n'
+        storage = Mock(job=replace(self.config.jobs[0], logic='batch'))
+        storage.path.return_value = str(self.root / batch.key)
+        runner = Mock()
+        runner.run.return_value = listing
+        with patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
+            check_archive(storage, runner, batch.key, control)
+        self.assertEqual([call.args[0][1] for call in runner.run.call_args_list], ['l', 't'])
+        for changed in (listing.replace('Path = file', 'Path = other'),
+                        listing.replace('Size = 7', 'Size = 8'),
+                        listing.replace('.1234567', '.1234568'),
+                        listing.replace(f'Modified = {modified}', 'Modified = invalid'),
+                        listing.replace('Path = file', 'Path = ../escape'),
+                        listing + '\n' + listing):
+            with self.subTest(listing=changed), self.assertRaises(BackupError):
+                runner.run.return_value = changed
+                check_archive(storage, runner, batch.key, control)
+
+    def test_legacy_zip_two_second_date_precision_is_accepted(self):
+        from datetime import datetime
+        from sambinha.archive_recovery import archive_date_matches
+        stamp = 1700000001123456789
+        date = datetime.fromtimestamp(stamp // 10**9)
+        date = date.replace(second=date.second // 2 * 2)
+        fields = {'Modified': date.strftime('%Y-%m-%d %H:%M:%S')}
+        self.assertTrue(archive_date_matches(fields, {'mtime_ns': stamp, 'path': 'file'}, 'zip'))
+        self.assertFalse(archive_date_matches(fields, {'mtime_ns': stamp + 2 * 10**9, 'path': 'file'}, 'zip'))
 
 
 class S3MetadataVerificationTests(Sandbox):
@@ -28,20 +104,20 @@ class S3MetadataVerificationTests(Sandbox):
         check.assert_called_once()
         runner.run.assert_not_called()
 
-    def test_batch_archive_and_control_are_checked_without_download(self):
+    def test_batch_archive_and_control_are_checked_with_only_metadata_downloads(self):
         self.file('file', b'original')
         batch = plan(scan(self.source), 1000, 2)[0]
         control = batch.control()
         control.update(archive_size=200, archive_md5='a' * 32)
-        encoded = (json.dumps(control, ensure_ascii=False, sort_keys=True, indent=2) + '\n').encode()
-        import hashlib
-        remotes = [{'Size': 200, 'Hashes': {'md5': 'a' * 32}},
-                   {'Size': len(encoded), 'Hashes': {'md5': hashlib.md5(encoded).hexdigest()}}]
         job = replace(self.config.jobs[0], type='s3', logic='batch', destination='aws:bucket')
-        with patch('sambinha.storage.Storage.stat', side_effect=remotes) as stat, \
-             patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
-            verify_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
-        self.assertEqual([c.args[0] for c in stat.call_args_list], [batch.key, batch.key + '.json'])
+        def download(storage, key, target):
+            self.assertEqual(key, batch.key + '.json')
+            Path(target).write_text(json.dumps(control), encoding='utf-8')
+        with patch('sambinha.storage.Storage.stat', return_value={'Size': 200}) as stat, \
+             patch('sambinha.storage.Storage.get', download):
+            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+        self.assertEqual([c.args[0] for c in stat.call_args_list], [batch.key])
+        self.assertTrue(all(c.kwargs == {'hashes': False} for c in stat.call_args_list))
 
     def test_simple_s3_verification_uses_rclone_check_in_hash_mode_too(self):
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket')
@@ -52,17 +128,83 @@ class S3MetadataVerificationTests(Sandbox):
         self.assertEqual(result['mode'], 'rclone_check')
         check.assert_called_once()
 
-    def test_missing_local_s3_index_fails_without_downloading_recovery_archive(self):
+    def test_missing_local_s3_index_is_recovered_from_immediately_accessible_metadata(self):
+        import tarfile
+        from sambinha.state import identity
+        self.file('file')
+        batch = plan(scan(self.source), 1000, 2)[0]
+        control = {**batch.control(), 'archive_size': 200, 'archive_md5': 'a' * 32}
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
-        with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')), self.assertRaises(BackupError):
-            verify_job(self.config, job, Mock(), Mock())
+        state = {'schema': 1, 'identity': identity(job), 'active': {batch.key: control}, 'retired': []}
+        saved = self.root / 'state.json'
+        saved.write_text(json.dumps(state))
+        index = self.root / 'control.tar.gz'
+        with tarfile.open(index, 'w:gz') as tar:
+            tar.add(saved, arcname='state.json')
+        downloads = []
+        def download(storage, key, target):
+            downloads.append(key)
+            if key == '.sambinha/control.tar.gz':
+                shutil.copyfile(index, target)
+            else:
+                self.assertEqual(key, batch.key + '.json')
+                Path(target).write_text(json.dumps(control))
+        with patch('sambinha.storage.Storage.get', download), \
+             patch('sambinha.storage.Storage.stat', return_value={'Size': 200}):
+            verify_metadata_job(self.config, job, Mock(), Mock())
+        self.assertEqual(downloads, ['.sambinha/control.tar.gz', batch.key + '.json'])
+        self.assertFalse((self.config.state_dir / job.name / 'state.json').exists())
 
-    def test_legacy_batch_without_archive_hash_fails_closed(self):
+    def test_legacy_batch_without_archive_size_fails_closed(self):
         self.file('file')
         batch = plan(scan(self.source), 1000, 2)[0]
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')), self.assertRaises(BackupError):
-            verify_job(self.config, job, Mock(), Mock(), {'active': {batch.key: batch.control()}})
+            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: batch.control()}})
+
+    def test_s3_size_mismatch_fails_without_hashes_or_downloads(self):
+        self.file('file')
+        batch = plan(scan(self.source), 1000, 2)[0]
+        control = {**batch.control(), 'archive_size': 200}
+        job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
+        with patch('sambinha.storage.Storage.stat', return_value={'Size': 201}), \
+             patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')), \
+             self.assertRaises(BackupError):
+            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+
+    def test_s3_control_checks_all_json_fields_without_calculating_hashes(self):
+        import copy
+        self.file('file')
+        batch = plan(scan(self.source), 1000, 2)[0]
+        control = {**batch.control(), 'archive_size': 200, 'archive_md5': 'a' * 32}
+        job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
+        for field, value, fails in (('path', 'other', True), ('size', 99, True),
+                                    ('mtime_ns', 0, True), ('md5', '0' * 32, True),
+                                    ('sha256', '0' * 64, True)):
+            saved = copy.deepcopy(control)
+            saved['files'][0][field] = value
+            def download(storage, key, target):
+                self.assertEqual(key, batch.key + '.json')
+                Path(target).write_text(json.dumps(saved))
+            with self.subTest(field=field), patch('sambinha.storage.Storage.get', download), \
+                 patch('sambinha.storage.Storage.stat', return_value={'Size': 200}):
+                if fails:
+                    with self.assertRaises(BackupError):
+                        verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+                else:
+                    verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
+
+    def test_invalid_remote_control_is_rejected_without_downloading_batch(self):
+        self.file('file')
+        batch = plan(scan(self.source), 1000, 2)[0]
+        control = {**batch.control(), 'archive_size': 200}
+        job = replace(self.config.jobs[0], type='s3', destination='aws:bucket', logic='batch')
+        def download(storage, key, target):
+            self.assertEqual(key, batch.key + '.json')
+            Path(target).write_text('{invalid')
+        with patch('sambinha.storage.Storage.get', download), \
+             patch('sambinha.storage.Storage.stat', return_value={'Size': 200}), self.assertRaises(BackupError):
+            verify_metadata_job(self.config, job, Mock(), Mock(), {'active': {batch.key: control}})
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
@@ -74,7 +216,7 @@ class RecoveryIntegrationTests(Sandbox):
         self.recovery_events = [json.loads(line) for line in output.getvalue().splitlines()]
         return result
 
-    def test_destination_option_controls_restore_output_but_not_temporary_space(self):
+    def test_destination_option_keeps_temporary_space_check_on_output_disk(self):
         from tests.test_disks import Usage
         self.file('file')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
@@ -85,12 +227,12 @@ class RecoveryIntegrationTests(Sandbox):
         measured = []
         def usage(path):
             measured.append(Path(path))
-            return Usage(0, 0, 0) if Path(path) in (restored, self.root) else Usage(100, 10, 90)
+            return Usage(100, 10, 90)
         with patch('shutil.disk_usage', side_effect=usage):
             self.assertEqual(self.recover('restore', output=restored), 0)
         self.assertEqual(contents(restored), contents(self.source))
         self.assertNotIn(restored, measured)
-        self.assertNotIn(self.root, measured)
+        self.assertIn(self.root, measured)
         self.assertTrue(any('sambinha-restore-' in str(path) for path in measured))
         with patch('shutil.disk_usage', return_value=Usage(100, 96, 4)):
             self.assertEqual(self.recover('restore', output=self.root / 'full-temp'), 1)
@@ -131,6 +273,121 @@ class RecoveryIntegrationTests(Sandbox):
         self.assertEqual(self.recover('restore', output=restored), 0)
         self.assertEqual(contents(restored), expected)
         self.assertFalse(self.config.state_dir.exists())
+
+    def test_local_batch_integrity_reads_archives_in_place_without_hashes_or_extraction(self):
+        from sambinha.process import Runner
+        from sambinha.state import atomic_json
+        path = self.file('file.txt', b'payload')
+        stamp = 1700000000123456789
+        os.utime(path, ns=(stamp, stamp))
+        for archive_format in ('7z', 'zip'):
+            with self.subTest(archive_format=archive_format):
+                job = replace(self.config.jobs[0], logic='batch', archive_format=archive_format,
+                              destination=str(self.root / archive_format))
+                self.config = replace(self.config, jobs=(job,), state_dir=self.root / f'state-{archive_format}')
+                self.assertEqual(self.execute(), 0)
+                state = self.state()
+                for control in state['active'].values():
+                    control['archive_md5'] = '0' * 32
+                    for member in control['files']:
+                        member['sha256'], member['md5'] = '0' * 64, '0' * 32
+                atomic_json(self.config.state_dir / job.name / 'state.json', state)
+                commands = []
+                original = Runner.run
+                def record(runner, args, **kwargs):
+                    commands.append(args)
+                    return original(runner, args, **kwargs)
+                with patch.object(Runner, 'run', record), \
+                     patch('sambinha.storage.Storage.get', side_effect=AssertionError('archive download')), \
+                     patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
+                    self.assertEqual(self.recover('integrity-test'), 0)
+                archive_calls = [args for args in commands if args[0] == job.compressor]
+                self.assertEqual([args[1] for args in archive_calls], ['l', 't'])
+                self.assertTrue(all(Path(args[-1]).is_relative_to(job.destination) for args in archive_calls))
+
+    def test_batch_restore_uses_output_disk_and_removes_each_lots_temporary_files(self):
+        from tests.test_disks import Usage
+        from sambinha.archive_recovery import unpack
+        from sambinha.storage import Storage
+        for i in range(3):
+            self.file(f'{i}/selected.txt', b'selected')
+            self.file(f'{i}/unselected.txt', b'unselected')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_files=2),))
+        self.assertEqual(self.execute(), 0)
+        restored = self.root / 'mounted-output'
+        restored.mkdir()
+        lots, downloads = [], []
+        get = Storage.get
+        def download(storage, key, target):
+            target = Path(target)
+            self.assertTrue(target.is_relative_to(restored))
+            downloads.append(target)
+            return get(storage, key, target)
+        def extract(storage, runner, key, control, work):
+            self.assertTrue(work.is_relative_to(restored))
+            self.assertTrue(all(not previous.exists() for previous in lots))
+            self.assertFalse(any((restored / f'{i}/selected.txt').exists() for i in range(3)))
+            lots.append(work)
+            return unpack(storage, runner, key, control, work)
+        def usage(path):
+            self.assertNotEqual(Path(path), Path('/tmp'))
+            return Usage(100, 10, 90)
+        selectors = tuple(f'{i}/selected.txt' for i in range(3))
+        with patch('sambinha.storage.Storage.get', download), patch('sambinha.restore.unpack', extract), \
+             patch('shutil.disk_usage', side_effect=usage), \
+             patch('sambinha.restore.shutil.copyfileobj', side_effect=AssertionError('unnecessary copy')):
+            self.assertEqual(self.recover('restore', output=restored, selectors=selectors), 0)
+        self.assertEqual(len(lots), 3)
+        self.assertEqual(len(downloads), 3)
+        self.assertEqual(contents(restored), {path: b'selected' for path in selectors})
+        self.assertTrue(all(not path.exists() for path in lots))
+        self.assertFalse(list(restored.glob('.sambinha-restore-*')))
+
+    def test_late_batch_corruption_leaves_output_empty_and_cleans_workspace(self):
+        self.file('a/file.txt', b'first')
+        self.file('b/file.txt', b'second')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_bytes=6),))
+        self.assertEqual(self.execute(), 0)
+        keys = list(self.state()['active'])
+        self.assertEqual(len(keys), 2)
+        (self.destination / keys[-1]).write_bytes(b'corrupt')
+        restored = self.root / 'restored'
+        restored.mkdir()
+        self.assertEqual(self.recover('restore', output=restored), 1)
+        self.assertEqual(list(restored.iterdir()), [])
+
+    def test_batch_restore_from_s3_downloads_into_output_without_system_temporary_space(self):
+        from sambinha.state import atomic_json, identity
+        from tests.test_disks import Usage
+        self.file('dir/file.txt', b'payload')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
+        self.assertEqual(self.execute(), 0)
+        state = self.state()
+        job = replace(self.config.jobs[0], type='s3', destination='aws:bucket/backup')
+        state['identity'] = identity(job)
+        atomic_json(self.config.state_dir / job.name / 'state.json', state)
+        self.config = replace(self.config, jobs=(job,))
+        restored = self.root / 'restored'
+        def download(storage, key, target):
+            target = Path(target)
+            self.assertTrue(target.is_relative_to(restored))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.destination / key, target)
+        def usage(path):
+            return Usage(100, 96, 4) if Path(path) == Path('/tmp') else Usage(100, 10, 90)
+        with patch('sambinha.storage.Storage.get', download), patch('shutil.disk_usage', side_effect=usage):
+            self.assertEqual(self.recover('restore', output=restored), 0)
+        self.assertEqual(contents(restored), contents(self.source))
+
+    def test_batch_restore_simulation_does_not_create_output_or_download(self):
+        self.file('file.txt')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
+        self.assertEqual(self.execute(), 0)
+        self.config = replace(self.config, dry_run=True)
+        restored = self.root / 'missing-parent' / 'restored'
+        with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
+            self.assertEqual(self.recover('restore', output=restored), 0)
+        self.assertFalse(restored.parent.exists())
 
     def test_corruption_is_detected_before_any_restore_file_is_published(self):
         self.file('a', b'original')

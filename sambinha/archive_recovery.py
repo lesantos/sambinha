@@ -1,4 +1,5 @@
 """Validate and unpack archive members into private staging directories."""
+from datetime import datetime
 import re
 
 from .disks import check_disk
@@ -16,13 +17,8 @@ def check_content(root, metadata, *, mode=None, check_mtime=False):
         raise BackupError(f"Integridade divergente: {metadata['path']}")
 
 
-def unpack(storage, runner, key, control, work):
-    archive = work / "archive"
-    storage.get(key, archive)
-    if "archive_md5" in control:
-        actual = fingerprint(work, "archive")
-        if actual.size != control["archive_size"] or actual.md5 != control["archive_md5"]:
-            raise BackupError(f"Checksum do lote divergente: {key}")
+def archive_members(storage, runner, archive):
+    """Read safe file entries without extracting archive contents."""
     listing = runner.run([storage.job.compressor, "l", "-slt", "-ba", str(archive)])
     members = {}
     for record in listing.strip().split("\n\n"):
@@ -38,8 +34,52 @@ def unpack(storage, runner, key, control, work):
             continue
         if name in members:
             raise BackupError("Arquivo duplicado no lote")
-        members[name] = int(fields["Size"])
-    if members != {f["path"]: f["size"] for f in control["files"]}:
+        members[name] = fields
+    return members
+
+
+def archive_date_matches(fields, metadata, archive_format):
+    """Compare local wall-clock timestamps at the archive format's precision."""
+    modified = fields.get("Modified", "")
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?", modified)
+    if not match:
+        raise BackupError(f"Data de modificação ausente ou inválida no lote: {metadata['path']}")
+    seconds, nanoseconds = divmod(metadata["mtime_ns"], 10 ** 9)
+    expected = datetime.fromtimestamp(seconds)
+    actual = datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S")
+    fraction = int((match[2] or '').ljust(9, '0'))
+    characteristics = fields.get("Characteristics", "").replace(':', ' ').upper().split()
+    if archive_format == "zip" and "NTFS" not in characteristics:
+        # Older ZIP entries can store whole seconds (UT) or DOS two-second timestamps.
+        resolution = 1 if "UT" in characteristics else 2
+        return expected.replace(second=expected.second // resolution * resolution) == actual and fraction == 0
+    # 7z and ZIP/NTFS timestamps use 100 ns units; listing can omit trailing zeros.
+    return expected == actual and nanoseconds // 100 == fraction // 100
+
+
+def check_archive(storage, runner, key, control, *, archive=None):
+    """Verify paths, sizes, dates and 7-Zip integrity without disk extraction or hashes."""
+    archive = storage.path(key) if archive is None else archive
+    members = archive_members(storage, runner, archive)
+    if {name: int(fields["Size"]) for name, fields in members.items()} != {
+            item["path"]: item["size"] for item in control["files"]}:
+        raise BackupError(f"Lote incompleto ou caminhos/tamanhos diferentes do índice: {key}")
+    for item in control["files"]:
+        if not archive_date_matches(members[item["path"]], item, key.rsplit('.', 1)[-1]):
+            raise BackupError(f"Data de modificação divergente no lote: {item['path']}")
+    runner.run([storage.job.compressor, "t", str(archive)])
+
+
+def unpack(storage, runner, key, control, work):
+    archive = work / "archive"
+    storage.get(key, archive)
+    if "archive_md5" in control:
+        actual = fingerprint(work, "archive")
+        if actual.size != control["archive_size"] or actual.md5 != control["archive_md5"]:
+            raise BackupError(f"Checksum do lote divergente: {key}")
+    members = archive_members(storage, runner, archive)
+    if {name: int(fields["Size"]) for name, fields in members.items()} != {
+            f["path"]: f["size"] for f in control["files"]}:
         raise BackupError("Lote incompleto ou caminhos diferentes do índice")
     runner.run([storage.job.compressor, "t", str(archive)])
     extracted = work / "files"

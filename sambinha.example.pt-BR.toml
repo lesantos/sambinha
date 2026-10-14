@@ -4,6 +4,7 @@
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
+metadata_dir = "./metadata" # JSONs locais dos lotes, ao lado de state e logs.
 # Manter logs escritos nos últimos 14 dias; 0 desativa a limpeza automática.
 # Logs antigos inativos do Sambinha são removidos em execuções sem simulação.
 log_retention_days = 14
@@ -18,11 +19,15 @@ version_days = 2
 # Aviso consultivo do Cronitor acima desta quantidade de exclusões definitivas previstas.
 # Não interrompe o backup nem muda prazos; execute diariamente para receber aviso prévio.
 deletion_alert_threshold = 1000
-# Verificação no S3 não baixa corpos; checks locais seguem verification_mode.
-# 0 desativa a agenda; use 7 para verificar semanalmente durante os backups.
+# Verificação diária usa JSONs locais e tamanho/data; não consulta o S3.
+# 0 desativa a checagem após backup; use 1 para checar diariamente após backups.
+# Atividades independentes (selecione um job batch):
+# sambinha verify --job documents-s3              # diário; informa needs_update
+# sambinha verify-metadata --job documents-s3     # mensal; compara cópias dos JSONs
+# sambinha integrity-test --job documents-s3      # manual; teste de integridade do 7-Zip
 verify_interval_days = 0
 # Padrão: tamanho em bytes e data de modificação em nanossegundos, sem ler conteúdo.
-# Use "hash" para conferir SHA-256/MD5; também aceita --verification-mode hash.
+# Use "hash" nos inventários do backup; verify diário de lotes compara só tamanho/data.
 verification_mode = "simple"
 # As opções de cache/leitura completa abaixo só se aplicam aos hashes no modo hash.
 # P1: reutiliza hashes apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais.

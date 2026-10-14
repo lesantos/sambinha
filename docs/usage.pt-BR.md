@@ -149,9 +149,11 @@ Selecione uma tarefa e uma saída nova/vazia, separada de origens, destinos, est
 
 Jobs simples restauram a árvore atual sem índice e aceitam `--path` para arquivos/diretórios atuais. Para uma versão histórica simples, use rclone no diretório `.sambinha/history/<id-da-execução>`. Lotes podem recuperar `state.json` do tar remoto, lendo apenas o membro regular limitado a 64 MiB, sem extrair outros caminhos ou instalar um estado novo. Restaurar do S3 baixa os arquivos/lotes selecionados e pode gerar cobrança. GLACIER/DEEP_ARCHIVE exigem restore prévio na AWS.
 
-Jobs simples executam `rclone check`. Lotes locais validam checksum do arquivo compactado, integridade do 7-Zip, caminhos e tamanhos/hashes registrados dos membros. No S3 batch, só consulta metadados, incluindo controles JSON; lotes usam tamanho/MD5. Nunca baixa corpos de objetos nem índices ausentes. Um ETag multipart sozinho não é MD5 do objeto inteiro. Hash necessário ausente, lote antigo sem checksum de envio ou índice local ausente causam erro explícito. Esta checagem não descompacta membros nem autentica um índice alterado por atacante.
+Downloads, extração e preparação da restauração batch usam uma pasta temporária dentro de `--output`. Lotes compactados e membros extraídos não selecionados são removidos após cada lote. Arquivos selecionados ficam no disco de saída até todo o conteúdo solicitado ser validado e são publicados sem sobrescrever. Em sistemas sem links físicos, a publicação precisa temporariamente do espaço de mais um arquivo. O temporário padrão da máquina não é usado para restaurar lotes.
 
-`verify_interval_days` agenda verificações de índices batch; não se aplica a jobs simples. 0 desativa a agenda. Apenas sucesso atualiza `last_verified`. `verify` manual verifica imediatamente. Em jobs simples, executa `rclone check` com as exclusões do job.
+Em batch, `verify` compara caminhos/tamanho/data da origem com JSONs locais e informa atualizações necessárias, sem ler lotes, calcular hashes ou consultar S3. `verify-metadata` confere separadamente a sincronia dos JSONs locais/do destino e o tamanho dos lotes; JSONs e índices S3 usam STANDARD e só metadados são baixados. `integrity-test` manual lista/testa pelo 7-Zip sem arquivos extraídos; lotes S3 são baixados um por vez. `verify` simples continua usando `rclone check`. Configure `metadata_dir = "./metadata"` ao lado de state/logs. Veja [atividades, precisão das datas e garantias de publicação](batch-checks.pt-BR.md).
+
+`verify_interval_days` agenda verificações de índices batch; não se aplica a jobs simples. 0 desativa a agenda de checagens da origem. Testes de integridade são manuais. Apenas sucesso atualiza `last_verified`. `verify` manual verifica imediatamente. Em jobs simples, executa `rclone check` com as exclusões do job.
 
 ## Limites de remoção e ocupação dos discos
 
@@ -165,7 +167,7 @@ As opções por job `check_source_disk` e `check_destination_disk` têm padrão 
 
 Jobs batch emitem contagens indexadas de arquivos e lotes. Jobs simples registram a estratégia `rclone sync` e o `max_delete` absoluto por job; uma falha pode ocorrer depois de parte da sincronização ter sido aplicada. Veja [performance](performance.pt-BR.md) para sync nativo e perfis batch.
 
-Estados 0.3.x continuam compatíveis. Lotes sem checksum de envio não têm verificação completa por metadados até serem substituídos após mudanças. Não há reenvio automático só para adicionar o checksum. No modo hash, o cache pressupõe metadados de filesystem confiáveis e força leituras completas periódicas; desative-o quando precisar de leitura completa em toda execução.
+Estados 0.3.x continuam compatíveis. Lotes antigos sem tamanho de envio registrado não permitem a checagem mensal do tamanho até serem substituídos após mudanças; checagem diária da origem e integridade manual continuam disponíveis. No modo hash, o cache pressupõe metadados de filesystem confiáveis e força leituras completas periódicas; desative-o quando precisar de leitura completa em toda execução.
 
 ## Modos de verificação e progresso no terminal — 0.6.1
 

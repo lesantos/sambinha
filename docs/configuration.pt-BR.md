@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.10.2**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.12.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -237,7 +237,7 @@ check_source_disk = false
 check_destination_disk = true
 ```
 
-Use `check_destination_disk = false` para suprimir também a checagem de capacidade do destino local. Essa opção inclui a pasta de saída da restauração. Destinos S3 não têm checagem de capacidade local. O espaço temporário usado na criação de lotes, verificação e restauração continua sendo verificado. Essas opções não desativam checagens de montagem, leitura da origem, validação de caminhos ou proteção contra remoções em massa. Falhas reais de escrita, incluindo falta de espaço, continuam causando erro no job. Com as checagens ativadas, capacidade indisponível causa erro; a mensagem indica o caminho e o motivo.
+Use `check_destination_disk = false` para suprimir também a checagem de capacidade do destino local. Essa opção inclui a pasta de saída da restauração. Destinos S3 não têm checagem de capacidade local. O espaço temporário da criação de lotes, restauração e downloads de lotes continua sendo verificado; a checagem diária batch não prepara lotes temporários. Essas opções não desativam checagens de montagem, leitura da origem, validação de caminhos ou proteção contra remoções em massa. Falhas reais de escrita, incluindo falta de espaço, continuam causando erro no job. Com as checagens ativadas, capacidade indisponível causa erro; a mensagem indica o caminho e o motivo.
 
 ## Continuar ou parar após falha em um job
 
@@ -283,7 +283,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.10.2**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.12.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -295,19 +295,25 @@ A versão atual é **0.10.2**. A documentação padrão é em inglês; este arqu
 
 `--path` aceita repetição para jobs simples ou batch. Em jobs simples, o rclone seleciona arquivos/diretórios atuais do destino; não são versões históricas. Use o rclone para copiar versões antigas de `.sambinha/history/<id-da-execução>`. A pasta de saída deve ser nova ou vazia, separada de origens, backups, estado e logs. Lotes passam por verificação de checksum e integridade do 7-Zip. Para lotes, pode recuperar o índice perdido a partir de `.sambinha/control.tar.gz`.
 
+A restauração batch baixa e extrai em uma pasta temporária dentro de `--output`, usando o disco da restauração em vez do temporário padrão da máquina. Cada lote compactado e seus membros extraídos não selecionados são removidos antes de processar o próximo lote. Arquivos selecionados ficam no disco de saída até todo o conteúdo solicitado passar pela validação. A publicação usa links físicos quando suportados; caso contrário, copia e remove cada arquivo temporário por vez. Reserve espaço para a seleção restaurada mais um lote compactado/descompactado e, em sistemas sem links físicos, um arquivo adicional durante a publicação. As checagens de espaço temporário também medem o disco de saída. A simulação não cria a pasta de saída.
+
 Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperação; selecionar um membro de lote baixa o lote inteiro. GLACIER/DEEP_ARCHIVE exigem uma restauração prévia pela AWS.
 
-### Verificar sem baixar objetos do S3
+### Atividades independentes dos lotes
 
 ```bash
-.venv/bin/sambinha verify --job documents
+sambinha verify --job documents-s3          # Diário: tamanho/data da origem contra JSONs locais
+sambinha verify-metadata --job documents-s3 # Mensal: sincronia dos JSONs e tamanho dos lotes
+sambinha integrity-test --job documents-s3  # Manual: teste de integridade do 7-Zip
 ```
 
-Jobs simples executam `rclone check` com as exclusões do job. Lotes são testados e extraídos para conferir os arquivos originais, incluindo hashes quando registrados. No S3, verificações batch fazem **somente consultas de metadados**: lotes e controles JSON usam tamanho/MD5. **Nunca baixa corpos de objetos nem o índice de recuperação**, inclusive nas falhas. Consultas podem ter cobrança de API; essa verificação não testa a extração dos membros de lotes.
+Em jobs batch, `verify` usa a origem atual e os JSONs locais, sem ler lotes, calcular hashes ou consultar o S3. Informa `needs_update`, arquivos novos/alterados/removidos e lotes afetados; execute `backup` para aplicar atualizações. Uma checagem concluída retorna 0 mesmo se houver atualizações necessárias. `metadata_dir = "./metadata"` deixa o cache ao lado de state/logs; ausente/vazio preserva `state/JOB/controls`. JSONs inalterados não são reenviados.
 
-Novos lotes registram tamanho compactado e checksum de envio. Lotes antigos sem esses campos, índice local ausente ou hash remoto indisponível causam erro explícito, sem download alternativo ou reconstrução automática de lotes intactos. Preserve os metadados de checksum do rclone para uploads multipart.
+`verify-metadata` compara os JSONs completos conhecidos locais/do destino e os metadados de tamanho dos lotes. Controles e índice de recuperação são enviados em STANDARD independentemente da classe dos lotes. Só esses arquivos de metadados são baixados, nunca os lotes. Estado/catálogo local ausente pode ser recuperado pelo índice. Regras de ciclo de vida devem preservar o acesso imediato aos metadados.
 
-`verify_interval_days` agenda verificações de índices batch após backups bem-sucedidos quando vencer o prazo. Não se aplica a jobs simples. 0 desativa a agenda. Falhas mantêm a data da última verificação bem-sucedida.
+`integrity-test` compara separadamente a listagem e executa `7z t`, sem comparações MD5/SHA nem arquivos extraídos no disco. Lotes locais são lidos diretamente; lotes S3 são baixados/removidos um por vez e Glacier/Deep Archive precisam de restore prévio pela AWS. Datas 7z/ZIP-NTFS preservam 100 ns; ZIPs antigos podem preservar um/dois segundos. Essa perda aceita entra na comparação dos lotes; os JSONs preservam o `mtime_ns` original.
+
+`verify_interval_days` permite a checagem local leve após backups batch bem-sucedidos; 0 desativa. Integridade é manual. `verify` simples continua usando `rclone check`. Veja [atividades e garantias de publicação](batch-checks.pt-BR.md) para migração do cache, agenda, falhas e espaço em disco.
 
 ### Proteção contra remoções e monitoramento dos discos
 

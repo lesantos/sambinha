@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.11.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
+Sambinha **0.12.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
 
 Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
@@ -54,7 +54,7 @@ Simulation runs `rclone sync --dry-run` and writes a log without changing backup
 
 ## Essential behavior
 
-- **Storage and verification:** `logic = "simple"` delegates tree sync and exclusions to rclone; `"batch"` creates indexed compressed archives. `sambinha verify` uses `rclone check` for simple jobs; batch jobs retain index-based verification.
+- **Storage and verification:** `logic = "simple"` delegates tree sync and exclusions to rclone; `"batch"` creates indexed compressed archives. `sambinha verify` uses `rclone check` for simple jobs; batch `verify` compares source size/time with local JSONs. Separate `verify-metadata` and `integrity-test` actions check replicas and archive integrity. See [batch checks](docs/batch-checks.md).
 - **Symbolic links:** source links are ignored and never recreated in the destination. Conflicting destination links are replaced by real files/directories without touching their targets; links without conflicts are left intact. [Decision and limits](docs/usage.md#symbolic-links).
 - **Retention:** simple-job backups in `.sambinha/history/<run-id>` expire after the larger of `deleted_days` and `version_days`; batch jobs keep separate deletion/version deadlines. Logs retain 14 days; `log_retention_days = 0` disables log cleanup.
 - **Jobs:** run sequentially. Each job's `continue_on_job_error` defaults to `true`; set it to `false` to stop when that job fails. Any job failure returns a nonzero exit code, and errors identify the job.

@@ -47,6 +47,8 @@ def _validate_global(config: Config):
         raise ConfigError("rclone_config deve ser uma string")
     if config.secrets_file is not None and not isinstance(config.secrets_file, Path):
         raise ConfigError("secrets_file deve indicar um caminho")
+    if config.metadata_dir is not None and not isinstance(config.metadata_dir, Path):
+        raise ConfigError("metadata_dir deve indicar um caminho")
 
 
 def _validate_job(job: Job, seen: set[str]):
@@ -98,14 +100,15 @@ def _validate_job_paths(config: Config, job: Job):
         raise ConfigError("destination_mount é aplicável somente a destinos locais")
     if not isinstance(job.destination, str) or not job.destination:
         raise ConfigError("Destino vazio")
-    for internal in (config.state_dir, config.log_dir):
+    internal_paths = (config.state_dir, config.log_dir, *((config.metadata_dir,) if config.metadata_dir else ()))
+    for internal in internal_paths:
         if overlap(job.source, internal):
             raise ConfigError("Origem não pode sobrepor diretórios de estado ou logs")
     if job.type == "local":
         target = Path(job.destination).resolve()
         if overlap(job.source, target):
             raise ConfigError(f"Destino local não pode sobrepor a própria origem: {job.name}")
-        if any(overlap(target, p) for p in (config.state_dir, config.log_dir)):
+        if any(overlap(target, p) for p in internal_paths):
             raise ConfigError("Destino não pode sobrepor estado ou logs")
     elif not re.fullmatch(r"[\w-]+:[^/][^\n\r]*", job.destination):
         raise ConfigError("S3: use remote:bucket/prefixo configurado no rclone")
@@ -128,4 +131,6 @@ def validate(config: Config) -> Config:
     _validate_destinations(config)
     if overlap(config.state_dir, config.log_dir):
         raise ConfigError("Estado e logs devem ter diretórios separados")
+    if config.metadata_dir and overlap(config.metadata_dir, config.log_dir):
+        raise ConfigError("Metadados e logs devem ter diretórios separados")
     return config

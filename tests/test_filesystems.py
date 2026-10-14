@@ -149,7 +149,31 @@ class FilesystemIntegrationTests(Sandbox):
         self.assertEqual(contents(output), contents(self.source))
         self.assertEqual((self.destination / "dir/private").stat().st_mtime_ns, source.stat().st_mtime_ns)
         self.assertEqual((output / "dir/private").stat().st_mtime_ns, source.stat().st_mtime_ns)
+
         self.assertTrue(any(args[1] == "sync" for args in calls))
+
+    def test_batch_restore_recovers_index_on_filesystem_without_chmod_or_hard_links(self):
+        import errno
+        import shutil
+        source = self.file('dir/private', b'payload', mode=0o750)
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
+        self.assertEqual(self.execute(), 0)
+        shutil.rmtree(self.config.state_dir)
+        output = self.root / 'restored'
+        table = mount_table(('/', 'btrfs'), (output, 'exfat'))
+        original = Path.chmod
+        def guarded_chmod(path, *args, **kwargs):
+            if path == output or output in path.parents:
+                raise PermissionError('destination does not support chmod')
+            return original(path, *args, **kwargs)
+        with patch('sambinha.filesystems._MOUNTINFO') as info, \
+             patch.object(Path, 'chmod', guarded_chmod), \
+             patch('sambinha.restore.os.link', side_effect=OSError(errno.EOPNOTSUPP, 'no hard links')), \
+             patch('sambinha.restore.os.fchmod', side_effect=AssertionError('unsupported chmod')):
+            info.read_text.return_value = table
+            self.assertEqual(recover(self.config, 'restore', output=output, notifier=lambda *args: None), 0)
+        self.assertEqual(contents(output), contents(self.source))
+        self.assertEqual((output / 'dir/private').stat().st_mtime_ns, source.stat().st_mtime_ns)
 
     def test_batch_restore_skips_rejected_output_chmod_and_preserves_contents(self):
         source = self.file("dir/private", b"payload", mode=0o750)

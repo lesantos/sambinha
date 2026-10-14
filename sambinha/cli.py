@@ -14,7 +14,8 @@ from .recovery import recover
 def parser():
     result = argparse.ArgumentParser(prog="sambinha", description="Backup local/S3 simples ou por lotes")
     result.add_argument("--version", action="version", version=__version__)
-    result.add_argument("action", nargs="?", choices=("backup", "restore", "verify"), default="backup")
+    result.add_argument("action", nargs="?", choices=("backup", "restore", "verify", "verify-metadata", "integrity-test"),
+                        default="backup")
     result.add_argument("--config", type=Path, default=Path("sambinha.toml"))
     result.add_argument("--job", help="Executar apenas o job nomeado")
     result.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=None)
@@ -30,7 +31,7 @@ def parser():
     for name in ("log_file_level", "log_terminal_level"):
         result.add_argument("--" + name.replace("_", "-"), choices=("error", "summary", "detailed"), default=None)
     for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
-                 "state_dir", "log_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
+                 "state_dir", "log_dir", "metadata_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
                  "source_mount", "destination_mount"):
         result.add_argument("--" + name.replace("_", "-"), default=None)
     for name in ("deleted_days", "version_days", "log_retention_days", "max_bytes", "max_files", "timeout", "deletion_alert_threshold",

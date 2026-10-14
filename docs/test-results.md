@@ -1,6 +1,14 @@
-# Sambinha 0.11.0 test results
+# Sambinha 0.12.0 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+## 0.12.0 validation
+
+On 2026-10-14, Linux, Python 3.12.3: the full branch-coverage run with `SAMBINHA_HTTP_S3_TESTS=1` passed **389/389 tests in 473.804 seconds, with no failures or skips**. All 25 HTTP S3 tests passed. Application coverage, including branches, is **94%**, above the required 85%.
+
+New coverage exercises source-only daily verification without S3 requests or content hashing, configurable JSON mirrors and catalog recovery, monthly metadata synchronization, independent archive integrity tests, STANDARD metadata beside cold S3 archives, and publication failures followed by retries. Restoration tests cover destination-disk staging, one-batch cleanup, validation before publishing files, existing-file and symlink protections, and FAT/exFAT operation. Configuration tests cover unknown parameter names, job names and source lines; the public examples include all new options and actions.
+
+The sections below retain earlier validation records.
 
 ## 0.11.0 validation
 

@@ -3,6 +3,7 @@ import json
 import tarfile
 
 from .errors import BackupError
+from .filesystems import supports_posix_metadata
 from .state import atomic_json, identity, load_state
 
 
@@ -23,5 +24,5 @@ def read_index(config, job, storage, work, *, metadata_only=False):
             raise BackupError("Índice de recuperação inválido")
         state = json.load(tar.extractfile(entries[0]))
     recovered = work / "state.json"
-    atomic_json(recovered, state)
+    atomic_json(recovered, state, preserve_permissions=supports_posix_metadata(work))
     return load_state(recovered, identity(job))

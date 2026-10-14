@@ -1,14 +1,17 @@
 """Restore selected content only after validating every staged member."""
+from contextlib import contextmanager
+import errno
 import os
 from pathlib import Path
 import shutil
 import tempfile
 
-from .archive_recovery import check_content, unpack
+from .archive_recovery import unpack
 from .disks import check_disk
 from .errors import BackupError
 from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
+from .local_paths import directory
 from .paths import overlap
 from .recovery_index import read_index
 from .state import indexed_files, private_directory
@@ -19,20 +22,72 @@ def matches(path, selectors):
     return not selectors or any(path == p or path.startswith(p + "/") for p in selectors)
 
 
-def validate_output(config, output, *, check_space=True):
+def validate_output(config, output, *, check_space=True, workspace=None):
     output = Path(output).absolute()
     if any(p.is_symlink() for p in (output, *output.parents)):
         raise BackupError("Destino de restauração contém link simbólico")
     output = output.resolve()
     protected = [config.state_dir, config.log_dir, *(j.source for j in config.jobs)]
+    if config.metadata_dir:
+        protected.append(config.metadata_dir)
     protected += [Path(j.destination).resolve() for j in config.jobs if j.type == "local"]
     if any(overlap(output, p) for p in protected):
         raise BackupError("Restauração deve usar uma pasta separada da origem, backup, estado e logs")
-    if output.exists() and (not output.is_dir() or next(output.iterdir(), None) is not None):
+    if output.exists() and (not output.is_dir() or
+                            any(child != workspace for child in output.iterdir())):
         raise BackupError("Pasta de restauração deve ser nova ou vazia")
     if check_space:
         check_disk(output, "restauração")
     return output
+
+
+@contextmanager
+def restore_workspace(output, *, dry_run=False):
+    """Keep downloads and staging on the output filesystem, including mounted roots."""
+    created = not output.exists()
+    parent = output
+    if dry_run:
+        while not parent.exists():
+            parent = parent.parent
+    else:
+        private_directory(output, preserve_permissions=supports_posix_metadata(output))
+    try:
+        with tempfile.TemporaryDirectory(prefix=".sambinha-restore-", dir=parent) as temp:
+            yield Path(temp)
+    except BaseException:
+        if created and not dry_run:
+            try:
+                output.rmdir()
+            except OSError:
+                pass  # Never remove files published or created by another process.
+        raise
+
+
+def publish_file(source, output, metadata, *, preserve_permissions):
+    """Publish without overwriting, using a hard link when the filesystem permits it."""
+    target = output / metadata["path"]
+    with directory(target.parent, create=True) as parent:
+        source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+        target_fd = None
+        try:
+            try:
+                os.link(source, target.name, dst_dir_fd=parent, follow_symlinks=False)
+                target_fd = os.open(target.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            except OSError as exc:
+                if exc.errno not in {errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS, errno.EXDEV, errno.EMLINK}:
+                    raise
+                target_fd = os.open(target.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                    0o600, dir_fd=parent)
+                with os.fdopen(os.dup(target_fd), "wb") as stream, os.fdopen(os.dup(source_fd), "rb") as content:
+                    shutil.copyfileobj(content, stream)
+            if preserve_permissions:
+                os.fchmod(target_fd, metadata["mode"] & 0o777)
+            os.utime(target_fd, ns=(metadata["mtime_ns"], metadata["mtime_ns"]))
+        finally:
+            os.close(source_fd)
+            if target_fd is not None:
+                os.close(target_fd)
+    source.unlink()
 
 
 def restore_job(config, job, runner, log, output, selectors=()):
@@ -44,8 +99,8 @@ def restore_job(config, job, runner, log, output, selectors=()):
         log.event("restore_summary", job=job.name, dry_run=config.dry_run,
                   strategy="rclone_copy", selectors=list(selectors))
         return
-    with tempfile.TemporaryDirectory(prefix="sambinha-restore-") as directory:
-        work = Path(directory)
+    with restore_workspace(output, dry_run=config.dry_run) as work:
+        storage.temporary_directory = work
         state = read_index(config, job, storage, work)
         files = indexed_files(state, job.logic)
         selected = {p: f for p, f in files.items() if matches(p, selectors)}
@@ -58,44 +113,24 @@ def restore_job(config, job, runner, log, output, selectors=()):
         check_disk(work, "temporários de restauração")
         staged = work / "staged"
         staged.mkdir(mode=0o700)
-        if job.logic == "simple":
-            for path, metadata in selected.items():
-                storage.get(path, staged / path)
-                check_content(staged, metadata)
-        else:
-            for index, (key, control) in enumerate(state["active"].items()):
-                members = [f for f in control["files"] if f["path"] in selected]
-                if not members:
-                    continue
-                lot = work / str(index)
-                lot.mkdir(mode=0o700)
+        for key, control in state["active"].items():
+            members = [f for f in control["files"] if f["path"] in selected]
+            if not members:
+                continue
+            with tempfile.TemporaryDirectory(prefix="batch-", dir=work) as temp:
+                lot = Path(temp)
                 extracted = unpack(storage, runner, key, control, lot)
                 for metadata in members:
                     target = staged / metadata["path"]
                     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                     shutil.move(extracted / metadata["path"], target)
         # Publish only after all requested content has passed verification.
-        validate_output(config, output, check_space=job.check_destination_disk)
+        validate_output(config, output, check_space=job.check_destination_disk, workspace=work)
         preserve_permissions = supports_posix_metadata(output)
-        if preserve_permissions:
-            private_directory(output)
-        else:
-            # validate_output already rejected symlinks and nonempty output.
-            output.mkdir(mode=0o700, parents=True, exist_ok=True)
         for path, metadata in selected.items():
             if job.check_destination_disk:
                 check_disk(output, "restauração")
-            target = output / path
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if any(p.is_symlink() for p in (target.parent, *target.parent.parents)):
-                raise BackupError("Destino de restauração mudou para link simbólico")
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            with os.fdopen(fd, "wb") as stream, (staged / path).open("rb") as source:
-                shutil.copyfileobj(source, stream)
-                if preserve_permissions:
-                    os.fchmod(stream.fileno(), metadata["mode"] & 0o777)
-                stream.flush()
-                os.utime(stream.fileno(), ns=(metadata["mtime_ns"], metadata["mtime_ns"]))
+            publish_file(staged / path, output, metadata, preserve_permissions=preserve_permissions)
             log.event("restored", job=job.name, path=path)
         if job.check_destination_disk:
             check_disk(output, "restauração")

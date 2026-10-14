@@ -2,6 +2,14 @@
 
 [English](CHANGELOG.md)
 
+## 0.12.0 — 2026-10-14
+
+Restaura dados batch no disco de saída, com limpeza dos temporários por lote, publicação protegida e suporte a sistemas sem atributos POSIX ou links físicos. Downloads e extração deixam de ocupar o temporário padrão da máquina.
+
+Separa `verify` diário (caminhos/tamanho/data da origem contra JSONs locais, sem consultas S3), `verify-metadata` mensal (sincronia das cópias e metadados de tamanho dos lotes) e `integrity-test` manual (listagem/integridade pelo 7-Zip, sem arquivos extraídos). Adiciona `metadata_dir`, catálogo local com identidade do job, importação do estado local confirmado e publicação atômica dos JSONs. O estado ativo só avança depois de concluir lotes atualizados e controles locais/remotos; JSONs e índices S3 continuam em STANDARD. Documenta perda aceita de precisão das datas, regras de ciclo de vida e agendamento.
+
+Mensagens de parâmetros TOML desconhecidos passam a informar job, nomes dos parâmetros, linhas e caminho do arquivo. Atualiza guias e exemplos completos bilíngues. Acrescenta regressões de verificação diária apenas pelo cache, divergência de metadados, falhas/repetição da publicação, classes S3, precisão das datas, restauração no destino, corrupção e proteção contra sobrescrita/links.
+
 ## 0.11.0 — 2026-10-14
 
 Refatora a orquestração em módulos próprios para contexto, ciclo de vida do job, pré-verificações, criação de arquivos compactados e estratégias simples/batch. Dá nomes e tipos aos campos do inventário; separa planejamento de lotes, seleção de envios e execução de workers limitados. Compartilha identidade do índice e consulta aos arquivos ativos com a recuperação, mantendo os pontos de importação existentes do engine. Preserva CLI/configuração, ordem, retenção, esquemas de estado, operações de armazenamento, políticas de erro e telemetria.

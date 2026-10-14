@@ -136,6 +136,8 @@ class JobFailurePolicyTests(Sandbox):
                 config = self.two_jobs(policy, f'verify-{policy}')
                 self.assertEqual(self.execute(config), 0)
                 (config.state_dir / 'test' / 'state.json').unlink()
+                import shutil
+                shutil.rmtree(config.state_dir / 'test' / 'controls')
                 output, notifications = io.StringIO(), []
                 original = Storage.get
                 def fail_index(storage, key, target):
@@ -143,14 +145,14 @@ class JobFailurePolicyTests(Sandbox):
                         raise BackupError('índice inválido')
                     return original(storage, key, target)
                 with patch.object(Storage, 'get', fail_index), redirect_stdout(output):
-                    result = recover(config, 'verify', notifier=lambda *args: notifications.append(args))
+                    result = recover(config, 'verify-metadata', notifier=lambda *args: notifications.append(args))
                 self.assertEqual(result, 1)
                 events = [json.loads(line) for line in output.getvalue().splitlines()]
                 error = next(e for e in events if e['event'] == 'error')
                 self.assertEqual(error['job'], 'test')
                 self.assertTrue(error['error'].startswith('Job test: '))
                 self.assertIn('Job test: ', notifications[-1][3])
-                self.assertEqual(any(e['event'] == 'verification_complete' and e['job'] == 'second'
+                self.assertEqual(any(e['event'] == 'metadata_verification_complete' and e['job'] == 'second'
                                      for e in events), policy)
 
     def test_all_failed_preflight_jobs_return_failure_without_creating_destinations(self):

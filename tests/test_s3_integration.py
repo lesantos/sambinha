@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from sambinha.engine import DAY
 from sambinha.config import validate
-from sambinha.errors import ConfigError
+from sambinha.errors import BackupError, ConfigError
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.s3_support import MotoRunner
 
@@ -203,6 +203,40 @@ class S3IntegrationTests(Sandbox):
                 self.assertEqual(self.execute(), 0, self.output.getvalue())
                 self.assert_complete()
 
+    def test_batch_json_replicas_stay_standard_and_update_together(self):
+        from unittest.mock import Mock
+        from sambinha.metadata import control_directory
+        from sambinha.storage import Storage
+        from sambinha.verification import verify_job, verify_metadata_job
+        self.file('a.txt', b'alpha')
+        self.file('b.txt', b'beta')
+        self.use_batch('DEEP_ARCHIVE')
+        self.config = replace(self.config, metadata_dir=self.root / 'metadata')
+        for now in (1000, 2000):
+            if now == 2000:
+                (self.source / 'a.txt').write_bytes(b'new content')
+            self.assertEqual(self.execute(now=now), 0, self.output.getvalue())
+            root = control_directory(self.config, self.config.jobs[0])
+            for key in self.state()['active']:
+                head = self.client.head_object(Bucket='sambinha-tests', Key='backup/' + key)
+                self.assertEqual(head['StorageClass'], 'DEEP_ARCHIVE')
+                control_key = 'backup/' + key + '.json'
+                head = self.client.head_object(Bucket='sambinha-tests', Key=control_key)
+                self.assertEqual(head.get('StorageClass', 'STANDARD'), 'STANDARD')
+                remote = self.client.get_object(Bucket='sambinha-tests', Key=control_key)['Body'].read()
+                self.assertEqual((root / (key + '.json')).read_bytes(), remote)
+            index = self.client.head_object(Bucket='sambinha-tests', Key='backup/.sambinha/control.tar.gz')
+            self.assertEqual(index.get('StorageClass', 'STANDARD'), 'STANDARD')
+        with patch.object(Storage, 'get', side_effect=AssertionError('daily download')), \
+             patch.object(Storage, 'stat', side_effect=AssertionError('daily stat')):
+            self.assertFalse(verify_job(self.config, self.config.jobs[0], self.runner, Mock())['needs_update'])
+        get = Storage.get
+        def metadata_only(storage, key, target):
+            self.assertTrue(key.endswith('.json') or key == '.sambinha/control.tar.gz')
+            return get(storage, key, target)
+        with patch.object(Storage, 'get', metadata_only):
+            self.assertGreater(verify_metadata_job(self.config, self.config.jobs[0], self.runner, Mock())['batches'], 0)
+
     def test_s3_same_size_edit_with_preserved_timestamp(self):
         target = self.file('file', b'abc')
         self.assertEqual(self.execute(), 0)
@@ -211,6 +245,31 @@ class S3IntegrationTests(Sandbox):
         os.utime(target, ns=(mtime, mtime))
         self.assertEqual(self.execute(), 0)
         self.assert_complete()
+
+    def test_failed_s3_json_publication_keeps_old_generation_and_retry_updates_both_copies(self):
+        from sambinha.metadata import control_directory
+        from sambinha.storage import Storage
+        self.file('file.txt', b'old')
+        self.use_batch('DEEP_ARCHIVE')
+        self.config = replace(self.config, metadata_dir=self.root / 'metadata')
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        before = self.state()
+        root = control_directory(self.config, self.config.jobs[0])
+        manifest = (root / '.index.json').read_bytes()
+        (self.source / 'file.txt').write_bytes(b'new content')
+        original = Storage.put
+        def fail(storage, source, key, **kwargs):
+            if key.endswith('.json'):
+                raise BackupError('remote JSON failed')
+            return original(storage, source, key, **kwargs)
+        with patch.object(Storage, 'put', fail):
+            self.assertEqual(self.execute(now=2000), 1)
+        self.assertEqual(self.state(), before)
+        self.assertEqual((root / '.index.json').read_bytes(), manifest)
+        self.assertEqual(self.execute(now=2001), 0, self.output.getvalue())
+        for key in self.state()['active']:
+            remote = self.client.get_object(Bucket='sambinha-tests', Key='backup/' + key + '.json')['Body'].read()
+            self.assertEqual((root / (key + '.json')).read_bytes(), remote)
 
     def test_s3_identical_simple_and_batch_skip_transfers(self):
         for logic in ('simple', 'batch'):
@@ -312,8 +371,8 @@ class S3IntegrationTests(Sandbox):
         self.assertEqual(actual, {'keep.txt': b'keep'})
         self.assertTrue(all((download / key).exists() for key in old_keys))
 
-    def test_s3_simple_and_batch_verification_only_uses_metadata_commands(self):
-        from sambinha.recovery import verify_job
+    def test_s3_simple_and_batch_verification_only_reads_metadata(self):
+        from sambinha.recovery import verify_job, verify_metadata_job
         from unittest.mock import Mock
         from sambinha.storage import Storage
         self.file('data.txt', bytes(range(256)))
@@ -327,23 +386,29 @@ class S3IntegrationTests(Sandbox):
                         logic='batch', destination='aws:sambinha-tests/batches'),))
                 self.assertEqual(self.execute(), 0, self.output.getvalue())
                 commands = []
+                original_get = Storage.get
+                def metadata_download(storage, key, target):
+                    self.assertTrue(key.endswith('.json') or key == '.sambinha/control.tar.gz')
+                    return original_get(storage, key, target)
                 def metadata(args, **kwargs):
                     commands.append(args)
                     return original(args, **kwargs)
                 with patch.object(self.runner, 'run', metadata), \
-                     patch.object(Storage, 'get', side_effect=AssertionError('Object download prohibited')):
+                     patch.object(Storage, 'get', metadata_download):
                     if logic == 'simple':
                         result = verify_job(self.config, self.config.jobs[0], self.runner, Mock())
                     else:
                         state = json.loads((self.config.state_dir / self.config.jobs[0].name / 'state.json').read_text())
-                        result = verify_job(self.config, self.config.jobs[0], self.runner, Mock(), state)
+                        result = verify_metadata_job(self.config, self.config.jobs[0], self.runner, Mock(), state)
                 if logic == 'simple':
                     self.assertEqual(result['mode'], 'rclone_check')
                     self.assertTrue(any(command[1] == 'check' for command in commands))
                 else:
-                    self.assertEqual(result['files'], 2)
-                    self.assertEqual(result['mode'], 's3_metadata')
-                    self.assertTrue(all(command[1] == 'lsjson' and '--stat' in command for command in commands))
+                    self.assertEqual(result['batches'], len(state['active']))
+                    self.assertEqual(result['mode'], 'metadata_sync')
+                    self.assertTrue(all((command[1] == 'lsjson' and '--stat' in command and '--hash' not in command)
+                                        or (command[1] == 'copyto' and str(command[2]).endswith('.json'))
+                                        for command in commands))
                 self.assertTrue(commands)
 
     def test_s3_deletion_warning_continues_backup_and_expiration(self):

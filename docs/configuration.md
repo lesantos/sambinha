@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.10.2**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.12.0**.
 
 ## How it protects your files
 
@@ -86,7 +86,7 @@ check_source_disk = false
 check_destination_disk = true
 ```
 
-Set `check_destination_disk = false` to also skip local destination capacity checks. That option covers the restore output directory as well. S3 destinations have no local capacity check. Temporary space used by batch creation, verification and restore is always checked. These options do not disable mount checks, source readability, path validation or protection against mass deletion. An actual write failure, including insufficient space, still fails the job. With checks enabled, unavailable capacity is an error, and disk errors identify the path and reason.
+Set `check_destination_disk = false` to also skip local destination capacity checks. That option covers the restore output directory as well. S3 destinations have no local capacity check. Temporary space used by batch creation, restoration and archive downloads is checked; daily batch verification does not need archive staging. These options do not disable mount checks, source readability, path validation or protection against mass deletion. An actual write failure, including insufficient space, still fails the job. With checks enabled, unavailable capacity is an error, and disk errors identify the path and reason.
 
 ## Continue or stop after a job failure
 
@@ -157,19 +157,25 @@ During interactive execution, stderr displays one percentage for the entire back
 
 `--path` can be repeated for simple or batch jobs. Simple restore uses rclone to select current destination files/directories; it does not restore historical versions. The output must be new or empty and separate from sources, backups, state and logs. Batch files are staged and checked before publication. Restore does not overwrite existing files. Source files need not still exist.
 
+Batch restoration downloads and extracts into a temporary directory inside `--output`, using the restoration disk instead of the machine's default temporary disk. Each archive and its unselected extracted members are removed before processing the next batch. Selected files stay on the output disk until all requested content has passed validation. Publication uses hard links where supported; otherwise it copies and removes each staged file in turn. Allow space for the restored selection plus one compressed/extracted batch, and one additional file during publication on filesystems without hard links. Temporary-space checks also measure the restoration disk. A dry run does not create the output directory.
+
 Restoration from S3 **downloads the selected objects** and can incur retrieval charges. Selecting one file in a batch downloads its entire archive. Glacier/Deep Archive objects must first be made available through AWS restore. Batch restoration can recover a missing local index from `.sambinha/control.tar.gz`. Simple jobs do not maintain a Sambinha index; use rclone to copy a historical version from `.sambinha/history/<run-id>`.
 
-## Verify integrity without S3 downloads
+## Independent batch checks
 
 ```bash
-.venv/bin/sambinha verify --job documents
+sambinha verify --job documents-s3          # Daily source size/time against local JSONs
+sambinha verify-metadata --job documents-s3 # Monthly JSON replica/size check
+sambinha integrity-test --job documents-s3  # Manual 7-Zip integrity test
 ```
 
-Simple-job verification runs `rclone check` with the job's filters. Batch verification tests/extracts archives and checks indexed original files. S3 verification uses **only metadata requests** for indexed batch data. **No S3 object bodies or recovery indexes are downloaded**, including when verification fails. Metadata requests can still incur API charges. This does not test extraction of archived S3 members.
+For batch jobs, `verify` uses the current source and local JSON mirrors, without reading archives, calculating hashes or contacting S3. It reports `needs_update` and new/changed/deleted files and affected batches; run `backup` to apply updates. A successful check returns 0 even when updates are needed. `metadata_dir = "./metadata"` keeps mirrors beside state/logs; an omitted/empty setting preserves `state/JOB/controls`. Unchanged JSONs are not re-uploaded.
 
-New batches record their compressed size and checksum at upload. Old batches lacking these fields, missing local indexes or unavailable remote hashes cause an explicit verification error, with no download fallback. Intact legacy archives are preserved rather than automatically rewritten. Keep rclone's S3 checksum metadata enabled for multipart uploads; see the [S3 guide](s3.md).
+`verify-metadata` compares the complete known local/destination JSONs and archive size metadata. Remote controls and the recovery index are uploaded in STANDARD regardless of archive class. Only these metadata files are downloaded, never archive bodies. A missing local state/catalog can be rebuilt from the recovery index. Bucket lifecycle rules must keep metadata immediately accessible.
 
-`verify_interval_days` schedules indexed batch verification after successful backups when due. It does not apply to simple jobs. `0` disables scheduled checks. A failed check returns an error and keeps the last successful verification timestamp.
+`integrity-test` separately compares archive listings and runs `7z t`, without MD5/SHA comparisons or extracted files on disk. Local archives are read in place; S3 archives are downloaded/deleted one at a time and Glacier/Deep Archive need prior AWS restore. 7z/ZIP-NTFS dates retain 100 ns; legacy ZIP dates can retain one/two seconds. This accepted precision loss is accounted for in archive comparisons; JSONs preserve the original `mtime_ns`.
+
+`verify_interval_days` optionally schedules the lightweight local check after successful batch backups; 0 disables it. Integrity testing is manual. Simple `verify` continues using `rclone check`. See [batch activities and publication guarantees](batch-checks.md) for cache migration, scheduling, failure recovery and disk requirements.
 
 ## Performance settings and separate file profiles
 

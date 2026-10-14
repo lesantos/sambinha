@@ -27,7 +27,7 @@ A trava cobre toda a execução. Cada job conclui exclusões, preflight, invent�
 
 ## Extensões de 0.4.0 a 0.6.1
 
-`recovery` restaura árvores simples atuais pelo rclone e caminhos batch pelo índice ativo, validando checksums e membros seguros. Verificação simples chama `rclone check`; batch valida arquivos compactados e controles. Verificações batch no S3 consultam somente metadados.
+`recovery` restaura árvores simples atuais pelo rclone e caminhos batch pelo índice ativo, validando checksums e membros seguros. Verificação simples chama `rclone check`; batch valida arquivos compactados e controles. A verificação diária batch usa origem/JSONs locais; `verify-metadata` confere cópias e tamanho dos lotes; `integrity-test` testa os arquivos compactados manualmente. `metadata` cuida das cópias configuráveis e do catálogo ativo com identidade do job.
 
 `recovery` coordena ações, trava, logs e políticas de falha, preservando seus imports anteriores. `recovery_index` lê o índice local ou um membro remoto de tamanho limitado. `archive_recovery` valida checksums e membros seguros antes da extração. `restore` prepara os arquivos selecionados e só os publica depois de todas as verificações; `verification` cuida de checks nativos, integridade local e metadados S3.
 

@@ -56,6 +56,18 @@ class ConfigurationTests(Sandbox):
         self.assertFalse(config.dry_run)
         self.assertEqual(config.jobs[0].max_bytes, 100000)
 
+    def test_metadata_directory_loads_relative_to_configuration_and_rejects_overlap(self):
+        self.assertEqual(load(self.toml('metadata_dir="metadata"')).metadata_dir, self.root / 'metadata')
+        self.assertIsNone(load(self.toml('metadata_dir=""')).metadata_dir)
+        self.assertEqual(parser().parse_args(['verify-metadata']).action, 'verify-metadata')
+        self.assertEqual(parser().parse_args(['integrity-test']).action, 'integrity-test')
+        for value in ('source', 'destination', 'logs'):
+            with self.subTest(value=value), self.assertRaises(ConfigError):
+                load(self.toml(f'metadata_dir="{value}"'))
+        for value in (False, 0, []):
+            with self.subTest(value=value), self.assertRaises(ConfigError):
+                load(self.toml(), {'metadata_dir': value})
+
     def test_max_delete_is_per_simple_job_and_cli_override_requires_selection(self):
         jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\nmax_delete=7\n'
                 '[[jobs]]\nname="second"\nsource="source"\ndestination="second"\nmax_delete=9\n')
@@ -164,6 +176,60 @@ class ConfigurationTests(Sandbox):
                 path = self.root / "invalid.toml"
                 path.write_text(text)
                 load(path)
+
+    def test_unknown_job_parameters_include_job_key_and_source_line(self):
+        path = self.toml(jobs=(
+            '[[jobs]]\nname="first"\nsource="source"\ndestination="first"\n'
+            '# max_file=123\n'
+            '[[jobs]]\nname="second"\nsource="source"\ndestination="second"\n'
+            'max_file=123\nunknown=true\n'))
+        with self.assertRaises(ConfigError) as raised:
+            load(path, {"job": "first"})
+        message = str(raised.exception)
+        self.assertIn("job 'second'", message)
+        self.assertIn("'max_file' (linha 12)", message)
+        self.assertIn("'unknown' (linha 13)", message)
+        self.assertIn(str(path), message)
+
+    def test_unknown_global_parameters_include_key_and_source_line(self):
+        path = self.toml('timeot=30\n"other option"=false')
+        with self.assertRaises(ConfigError) as raised:
+            load(path)
+        message = str(raised.exception)
+        self.assertIn("[backup]", message)
+        self.assertIn("'timeot' (linha 2)", message)
+        self.assertIn("'other option' (linha 3)", message)
+        self.assertIn(str(path), message)
+
+    def test_unknown_parameter_without_job_name(self):
+        with self.assertRaises(ConfigError) as raised:
+            load(self.toml(jobs='[[jobs]]\nunknown=1\n'))
+        self.assertIn("job '#1 (sem nome)'", str(raised.exception))
+        self.assertIn("'unknown' (linha 4)", str(raised.exception))
+
+    def test_unknown_parameter_lines_with_toml_strings_and_tables(self):
+        prefix = ('[[jobs]]\nname="test"\nsource="source"\n'
+                  'destination="""destination\n[[jobs]]\nunknown = 99\n"""\n')
+        for declaration, parameter in (
+                ('"unk\\u006eown" = [\n 1, 2,\n]', 'unknown'),
+                ("'unknown' = { value = 1 }", 'unknown'),
+                ('unknown.child = 1', 'unknown'),
+                ('[jobs.unknown]\nchild=1', 'unknown')):
+            with self.subTest(declaration=declaration), self.assertRaises(ConfigError) as raised:
+                load(self.toml(jobs=prefix + declaration + '\n'))
+            self.assertIn("job 'test'", str(raised.exception))
+            self.assertIn(f"{parameter!r} (linha 10)", str(raised.exception))
+
+    def test_unknown_parameter_lines_with_inline_jobs(self):
+        path = self.root / "config.toml"
+        path.write_text('jobs = [\n'
+                        '{ name="first", source="source", destination="first" },\n'
+                        '{ name="second", source="source", destination="second", unknown=1 },\n'
+                        ']\n')
+        with self.assertRaises(ConfigError) as raised:
+            load(path)
+        self.assertIn("job 'second'", str(raised.exception))
+        self.assertIn("'unknown' (linha 3)", str(raised.exception))
 
     def test_cli_missing_values_inherit_config(self):
         args = parser().parse_args([])

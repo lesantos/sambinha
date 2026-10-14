@@ -24,12 +24,13 @@ def indexed_files(state, logic):
         return dict(state["active"])
     return {f["path"]: f for control in state["active"].values() for f in control["files"]}
 
-def private_directory(path: Path):
+def private_directory(path: Path, *, preserve_permissions=True):
     # Metadata roots are private, and must not redirect writes through links.
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise BackupError("Diretório de metadados contém link simbólico")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.chmod(0o700)
+    if preserve_permissions:
+        path.chmod(0o700)
 
 
 def validate_file(item):
@@ -75,8 +76,8 @@ def validate_controls(controls, batch):
             raise ValueError("arquivo e diretório sobrepostos")
 
 
-def atomic_json(path: Path, data):
-    private_directory(path.parent)
+def atomic_json(path: Path, data, *, preserve_permissions=True):
+    private_directory(path.parent, preserve_permissions=preserve_permissions)
     fd, temporary = tempfile.mkstemp(prefix=".state-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:

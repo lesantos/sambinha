@@ -1,6 +1,7 @@
 """Execution context shared by backup strategies."""
 from .errors import BackupError
 from .filtering import Selection, retired_paths
+from .metadata import control_directory, prepare_controls, write_manifest
 from .retention import alert_time, date
 from .state import atomic_json, identity, indexed_files, load_state
 from .storage import Storage
@@ -19,9 +20,12 @@ class Context:
         self.progress = progress
         self.storage = Storage(job, config, runner)
         self.directory = config.state_dir / job.name
+        self.controls_directory = control_directory(config, job)
         self.state_path = self.directory / "state.json"
         self.identity = identity(job)
         self.state = load_state(self.state_path, self.identity)
+        if not config.dry_run:
+            prepare_controls(config, job, self.state)
         self.metrics = {"reused_batches": 0, "rebuilt_batches": 0,
                         "bytes_planned": 0, "bytes_transferred": 0}
         self.reused_batches = set()
@@ -68,11 +72,13 @@ class Context:
 
     def save(self):
         atomic_json(self.state_path, self.state)
+        write_manifest(self.config, self.job, self.state)
 
     def forecast_deletions(self):
         if self.forecast is None:
             return
-        paths = {entry["key"]: retired_paths(entry, self.directory) for entry in self.state["retired"]}
+        paths = {entry["key"]: retired_paths(entry, self.directory, controls_directory=self.controls_directory)
+                 for entry in self.state["retired"]}
         included = self.selection.include_paths(p for members in paths.values() for p in members)
         candidates = [(entry, paths[entry["key"]]) for entry in self.state["retired"]
                       if alert_time(entry, self.config.deleted_days, self.config.version_days) <= self.now
@@ -86,7 +92,8 @@ class Context:
 
     def expire(self):
         self.forecast_deletions()
-        paths = {entry["key"]: retired_paths(entry, self.directory) for entry in self.state["retired"]}
+        paths = {entry["key"]: retired_paths(entry, self.directory, controls_directory=self.controls_directory)
+                 for entry in self.state["retired"]}
         included = self.selection.include_paths(p for members in paths.values() for p in members)
         remaining = []
         for entry in self.state["retired"]:
@@ -103,5 +110,5 @@ class Context:
                 self.storage.delete(entry["key"])
                 if entry.get("control"):
                     self.storage.delete(entry["control"])
-                    (self.directory / "controls" / entry["control"]).unlink(missing_ok=True)
+                    (self.controls_directory / entry["control"]).unlink(missing_ok=True)
         self.state["retired"] = remaining

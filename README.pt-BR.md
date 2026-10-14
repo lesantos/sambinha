@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.11.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.12.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
@@ -54,7 +54,7 @@ A simulação executa `rclone sync --dry-run` e grava um log sem alterar os dado
 
 ## Comportamento essencial
 
-- **Armazenamento e verificação:** `logic = "simple"` delega a sincronização da árvore e as exclusões ao rclone; `"batch"` cria arquivos compactados com índice. `sambinha verify` usa `rclone check` nos jobs simples; jobs batch mantêm a verificação pelo índice.
+- **Armazenamento e verificação:** `logic = "simple"` delega a sincronização da árvore e as exclusões ao rclone; `"batch"` cria arquivos compactados com índice. `sambinha verify` usa `rclone check` nos jobs simples; em batch, `verify` compara tamanho/data da origem com JSONs locais. `verify-metadata` e `integrity-test` conferem separadamente as cópias e a integridade. Veja [checagens dos lotes](docs/batch-checks.pt-BR.md).
 - **Links simbólicos:** links na origem são ignorados e nunca recriados no destino. Links conflitantes no destino são substituídos por arquivos/diretórios reais sem alterar seus alvos; links sem conflito ficam intactos. [Decisão e limites](docs/usage.pt-BR.md#links-simbólicos).
 - **Retenção:** históricos dos jobs simples em `.sambinha/history/<id-da-execução>` expiram pelo maior valor entre `deleted_days` e `version_days`; jobs batch mantêm prazos separados para exclusões e versões. Logs mantêm 14 dias; `log_retention_days = 0` desativa a limpeza.
 - **Jobs:** executam sequencialmente. Cada job tem `continue_on_job_error = true` por padrão; use `false` para interromper quando esse job falhar. Qualquer falha deixa o código de saída diferente de zero, e os erros identificam o job.

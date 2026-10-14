@@ -47,6 +47,13 @@ class DiskTests(Sandbox):
                         expected += ['temporários']
                         self.assertEqual([c.args[1] for c in check.call_args_list], expected)
 
+    def test_restore_temporary_path_replaces_system_temporary_check(self):
+        job = replace(self.config.jobs[0], logic='batch')
+        output = self.root / 'restored'
+        with patch('sambinha.disks.check_disk') as check:
+            check_disks(job, temporary_path=output)
+        self.assertEqual(check.call_args_list[-1].args, (output, 'temporários', None))
+
     def test_unknown_capacity_and_os_errors_include_source_path(self):
         for failure in (Usage(0, 0, 0), PermissionError('sem permissão')):
             with self.subTest(failure=failure):

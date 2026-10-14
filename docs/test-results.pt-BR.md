@@ -1,6 +1,14 @@
-# Resultados dos testes do Sambinha 0.11.0
+# Resultados dos testes do Sambinha 0.12.0
 
 [English](test-results.md)
+
+## Validação da 0.12.0
+
+Em 2026-10-14, Linux, Python 3.12.3: a execução completa com cobertura de ramos e `SAMBINHA_HTTP_S3_TESTS=1` aprovou **389/389 testes em 473,804 segundos, sem falhas nem skips**. Todos os 25 testes S3 por HTTP passaram. A cobertura da aplicação, incluindo ramos, é **94%**, acima do mínimo de 85%.
+
+Os novos testes cobrem verificação diária apenas da origem, sem consultas S3 nem hashes de conteúdo; cópias JSON configuráveis e recuperação pelo catálogo; sincronização mensal dos metadados; teste independente de integridade; metadados STANDARD ao lado de lotes frios no S3; e falhas de publicação seguidas de nova tentativa. A restauração foi testada com staging no disco de destino, limpeza por lote, validação antes de publicar arquivos, proteção de arquivos existentes e links simbólicos, e FAT/exFAT. Os testes de configuração cobrem nomes de parâmetros desconhecidos, jobs e linhas; os exemplos públicos incluem as novas opções e ações.
+
+As seções abaixo preservam os registros anteriores de validação.
 
 ## Validação da 0.11.0
 
