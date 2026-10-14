@@ -7,11 +7,12 @@ from pathlib import Path
 from .config import Config, Job
 from .errors import BackupError
 from .inventory import safe_relative, path_has_symlink
-from .filtering import SKIP_LINK_FLAGS
+from .filtering import SKIP_LINK_FLAGS, Selection
 from .protection import timestamp_ns
 from .mounts import check_mounts
 from .disks import check_disks
-from .filesystems import metadata_flags
+from .filesystems import metadata_flags, needs_destination_link_scan
+from .local_paths import conflicting_links, prepare_write, directory
 
 
 class Storage:
@@ -66,6 +67,10 @@ class Storage:
             raise BackupError("Inventário rclone inválido") from exc
 
     def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+        if self.job.type == "local":
+            check_mounts(self.job, self.runner)
+            check_disks(self.job)
+            prepare_write(self.job.destination, key)
         protection = ["--update"] if protected_mtime_ns is not None else []
         comparison = self.comparison_flags() if protected_mtime_ns is not None else ["--checksum"]
         self.command("copyto", source, self.path(key), *comparison, "-v", "--use-json-log", *protection,
@@ -120,6 +125,25 @@ class Storage:
             filters += ["--exclude-from", str(self.job.exclude_files)]
         if dry_run:
             filters.append("--dry-run")
+        if self.job.type == "local":
+            check_mounts(self.job, self.runner)
+            check_disks(self.job)
+            with directory(root), directory(self.job.destination, create=not dry_run, missing_ok=dry_run):
+                pass
+            # Rclone can follow destination directory links when creating
+            # parents. Check shared destination directories before sync;
+            # inspect source metadata only for directories and found links.
+            files, directories = (conflicting_links(root, self.job.destination)
+                                  if needs_destination_link_scan(self.job.destination) else (set(), set()))
+            selection = Selection(self.job.exclude_files, self.config, self.runner)
+            files = selection.include_paths(files)
+            directories = selection.include_directories(directories)
+            for path in sorted(files | directories):
+                if not dry_run:
+                    prepare_write(self.job.destination, path, is_directory=path in directories)
+                if self.log:
+                    self.log.event("would_replace_link" if dry_run else "replace_link",
+                                   job=self.job.name, path=path)
         detailed = (self.config.log_file_level == "detailed" or
                     self.config.log_terminal_level == "detailed")
         newer = set()
@@ -216,7 +240,6 @@ class Storage:
                 # copyto addresses one exact file; rclone rejects directory
                 # filters on that command. Validate exclusions before calling it.
                 if self.job.exclude_files:
-                    from .filtering import Selection
                     selected = Selection(self.job.exclude_files, self.config, self.runner)
                     if selector not in selected.include_paths({selector}):
                         raise BackupError(f"Caminho solicitado está excluído: {selector}")
@@ -226,6 +249,10 @@ class Storage:
     def delete(self, key):
         # An exact raw file list avoids glob interpretation and makes cleanup
         # idempotent if the object was deleted before a crash/state commit.
+        if self.job.type == "local" and path_has_symlink(self.job.destination, key):
+            # Expired history no longer conflicts with current backup data.
+            # Ignore its link rather than deleting it or following its target.
+            return
         self.path(key)
         self.command("delete", self.job.destination, "--files-from-raw", "-",
                      retry=True, input=safe_relative(key) + "\n")

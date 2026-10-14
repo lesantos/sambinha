@@ -1,5 +1,5 @@
 # Português do Brasil. English: sambinha.example.toml
-# Links simbólicos nos dados do backup são sempre ignorados, sem seguir os alvos.
+# Links da origem são ignorados; links conflitantes no destino são substituídos sem alterar os alvos.
 # Caminhos são relativos a ESTE arquivo; ~ e variáveis de ambiente funcionam.
 [backup]
 state_dir = "./state"

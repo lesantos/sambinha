@@ -1,5 +1,5 @@
 # English. Brazilian Portuguese: sambinha.example.pt-BR.toml
-# Symbolic links in backup data are always ignored, without following targets.
+# Source links are ignored; conflicting destination links are replaced without touching targets.
 # Paths are relative to THIS configuration file; ~ and environment variables work.
 [backup]
 state_dir = "./state"

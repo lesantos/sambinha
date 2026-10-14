@@ -2,6 +2,14 @@
 
 [English](test-results.md)
 
+## Alterações não publicadas de links no destino
+
+A rodada final direcionada passou em **57 testes**, incluindo detecção de sistemas de arquivos, política de links, serviços de armazenamento, níveis de log e exemplos. Os testes confirmam que FAT/exFAT nativo dispensa a passagem pelo destino, enquanto montagens internas que aceitam links, sistemas desconhecidos e raízes inseguras mantêm a proteção. Os destinos montados `LLLD` e `LLLDBKP` selecionam esse caminho sem varredura.
+
+Os **13 testes de `tests.test_symlinks` passaram, sem skips**. Os dois testes de links no destino anteriormente adiados abaixo foram atualizados e habilitados. Cobrem substituição de conflitos, alvos externos intactos, links sem conflito/excluídos, simulação, reconstrução de lotes/controles ligados, preservação de links no histórico expirado e proteção de raízes/diretórios em mudanças concorrentes. Os resultados seguintes descrevem a tag 0.10.2 já publicada.
+
+## Resultados publicados da 0.10.2
+
 Em 2026-10-13, Linux, Python 3.12.3: a execução completa com cobertura de ramos e `SAMBINHA_HTTP_S3_TESTS=1` executou **339 testes em 761.289 segundos: 337 passaram, sem falhas, 2 ignorados**. Os dois casos preexistentes de conflito/corrida com links no destino continuam adiados. Foram usados rclone/7-Zip reais, Moto em processo/HTTP localhost e um pseudoterminal real, sem credenciais AWS ou Cronitor reais. A cobertura da aplicação incluindo ramos foi **92%**, acima dos **85%** exigidos.
 
 Os novos testes cobrem níveis independentes de log, saída padrão `ERROR` do rclone, streaming detalhado, retenção limitada da saída em memória, falha no callback e preservação de arquivos mais novos no destino no modo padrão. Os testes de documentação/exemplos bilíngues e a varredura do conteúdo com Gitleaks também passaram.

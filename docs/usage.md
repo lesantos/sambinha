@@ -105,10 +105,12 @@ Interactive stderr shows stage, directory and backup completion, with file/byte 
 
 ## Symbolic links
 
-Symbolic links in source and local destination data are always ignored. Linked directories are not traversed; links to files, broken links and cycles do not stop a normal inventory. Links and their targets are not copied through the link, compressed or represented as `.rclonelink` files. A target that also appears independently as a regular file is backed up normally.
+Source symbolic links are always ignored. Linked directories are not traversed; links to files, broken links and cycles do not stop a normal inventory. Sambinha never creates destination links or translates them into `.rclonelink` files. A target that also appears independently as a regular source file is backed up normally.
 
-Rclone skips source and destination links without following them. In batch jobs, indexed copies/history for those paths stay protected. In simple syncs, a source link is absent from the source tree, so a same-named destination file can be classified as removed and moved into `--backup-dir`; the normal history expiration deadline still applies. Simple run histories are purged as whole directories, including any newly excluded paths within an expired run. A local destination link suppresses copying a colliding source path, without changing the link or its target.
+In a local destination, a link that conflicts with a selected source file or directory is unlinked and replaced by a real file or directory. Only the link is removed; its target is untouched. Links without a conflict, including excluded paths and paths corresponding only to source links, are left intact. Dry runs leave every destination link intact. Batch uploads apply this policy to archive/control paths and rebuild active archives whose paths have become links.
+
+In batch jobs, indexed copies/history at source-link paths stay protected. In simple syncs, a source link is absent from the source tree, so a same-named regular destination file can be classified as removed and moved into `--backup-dir`; the normal history expiration deadline still applies. Simple run histories are purged as whole directories, including any newly excluded paths within an expired run.
 
 Rclone normally skips symlinks. Sambinha passes `--skip-links` to suppress warnings and `--links=false --copy-links=false` to override link-enabled environment settings. [Official rclone documentation](https://rclone.org/local/#skip-links). This behavior is unconditional and requires no configuration.
 
-Metadata/state/lock paths and restore output remain protected against link redirection. Unsafe archive members and source/destination paths changing into links during transfer can still produce an explicit error rather than follow the new target.
+Destination roots, metadata/state/lock paths and restore output remain protected against link redirection. Link replacement is limited to data paths below the job root; directory components are opened without following links during preparation. Unsafe archive members and detected concurrent path changes still cause an explicit error.

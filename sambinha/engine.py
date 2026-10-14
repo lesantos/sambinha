@@ -40,13 +40,9 @@ def show_progress(runner, progress):
 class Context:
     def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None, progress=None):
         self.config, self.job, self.runner, self.log = config, job, runner, log
-        if job.type == "local":
-            cache = {}
-            files = [f for f in files if not path_has_symlink(job.destination, f.path, cache)]
         self.files, self.now = files, now
         self.selection = Selection(job.exclude_files, config, runner,
-                                   ignored_roots=(job.source, Path(job.destination)) if job.type == "local"
-                                   else (job.source,))
+                                   ignored_roots=(job.source,))
         self.selected_dirs = selected_dirs
         self.forecast = forecast
         self.progress = progress
@@ -271,7 +267,10 @@ def batch(ctx: Context):
                                                      for k in ("schema", "archive", "files"))
         if reusable:
             active[item.key] = saved_control
-        if item.key in old or reusable:
+        destination_link = (ctx.job.type == "local" and
+                            any(path_has_symlink(ctx.job.destination, key)
+                                for key in (item.key, item.key + ".json")))
+        if (item.key in old or reusable) and not destination_link:
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
             continue
@@ -293,7 +292,7 @@ def batch(ctx: Context):
                 for event, values in events:
                     ctx.event(event, **values)
     next_state["active"] = active
-    if (ctx.state_path.exists() and next_state == ctx.state and not ctx.inventory_changed
+    if (ctx.state_path.exists() and next_state == ctx.state and not pending and not ctx.inventory_changed
             and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"])):
         return
     if ctx.config.dry_run:

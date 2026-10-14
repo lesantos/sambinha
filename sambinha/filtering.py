@@ -138,3 +138,14 @@ class Selection:
                 included.update(item["Path"] for item in self.listing(root, files_only=True))
         self._included[cache_key] = frozenset(included)
         return included
+
+    def include_directories(self, paths):
+        """Match empty source directories using rclone's native directory rules."""
+        paths = {safe_relative(path) for path in paths}
+        if not self.exclude_file or not paths:
+            return paths
+        with tempfile.TemporaryDirectory(prefix="sambinha-filter-dirs-") as directory:
+            root = Path(directory)
+            for name in paths:
+                (root / name).mkdir(parents=True, exist_ok=True)
+            return paths.intersection(item["Path"] for item in self.listing(root) if item.get("IsDir"))

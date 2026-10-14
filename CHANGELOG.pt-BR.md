@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## Não publicado
+
+Evita a varredura extra do destino em exFAT/FAT nativo sem montagens internas que aceitem links; mantém as checagens de raízes e a varredura conservadora para sistemas desconhecidos.
+
+Nunca cria links no destino. Ignora links na origem e preserva links sem conflito no destino; substitui links conflitantes nos dados locais por arquivos/diretórios reais sem alterar seus alvos, respeitando exclusões e simulações. Reconstrói lotes/controles batch que viraram links e ignora links no histórico batch expirado. Mantém as proteções de links nas raízes do destino e nos metadados. Atualiza e habilita os dois testes de links no destino anteriormente adiados, com novas regressões de links quebrados, exclusões, simulação, reconstrução batch e mudanças concorrentes de diretórios.
+
 ## 0.10.2 — 2026-10-13
 
 Adiciona níveis independentes `error`, `summary` e `detailed` para os logs JSONL no arquivo e no terminal. Ambos mostram erros e resumos da execução por padrão. O sync simples passa a solicitar somente mensagens `ERROR` ao rclone por padrão, em vez de `DEBUG` por arquivo; a saída detalhada solicita e registra os diagnósticos do rclone. O progresso interativo recebe estatísticas periódicas sem habilitar as demais mensagens, e o streaming detalhado mantém somente o fim da saída de erro na memória.

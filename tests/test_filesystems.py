@@ -5,7 +5,8 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
-from sambinha.filesystems import supports_posix_metadata
+from sambinha.filesystems import supports_posix_metadata, needs_destination_link_scan
+from sambinha.errors import BackupError
 from sambinha.process import Runner
 from sambinha.recovery import recover
 from sambinha.storage import Storage
@@ -21,6 +22,27 @@ def mount_table(*mounts):
 
 
 class FilesystemDetectionTests(unittest.TestCase):
+    def test_native_fat_skips_link_scan_unless_a_submount_can_contain_links(self):
+        for filesystem in ('exfat', 'vfat', 'msdos'):
+            table = mount_table(("/", "ext4"), ("/mnt/backup", filesystem))
+            with self.subTest(filesystem=filesystem), patch("sambinha.filesystems._MOUNTINFO") as info:
+                info.read_text.return_value = table
+                self.assertFalse(needs_destination_link_scan("/mnt/backup/tree"))
+                info.read_text.return_value = table + '\n' + mount_table(("/mnt/backup/tree/nested", "tmpfs"))
+                self.assertTrue(needs_destination_link_scan("/mnt/backup/tree"))
+                self.assertFalse(needs_destination_link_scan("/mnt/backup/other"))
+
+    def test_link_scan_handles_stacked_mounts_and_unknown_information_conservatively(self):
+        with patch("sambinha.filesystems._MOUNTINFO") as info:
+            info.read_text.return_value = mount_table(("/", "ext4"), ("/mnt/with spaces", "tmpfs"),
+                                                      ("/mnt/with spaces", "exfat"))
+            self.assertFalse(needs_destination_link_scan("/mnt/with spaces/new"))
+            for table in ('invalid', '1 0 0:1 / / rw -', mount_table(("/", "fuseblk"))):
+                info.read_text.return_value = table
+                self.assertTrue(needs_destination_link_scan("/mnt/new"))
+            info.read_text.side_effect = OSError('unavailable')
+            self.assertTrue(needs_destination_link_scan("/mnt/new"))
+
     def test_nested_nonposix_mount_overrides_posix_parent_for_new_target(self):
         table = mount_table(("/", "btrfs"), ("/mnt/backup", "exfat"))
         with patch("sambinha.filesystems._MOUNTINFO") as info:
@@ -48,6 +70,24 @@ class FilesystemDetectionTests(unittest.TestCase):
 
 
 class TransferMetadataTests(Sandbox):
+    def test_native_exfat_sync_does_not_scan_destination_entries(self):
+        table = mount_table(("/", "ext4"), (self.destination, "exfat"))
+        with patch("sambinha.filesystems._MOUNTINFO") as info, \
+             patch("sambinha.storage.conflicting_links", side_effect=AssertionError('extra traversal')):
+            info.read_text.return_value = table
+            Storage(self.config.jobs[0], self.config, Mock()).sync_simple(
+                self.source, ".sambinha/history/run", max_delete=100)
+
+    def test_native_exfat_optimization_still_rejects_root_links(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        self.destination.symlink_to(outside, target_is_directory=True)
+        with patch("sambinha.storage.needs_destination_link_scan", return_value=False), \
+             self.assertRaises(BackupError):
+            Storage(self.config.jobs[0], self.config, Mock()).sync_simple(
+                self.source, ".sambinha/history/run", max_delete=100)
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_sync_uses_destination_and_retains_deletion_guard_without_retry(self):
         runner = Mock()
         table = mount_table(("/", "btrfs"), (self.destination, "exfat"))

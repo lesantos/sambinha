@@ -2,6 +2,14 @@
 
 [Português do Brasil](test-results.pt-BR.md)
 
+## Unreleased destination-link changes
+
+The final focused run passed **57 tests**, including filesystem detection, symlink policy, storage services, log levels and examples. Tests confirm that native FAT/exFAT avoids the destination traversal, while nested link-capable mounts, unknown filesystems and unsafe roots retain protection. The mounted `LLLD` and `LLLDBKP` destinations both select this scan-free path.
+
+All **13 tests in `tests.test_symlinks` passed, with no skips**. The two destination-link tests previously deferred below have been updated and enabled. Coverage includes conflict replacement, intact external targets, nonconflicting/excluded links, dry runs, linked archive/control rebuilding, ignored expired-history links and root/directory race protections. The following results describe the already published 0.10.2 tag.
+
+## Published 0.10.2 results
+
 On 2026-10-13, Linux, Python 3.12.3: the full branch-coverage run with `SAMBINHA_HTTP_S3_TESTS=1` executed **339 tests in 761.289 seconds: 337 passed, no failures, 2 skipped**. The two pre-existing destination-symlink race/conflict cases remain deferred. Real local rclone/7-Zip, Moto in-process/localhost HTTP and a real pseudo-terminal were used, without real AWS or Cronitor credentials. Branch-inclusive application coverage is **92%**, above the required **85%**.
 
 New regression tests cover independent log levels, default rclone `ERROR` output, detailed rclone streaming, bounded output retention, callback failure handling, and preservation of newer destination files in the default mode. Bilingual documentation/example checks and a working-tree Gitleaks scan also passed.

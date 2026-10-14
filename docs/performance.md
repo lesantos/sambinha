@@ -2,6 +2,8 @@
 
 [Português do Brasil](performance.pt-BR.md) · [README](../README.md)
 
+Local simple sync checks destination entries in directories shared with the source before starting rclone, to replace conflicting symlinks safely. This adds a destination directory pass on filesystems that can contain links, but does not build a source file inventory or read file contents; only found links and directory counterparts require source metadata checks. On native exFAT/FAT, this pass is skipped when no link-capable filesystem is mounted below the destination; root checks and mount-table detection still run. Unknown filesystems use the scan. Native rclone exclusions are evaluated only for found link conflicts. Batch writes check their planned output paths directly.
+
 P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sharing with independent inventories. These settings improve different bottlenecks; gains depend on file count, disks, CPUs and network. Tests verify reduced reads/process calls and bounded concurrency, rather than promising a fixed speedup.
 
 | Priority | Improvement | Setting and behavior |

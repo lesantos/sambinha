@@ -12,6 +12,7 @@ _POSIX_FILESYSTEMS = frozenset({
     "zfs", "tmpfs", "ramfs", "overlay", "aufs", "ubifs", "nfs", "nfs4",
 })
 _MOUNTINFO = Path("/proc/self/mountinfo")
+_NO_SYMLINK_FILESYSTEMS = frozenset({"exfat", "vfat", "msdos"})
 
 
 def supports_posix_metadata(destination):
@@ -48,3 +49,31 @@ def supports_posix_metadata(destination):
 def metadata_flags(destination, *, remote=False):
     """Remote metadata is stored by rclone; local attributes need support."""
     return ["--metadata"] if remote or supports_posix_metadata(destination) else []
+
+
+def needs_destination_link_scan(destination):
+    """Skip data traversal only on native FAT/exFAT without link-capable submounts."""
+    try:
+        destination = Path(destination).resolve()
+        table = _MOUNTINFO.read_text(encoding="utf-8")
+    except (OSError, RuntimeError, UnicodeError):
+        return True
+    mounts = {}
+    for line in table.splitlines():
+        fields = line.split()
+        try:
+            separator = fields.index("-")
+            if separator < 6:
+                continue
+            mount = Path(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), fields[4]))
+            mounts[mount] = fields[separator + 1]
+        except (ValueError, IndexError):
+            continue
+    parents = [mount for mount in mounts if mount == destination or mount in destination.parents]
+    if not parents:
+        return True
+    filesystem = mounts[max(parents, key=lambda mount: len(mount.parts))]
+    if filesystem not in _NO_SYMLINK_FILESYSTEMS:
+        return True
+    return any(kind not in _NO_SYMLINK_FILESYSTEMS for mount, kind in mounts.items()
+               if mount == destination or destination in mount.parents)

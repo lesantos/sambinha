@@ -2,6 +2,12 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## Unreleased
+
+Avoid the extra destination scan on native exFAT/FAT without link-capable submounts; retain root checks and conservative scanning for unknown filesystems.
+
+Never create destination links. Ignore source links and leave nonconflicting destination links intact; replace conflicting local data links with real files/directories without touching their targets, respecting exclusions and dry runs. Rebuild batch archives/controls that became links and ignore links in expired batch history. Keep destination-root and metadata link protections. Update and enable the two formerly deferred destination-link tests, with additional regressions for broken links, exclusions, simulation, batch rebuilding and directory races.
+
 ## 0.10.2 — 2026-10-13
 
 Add independent `error`, `summary` and `detailed` levels for JSONL file and terminal logs. Both default to errors and execution summaries. Simple sync now requests only rclone `ERROR` messages by default instead of per-file `DEBUG`; detailed output requests and records rclone diagnostics. Interactive progress receives periodic statistics without enabling other messages, and detailed streaming keeps a bounded error tail in memory.

@@ -2,6 +2,8 @@
 
 [English](performance.md) · [README](../README.pt-BR.md)
 
+O sync simples local examina entradas do destino em diretórios compartilhados com a origem antes de iniciar o rclone, para substituir links conflitantes com segurança. Isso acrescenta uma passagem pelos diretórios do destino nos sistemas que podem conter links, mas não cria inventário de arquivos da origem nem lê conteúdo; somente links encontrados e diretórios correspondentes exigem consulta aos metadados da origem. Em exFAT/FAT nativo, essa passagem é dispensada se não existir uma montagem interna de sistema que aceite links; permanecem apenas as checagens de raízes e da tabela de montagens. Sistemas desconhecidos usam a varredura. As exclusões nativas do rclone são avaliadas apenas para conflitos de links encontrados. As escritas batch conferem diretamente os caminhos de saída planejados.
+
 P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhamento entre jobs de P3 por inventários independentes. O ganho depende de quantidade de arquivos, discos, CPU e rede. Os testes conferem menos leituras/chamadas de processos e concorrência limitada, sem prometer um ganho fixo.
 
 | Prioridade | Melhoria | Configuração e comportamento |

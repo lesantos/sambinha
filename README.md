@@ -55,7 +55,7 @@ Simulation runs `rclone sync --dry-run` and writes a log without changing backup
 ## Essential behavior
 
 - **Storage and verification:** `logic = "simple"` delegates tree sync and exclusions to rclone; `"batch"` creates indexed compressed archives. `sambinha verify` uses `rclone check` for simple jobs; batch jobs retain index-based verification.
-- **Symbolic links are always ignored:** links are not copied, followed or translated, and linked directories are not traversed. In simple jobs, a destination file at a linked source path is treated as removed and moved into expiring history; batch jobs protect indexed paths while linked. [Decision and limits](docs/usage.md#symbolic-links).
+- **Symbolic links:** source links are ignored and never recreated in the destination. Conflicting destination links are replaced by real files/directories without touching their targets; links without conflicts are left intact. [Decision and limits](docs/usage.md#symbolic-links).
 - **Retention:** simple-job backups in `.sambinha/history/<run-id>` expire after the larger of `deleted_days` and `version_days`; batch jobs keep separate deletion/version deadlines. Logs retain 14 days; `log_retention_days = 0` disables log cleanup.
 - **Jobs:** run sequentially. Each job's `continue_on_job_error` defaults to `true`; set it to `false` to stop when that job fails. Any job failure returns a nonzero exit code, and errors identify the job.
 - **Disks:** source/local destination checks default to `true` and fail above 95% occupancy. Use `false` on the corresponding per-job option to skip the check, such as `check_source_disk = false` for Seafile/FUSE. Temporary space stays checked.
