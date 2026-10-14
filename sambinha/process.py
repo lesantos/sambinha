@@ -7,6 +7,7 @@ import time
 import json
 import threading
 import math
+from collections import deque
 from configparser import ConfigParser, Error as ConfigParserError
 from contextlib import nullcontext
 from pathlib import Path
@@ -103,7 +104,7 @@ class Runner:
         message = re.sub(r"(https://cronitor\.link/p/)[^\s?]+", r"\1[REDACTED]", message)
         return message
 
-    def run(self, args, *, cwd=None, retry=False, input=None, progress_directory=None):
+    def run(self, args, *, cwd=None, retry=False, input=None, progress_directory=None, on_output=None):
         # One original attempt plus at most three retries, two seconds apart.
         for attempt in range(4 if retry else 1):
             try:
@@ -118,13 +119,13 @@ class Runner:
                 directory = progress_directory or directory
                 measured = bool(self.progress and self.progress.enabled and len(args) > 1
                                 and args[1] in {"copy", "sync"})
-                command = [*args, "--stats", "1s", "--stats-one-line", "--stats-log-level", "NOTICE"] if measured else args
+                command = [*args, "--stats", "1s", "--stats-one-line", "--stats-log-level", "ERROR"] if measured else args
                 if measured and "--use-json-log" not in command:
                     command = [*command, "--use-json-log"]
                 task = self.progress.task(stage, directory, measured=measured) if self.progress and stage else nullcontext()
                 with task as report:
-                    if measured:
-                        result = self._run_with_progress(command, cwd, input, report)
+                    if measured or on_output is not None:
+                        result = self._run_with_progress(command, cwd, input, report, on_output=on_output)
                     else:
                         result = subprocess.run(command, cwd=cwd, input=input, capture_output=True,
                                                 text=True, timeout=self.timeout, check=False, env=self.env)
@@ -138,8 +139,8 @@ class Runner:
                 raise error
             self.sleep(2)
 
-    def _run_with_progress(self, args, cwd, input, report):
-        """Stream rclone stats while retaining its output for audit parsing/errors."""
+    def _run_with_progress(self, args, cwd, input, report, on_output=None):
+        """Stream structured records and stats, retaining only an error tail when detailed."""
         process = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE if input is not None else None,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    text=True, bufsize=1, env=self.env)
@@ -147,7 +148,8 @@ class Runner:
             process.stdin.write(input)
             process.stdin.close()
 
-        output = []
+        output = deque(maxlen=2000) if on_output is not None else []
+        callback_errors = []
         # Compatibility with plain/full and one-line stats without a prefix.
         percentage = re.compile(r"(?:^|\n)\s*(?:Transferred:\s*)?(?=\d)[^,\n]*/[^,\n]*,\s*(\d+(?:\.\d+)?)%")
 
@@ -158,10 +160,17 @@ class Runner:
                 try:
                     record = json.loads(line)
                     if isinstance(record, dict):
+                        if on_output is not None and "msg" in record and not callback_errors:
+                            try:
+                                on_output(record)
+                            except Exception as exc:
+                                # Keep draining the pipe so rclone can exit.
+                                callback_errors.append(exc)
                         stats = record.get("stats")
                         if isinstance(stats, dict):
                             percent, activity = rclone_progress(stats)
-                            report(percent, activity=activity)
+                            if report is not None:
+                                report(percent, activity=activity)
                             continue
                         message = record.get("msg", line)
                 except (ValueError, TypeError):
@@ -169,7 +178,7 @@ class Runner:
                 if not isinstance(message, str):
                     continue
                 match = percentage.search(message)
-                if match:
+                if match and report is not None:
                     report(min(100, float(match.group(1))), activity="transferindo arquivos")
 
         reader = threading.Thread(target=collect, daemon=True)
@@ -186,4 +195,6 @@ class Runner:
             process.stdout.close()
         output = "".join(output)
         self.last_stderr = output
+        if callback_errors:
+            raise callback_errors[0]
         return subprocess.CompletedProcess(args, returncode, "", output)

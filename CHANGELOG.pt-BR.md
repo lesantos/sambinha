@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## 0.10.2 — 2026-10-13
+
+Adiciona níveis independentes `error`, `summary` e `detailed` para os logs JSONL no arquivo e no terminal. Ambos mostram erros e resumos da execução por padrão. O sync simples passa a solicitar somente mensagens `ERROR` ao rclone por padrão, em vez de `DEBUG` por arquivo; a saída detalhada solicita e registra os diagnósticos do rclone. O progresso interativo recebe estatísticas periódicas sem habilitar as demais mensagens, e o streaming detalhado mantém somente o fim da saída de erro na memória.
+
+O `--update` do rclone continua protegendo arquivos mais novos no destino. No rclone 1.60, o aviso de arquivo ignorado só existe em `DEBUG`: o modo padrão de baixo volume não identifica esses conflitos e não falha por eles. Configure uma das saídas como `detailed` para manter a identificação e falha para revisão manual. O tratamento de conflitos dos lotes não muda.
+
 ## 0.10.1 — 2026-10-13
 
 Mantém o progresso dentro da largura do terminal, compacta contadores e abrevia caminhos, incluindo caracteres Unicode largos/combinantes. Limpa linhas refluídas após redimensionamento. Nas fases sem total confiável, mostra atividade em vez de um percentual congelado, sem inventário adicional; retoma o percentual medido quando existem totais de transferência.

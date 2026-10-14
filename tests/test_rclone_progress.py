@@ -71,6 +71,29 @@ class RcloneStreamingTests(unittest.TestCase):
         self.assertEqual(report.call_args_list[0].args, (None,))
         self.assertEqual(report.call_args_list[1].args, (50.0,))
 
+    def test_detailed_records_stream_without_retaining_the_whole_debug_log(self):
+        records = [{"level": "debug", "msg": f"checked {index}"} for index in range(2100)]
+        process = Mock(stdout=io.StringIO("".join(json.dumps(record) + "\n" for record in records)))
+        process.wait.return_value = 0
+        received = []
+        runner = Runner()
+        with patch("sambinha.process.subprocess.Popen", return_value=process):
+            runner._run_with_progress(["rclone", "sync"], None, None, None, on_output=received.append)
+        self.assertEqual(received, records)
+        self.assertNotIn("checked 0", runner.last_stderr)
+        self.assertIn("checked 2099", runner.last_stderr)
+
+    def test_stream_callback_failure_is_reported_after_draining(self):
+        process = Mock(stdout=io.StringIO('{"msg":"first"}\n{"msg":"second"}\n'))
+        process.wait.return_value = 0
+        def failed_write(record):
+            raise ValueError("log write failed")
+        with patch("sambinha.process.subprocess.Popen", return_value=process), \
+             self.assertRaisesRegex(ValueError, "log write failed"):
+            Runner()._run_with_progress(["rclone", "sync"], None, None, None,
+                                        on_output=failed_write)
+        self.assertTrue(process.stdout.closed)
+
     def test_timeout_terminates_and_joins_streaming_reader(self):
         process = Mock(stdout=io.StringIO('{"stats":{"checks":1}}\n'))
         process.wait.side_effect = [subprocess.TimeoutExpired("rclone", 1), 0]

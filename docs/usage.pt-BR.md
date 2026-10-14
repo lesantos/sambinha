@@ -60,7 +60,7 @@ Para preservar backups feitos por uma instalação anterior, use um novo destino
 
 ## Arquivos mais novos no destino
 
-Em jobs simples, o rclone aplica `--update`: arquivos mais novos no destino não são substituídos por versões mais antigas da origem. Os demais critérios de comparação seguem o backend e as opções de comparação configuradas no rclone.
+Em jobs simples, o rclone aplica `--update`: arquivos mais novos no destino não são substituídos por versões mais antigas da origem. Por padrão, o Sambinha pede somente erros ao rclone; no rclone 1.60, a identificação de cada arquivo preservado só aparece em `DEBUG`, então essa situação não falha o job no modo padrão. Configure `log_file_level = "detailed"` ou `log_terminal_level = "detailed"` para receber os caminhos e falhar o job para revisão manual. Os demais critérios de comparação seguem o backend e as opções de comparação configuradas no rclone.
 
 Nos lotes, a comparação considera as datas originais dos arquivos no último índice confirmado. A data de upload dos lotes não é a data de edição dos documentos. Conflitos aparecem como `newer_destination` nos logs, e a execução termina com código 1 e um evento Cronitor `fail` com a descrição dos arquivos. A simulação registra o conflito e retorna erro, sem enviar notificações.
 
@@ -173,7 +173,7 @@ Nas cópias e sincronizações interativas, o progresso lê as estatísticas est
 
 `[backup].verification_mode = "simple"` é o padrão; `"hash"` passa `--checksum` aos syncs simples e ativa fingerprints SHA-256/MD5 nos índices batch. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam aos inventários batch.
 
-O stderr interativo exibe etapa, diretório e percentual do backup: jobs simples acompanham estatísticas do `rclone sync`, enquanto fases batch usam contadores ponderados e estimativas limitadas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; só chega a 100% após sucesso. Eventos por arquivo ficam na auditoria e são ocultados do terminal interativo. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#escolha-a-verificação-simples-ou-por-hash).
+O stderr interativo exibe etapa, diretório e percentual do backup: jobs simples acompanham estatísticas do `rclone sync`, enquanto fases batch usam contadores ponderados e estimativas limitadas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; só chega a 100% após sucesso. Eventos por arquivo aparecem nos logs JSON ou stdout somente quando o respectivo nível é `detailed`. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#retenção-dos-logs).
 
 ## Links simbólicos
 

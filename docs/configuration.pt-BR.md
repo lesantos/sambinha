@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.10.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.10.2**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -206,6 +206,14 @@ Os jobs executam sequencialmente, na ordem do TOML. Cada job lê suas exclusões
 
 ## Retenção dos logs
 
+`[backup].log_file_level` e `[backup].log_terminal_level` escolhem independentemente os eventos JSON gravados no arquivo e mostrados no stdout. Ambos aceitam `"error"` (somente erros), `"summary"` (erros, alertas, resumos por job e resultado final) e `"detailed"` (todos os eventos, inclusive por arquivo). O padrão dos dois é `"summary"`. No sync simples, o Sambinha solicita ao rclone apenas o nível `ERROR` por padrão; se qualquer saída estiver em `detailed`, solicita `DEBUG` e encaminha esses registros à saída detalhada. A opção detalhada pode produzir logs grandes. O progresso interativo continua no stderr e recebe apenas as estatísticas periódicas necessárias. Com o rclone 1.60, os avisos de arquivos mais novos preservados por `--update` só aparecem em `DEBUG`; portanto, o padrão preserva esses arquivos sem marcá-los como falha, enquanto `detailed` permite identificá-los e falhar o job para revisão. Para uma execução, use `--log-file-level` e `--log-terminal-level`.
+
+```toml
+[backup]
+log_file_level = "summary"
+log_terminal_level = "summary"
+```
+
 `[backup].log_retention_days = 14` mantém os logs de auditoria do Sambinha escritos nos últimos 14 dias. Escolha outro número de dias ou `0` para guardar os logs indefinidamente. `--log-retention-days 30` substitui a configuração para uma execução. Backups, restaurações e verificações sem simulação removem apenas arquivos de log regulares e inativos com o formato de nome timestamp/UUID `.jsonl` do Sambinha, diretamente em `log_dir`. A idade conta da última escrita, não da data no nome. O log atual, logs abertos por outras execuções, links simbólicos, subdiretórios e arquivos de outros tipos são preservados. Simulações não removem logs. A limpeza depende das execuções do programa; não instala um timer separado.
 
 ```toml
@@ -271,11 +279,11 @@ Também é possível escolher o modo para uma execução:
 
 No modo hash, o inventário batch lê o conteúdo primeiro e periodicamente depois. Trocar o modo em backups por lotes pode reconstruir arquivos compactados porque os metadados do índice mudam. Lotes e controles de recuperação mantêm checksums nos dois modos.
 
-Durante a execução interativa, o stderr exibe o percentual do backup inteiro, a etapa e o diretório. Jobs simples acompanham as estatísticas do `rclone sync`; fases batch usam contadores ponderados e estimativas limitadas. O percentual não volta nem reinicia e chega a 100% somente após conclusão bem-sucedida. Eventos de cada arquivo permanecem no log JSON, mas não aparecem no terminal interativo. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
+Durante a execução interativa, o stderr exibe o percentual do backup inteiro, a etapa e o diretório. Jobs simples acompanham as estatísticas do `rclone sync`; fases batch usam contadores ponderados e estimativas limitadas. O percentual não volta nem reinicia e chega a 100% somente após conclusão bem-sucedida. Eventos de cada arquivo aparecem no log JSON ou stdout somente se o respectivo nível for `detailed`. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
 ## Recursos adicionais
 
-A versão atual é **0.10.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.10.2**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

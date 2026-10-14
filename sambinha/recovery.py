@@ -257,7 +257,8 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
     progress = Progress(redact=redactor)
     if isinstance(runner, Runner):
         runner.progress = progress
-    log = RunLog(config.log_dir, redact=redactor, progress=progress)
+    log = RunLog(config.log_dir, redact=redactor, progress=progress,
+                 file_level=config.log_file_level, terminal_level=config.log_terminal_level)
     failed = False
     log.event("start", action=action, dry_run=config.dry_run)
     try:

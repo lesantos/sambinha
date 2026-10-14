@@ -15,15 +15,17 @@ from .filesystems import metadata_flags
 
 
 class Storage:
-    def __init__(self, job: Job, config: Config, runner):
+    def __init__(self, job: Job, config: Config, runner, log=None):
         self.job, self.config, self.runner = job, config, runner
+        self.log = log
 
     def path(self, key):
         if self.job.type == "local" and path_has_symlink(self.job.destination, key):
             raise BackupError(f"Caminho do destino mudou para link simbólico: {key}")
         return self.job.destination.rstrip("/") + "/" + safe_relative(key)
 
-    def command(self, operation, *args, retry=False, standard=False, input=None, progress_directory=None):
+    def command(self, operation, *args, retry=False, standard=False, input=None, progress_directory=None,
+                on_output=None):
         if operation in {"copyto", "copy", "sync", "delete", "purge"}:
             check_mounts(self.job, self.runner)
             check_disks(self.job)
@@ -37,6 +39,8 @@ class Storage:
             # STANDARD costs more per GB, without archival restore constraints.
             flags += ["--s3-storage-class", "STANDARD" if standard else self.job.storage_class]
         progress = {"progress_directory": progress_directory} if progress_directory is not None else {}
+        if on_output is not None:
+            progress["on_output"] = on_output
         return self.runner.run([self.config.rclone, operation, *map(str, args), *flags],
                                retry=retry, input=input, **progress)
 
@@ -116,6 +120,26 @@ class Storage:
             filters += ["--exclude-from", str(self.job.exclude_files)]
         if dry_run:
             filters.append("--dry-run")
+        detailed = (self.config.log_file_level == "detailed" or
+                    self.config.log_terminal_level == "detailed")
+        newer = set()
+
+        def on_output(record):
+            message = record.get("msg", "")
+            if not isinstance(message, str):
+                return
+            if ("Skipped copy as --update is in use" in message or
+                    ("Destination is newer than source" in message and "skipping" in message)):
+                path = record.get("object")
+                if isinstance(path, str):
+                    newer.add(safe_relative(path))
+            if self.log:
+                details = {"job": self.job.name, "level": record.get("level", ""),
+                           "message": self.runner.safe_error(message)}
+                if isinstance(record.get("object"), str):
+                    details["object"] = self.runner.safe_error(record["object"])
+                self.log.event("rclone", **details)
+
         self.command("sync", root, self.job.destination, "--backup-dir", self.path(backup_dir),
                      *self.comparison_flags(), "--update", "--transfers", str(self.config.transfer_workers),
                      "--max-delete", str(max_delete), "--delete-before",
@@ -123,23 +147,9 @@ class Storage:
                      *metadata_flags(self.job.destination, remote=self.job.type == "s3"), *filters,
                      # A whole-sync retry would apply --max-delete again and
                      # could multiply the per-run deletion cap.
-                     "-vv", "--use-json-log",
-                     progress_directory=str(root))
-        newer = []
-        report = getattr(self.runner, "last_stderr", None)
-        if isinstance(report, str):
-            for line in report.splitlines():
-                try:
-                    record = json.loads(line)
-                except (ValueError, TypeError):
-                    continue
-                message = record.get("msg", "") if isinstance(record, dict) else ""
-                if ("Skipped copy as --update is in use" in message or
-                        ("Destination is newer than source" in message and "skipping" in message)):
-                    path = record.get("object")
-                    if isinstance(path, str):
-                        newer.append(safe_relative(path))
-        return sorted(set(newer))
+                     "--log-level", "DEBUG" if detailed else "ERROR", "--use-json-log",
+                     progress_directory=str(root), on_output=on_output if detailed else None)
+        return sorted(newer)
 
     def expire_simple_history(self, now, retention_days, *, dry_run=False):
         """Purge run-scoped --backup-dir trees after the conservative retention window."""

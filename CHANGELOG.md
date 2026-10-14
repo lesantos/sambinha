@@ -2,6 +2,12 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.10.2 — 2026-10-13
+
+Add independent `error`, `summary` and `detailed` levels for JSONL file and terminal logs. Both default to errors and execution summaries. Simple sync now requests only rclone `ERROR` messages by default instead of per-file `DEBUG`; detailed output requests and records rclone diagnostics. Interactive progress receives periodic statistics without enabling other messages, and detailed streaming keeps a bounded error tail in memory.
+
+Rclone's `--update` still protects newer destination files. With rclone 1.60, their skip notice exists only at `DEBUG`: the default low-volume mode cannot identify these conflicts and does not fail the job for them. Set either log output to `detailed` to retain conflict reporting and failure for manual review. Batch conflict handling is unchanged.
+
 ## 0.10.1 — 2026-10-13
 
 Keep progress within the terminal width, compact counters and abbreviate paths, including wide/combining Unicode characters. Clear reflowed rows after resizing. During phases without a reliable total, show activity instead of a frozen percentage, with no additional inventory scan; resume the measured percentage when transfer totals become available.

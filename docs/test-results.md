@@ -1,6 +1,19 @@
-# Sambinha 0.10.1 test results
+# Sambinha 0.10.2 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+On 2026-10-13, Linux, Python 3.12.3: the full branch-coverage run with `SAMBINHA_HTTP_S3_TESTS=1` executed **339 tests in 761.289 seconds: 337 passed, no failures, 2 skipped**. The two pre-existing destination-symlink race/conflict cases remain deferred. Real local rclone/7-Zip, Moto in-process/localhost HTTP and a real pseudo-terminal were used, without real AWS or Cronitor credentials. Branch-inclusive application coverage is **92%**, above the required **85%**.
+
+New regression tests cover independent log levels, default rclone `ERROR` output, detailed rclone streaming, bounded output retention, callback failure handling, and preservation of newer destination files in the default mode. Bilingual documentation/example checks and a working-tree Gitleaks scan also passed.
+
+Reproduce:
+
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -q
+.venv/bin/python -m coverage report --include='sambinha/*' --fail-under=85
+```
+
+## Historical results: 0.10.1
 
 On 2026-10-13, Linux, Python 3.12.3: the full branch-coverage run with `SAMBINHA_HTTP_S3_TESTS=1` executed **330 tests in 942.539 seconds: 328 passed, no failures, 2 skipped**. The two pre-existing destination-symlink race/conflict cases remain deferred. Real local rclone/7-Zip, Moto in-process/localhost HTTP and a real pseudo-terminal were used, without real AWS or Cronitor credentials.
 

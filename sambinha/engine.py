@@ -404,7 +404,8 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
     progress = Progress(redact=redactor)
     if isinstance(runner, Runner):
         runner.progress = progress
-    log = RunLog(config.log_dir, redact=redactor, progress=progress)
+    log = RunLog(config.log_dir, redact=redactor, progress=progress,
+                 file_level=config.log_file_level, terminal_level=config.log_terminal_level)
     failed = False
     errors = []
     def report_job_error(error):
@@ -461,7 +462,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                             log.event("sync_start", job=job.name, max_delete=max_delete,
                                       backup_dir=backup_dir)
                             show_progress(runner, job_progress.scope(0.2, 0.95))
-                            storage = Storage(job, effective, runner)
+                            storage = Storage(job, effective, runner, log=log)
                             newer = storage.sync_simple(
                                 job.source, backup_dir, max_delete=max_delete, dry_run=config.dry_run)
                             retention_days = max(config.deleted_days, config.version_days)

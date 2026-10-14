@@ -27,6 +27,8 @@ def parser():
     result.add_argument("--fingerprint-cache", action=argparse.BooleanOptionalAction, default=None)
     result.add_argument("--verification-mode", choices=("simple", "hash"), default=None,
                         help="Comparar tamanho/data de alteração (simple) ou conteúdo (hash)")
+    for name in ("log_file_level", "log_terminal_level"):
+        result.add_argument("--" + name.replace("_", "-"), choices=("error", "summary", "detailed"), default=None)
     for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
                  "state_dir", "log_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
                  "source_mount", "destination_mount"):

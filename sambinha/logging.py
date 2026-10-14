@@ -1,10 +1,9 @@
-"""Complete JSON-lines audits; interactive terminals only show run-level events."""
+"""Redacted JSON-lines events with independent file and terminal detail."""
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import uuid
 import os
-import sys
 import re
 import stat
 import time
@@ -13,18 +12,20 @@ import errno
 
 from .state import private_directory
 
-CONSOLE_EVENTS = {"start", "directory", "summary", "error", "end", "notification_error",
-                  "deletion_alert", "mass_deletion_blocked"}
+ERROR_EVENTS = {"error", "notification_error", "mass_deletion_blocked"}
+SUMMARY_EVENTS = ERROR_EVENTS | {"summary", "restore_summary", "verification_complete", "end", "deletion_alert"}
 
 LOG_NAME = re.compile(r"\d{8}T\d{6}-[0-9a-f]{32}\.jsonl\Z")
 
 
 class RunLog:
-    def __init__(self, directory: Path, redact=None, progress=None):
+    def __init__(self, directory: Path, redact=None, progress=None, *,
+                 file_level="summary", terminal_level="summary"):
         private_directory(directory)
         self.redact = redact or (lambda value: value)
         self.progress = progress
-        self.interactive = sys.stdout.isatty() or bool(progress and progress.enabled)
+        self.file_level = file_level
+        self.terminal_level = terminal_level
         self.id = uuid.uuid4().hex
         self.path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{self.id}.jsonl"
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -74,6 +75,13 @@ class RunLog:
         return removed
 
     def event(self, event, **details):
+        def visible(level):
+            return (level == "detailed" or
+                    (event in ERROR_EVENTS if level == "error" else event in SUMMARY_EVENTS))
+        to_file = visible(self.file_level)
+        to_terminal = visible(self.terminal_level)
+        if not to_file and not to_terminal:
+            return
         record = {"time": datetime.now(timezone.utc).isoformat(), "event": event, **details}
         # Redact values before JSON escaping so multiline secrets are covered.
         def clean(value):
@@ -86,13 +94,13 @@ class RunLog:
             return value
         record = clean(record)
         line = json.dumps(record, ensure_ascii=False)
-        self.stream.write(line + "\n")
-        self.stream.flush()
-        if self.interactive and event not in CONSOLE_EVENTS:
-            return
-        if self.progress:
-            self.progress.clear()
-        print(line)
+        if to_file:
+            self.stream.write(line + "\n")
+            self.stream.flush()
+        if to_terminal:
+            if self.progress:
+                self.progress.clear()
+            print(line)
 
     def close(self):
         self.stream.close()

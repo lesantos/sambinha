@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.10.0**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.10.2**.
 
 ## How it protects your files
 
@@ -110,6 +110,14 @@ This applies to backup and manual verification. Preflight belongs to each job. A
 
 ## Log retention
 
+`[backup].log_file_level` and `[backup].log_terminal_level` independently select the JSON events written to the file and printed to stdout. Both accept `"error"` (errors only), `"summary"` (errors, alerts, per-job summaries, and the final result), and `"detailed"` (all events, including per-file events). Both default to `"summary"`. Simple sync asks rclone for only `ERROR` output by default; if either output is `detailed`, it asks for `DEBUG` and forwards those records to the detailed output. Detailed logs can be large. Interactive stderr progress still receives only the periodic statistics it needs. With rclone 1.60, notices about newer destination files protected by `--update` appear only at `DEBUG`; the default therefore preserves those files without failing the job, while `detailed` identifies them and fails the job for review. Override the levels for one run with `--log-file-level` and `--log-terminal-level`.
+
+```toml
+[backup]
+log_file_level = "summary"
+log_terminal_level = "summary"
+```
+
 `[backup].log_retention_days = 14` keeps Sambinha audit logs written within the last 14 days. Set a different number of days, or `0` to keep logs indefinitely. `--log-retention-days 30` overrides the setting for one invocation. Non-simulated backup, restore and verification runs remove only inactive regular log files matching Sambinha's timestamp/UUID `.jsonl` naming format in `log_dir`. The age is measured from the last write, not the filename date. The current log, logs held open by other invocations, symlinks, subdirectories and unrelated files are preserved. Dry runs do not remove logs. No separate cleanup timer is installed.
 
 ```toml
@@ -137,7 +145,7 @@ Or select a mode for one invocation:
 
 For batch inventories, simple mode cannot detect a content edit that preserves size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching batch modes can rebuild archives because their indexed metadata changes. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
 
-During interactive execution, stderr displays one percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate assigns equal ranges to the jobs and reserves 5% for finalization. Each job uses 20% of its range for preflight/inventory, 70% for transfers/retention and 10% for verification/completion. File/byte counters and directory queues advance within those ranges. Bulk rclone copies use the transfer percentage reported by rclone; other opaque subprocess operations use bounded elapsed-time estimates. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events remain in the JSON audit log but are omitted from the interactive terminal; run summaries and errors remain visible. Runs without a terminal retain JSON events on stdout for automation. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
+During interactive execution, stderr displays one percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate assigns equal ranges to the jobs and reserves 5% for finalization. Each job uses 20% of its range for preflight/inventory, 70% for transfers/retention and 10% for verification/completion. File/byte counters and directory queues advance within those ranges. Bulk rclone copies use the transfer percentage reported by rclone; other opaque subprocess operations use bounded elapsed-time estimates. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events appear in JSONL or stdout only when their respective log level is `detailed`; run summaries and errors remain visible by default. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
 
 ## Restore a file, folder or complete backup
 

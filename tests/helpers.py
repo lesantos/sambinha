@@ -23,7 +23,7 @@ class Sandbox(unittest.TestCase):
         self.destination = self.root / "destination"
         self.config = Config(jobs=(Job("test", self.source, str(self.destination)),),
                              state_dir=self.root / "state", log_dir=self.root / "logs",
-                             verification_mode="hash")
+                             verification_mode="hash", log_file_level="detailed")
         self.notifications = []
 
     def file(self, path, content=b"test", mode=0o640):
@@ -36,7 +36,7 @@ class Sandbox(unittest.TestCase):
     def execute(self, config=None, now=1000, **kwargs):
         self.output = io.StringIO()
         with redirect_stdout(self.output):
-            code = run(validate(config or self.config), clock=lambda: now,
+            code = run(validate(replace(config or self.config, log_terminal_level="detailed")), clock=lambda: now,
                        notifier=lambda *args: self.notifications.append(args), **kwargs)
         self.events = [json.loads(line) for line in self.output.getvalue().splitlines()]
         return code

@@ -143,8 +143,12 @@ class MotoRunner(Runner):
                         if same:
                             continue
                         if '--update' in args and old_mtime and old_mtime > modified:
-                            reports.append(json.dumps({'msg': 'Skipped copy as --update is in use',
-                                                       'object': name}))
+                            if args[args.index('--log-level') + 1] == 'DEBUG':
+                                record = {'level': 'debug', 'msg': 'Skipped copy as --update is in use',
+                                          'object': name}
+                                reports.append(json.dumps(record))
+                                if kwargs.get('on_output'):
+                                    kwargs['on_output'](record)
                             continue
                         preserve(name)
                     self.client.put_object(Bucket=bucket, Key=remote_prefix + name, Body=payload,

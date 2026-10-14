@@ -2,7 +2,7 @@
 
 [English](specification.md)
 
-Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.10.1**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
+Este documento consolida os requisitos originais de backup e todas as alterações de produto solicitadas na conversa até a versão **0.10.2**. O inglês é a versão padrão; esta versão em português do Brasil deve conter requisitos equivalentes. As seções abaixo definem comportamento e critérios de aceitação; os marcos de release ao final permitem rastrear as decisões. A seção de 0.6.1 atualiza os requisitos anteriores que exigiam hashes em todos os modos.
 
 ## 1. Plataforma, arquitetura e configuração
 
@@ -20,7 +20,7 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 - Suportar pastas locais, inclusive volumes montados, e Amazon S3. Ambos os destinos devem aceitar as estratégias `simple` e `batch`.
 - Copiar somente arquivos ausentes ou diferentes no destino. Usar checksums, sem reduzir a comparação ao tamanho quando um checksum necessário estiver indisponível.
 - Backups simples delegam sincronização e exclusões ao rclone; sync local preserva metadados e diretórios vazios quando suportado. S3 não oferece permissões POSIX nativas.
-- Se o destino tiver um arquivo mais novo, preservá-lo, registrar o conflito e falhar aquela tarefa. Nos lotes, comparar datas originais do índice confirmado, não as datas de upload dos arquivos compactados.
+- Se o destino tiver um arquivo mais novo, preservá-lo. Nos lotes, registrar o conflito e falhar a tarefa, comparando datas originais do índice confirmado, não as datas de upload dos arquivos compactados. No sync simples, `--update` preserva o arquivo; o rclone 1.60 só identifica o conflito em `DEBUG`, solicitado quando alguma saída está em `detailed`.
 - Jobs simples usam `--backup-dir` para guardar arquivos substituídos/apagados e expiram o histórico pelo maior valor entre `deleted_days` e `version_days`, pois o rclone não distingue esses motivos. Jobs batch retêm arquivos apagados por 10 dias e versões editadas por 2 dias por padrão, com prazos configuráveis.
 - Lotes aposentados devem ficar nas chaves imutáveis até expirar. Um lote com arquivos editados e apagados usa o maior prazo aplicável.
 - Lotes reativados não podem ser apagados por registros antigos de aposentadoria. Registrar nova tentativa quando a limpeza de retenção terminar localmente, mas a atualização do índice remoto falhar.
@@ -218,3 +218,7 @@ Recusar destinos sobrepostos entre jobs e permitir que o destino de um job anter
 ## 20. Atributos do destino e atividade no terminal — 0.10.1
 
 Detectar suporte a atributos POSIX nativos antes das operações de metadados em backups/restaurações locais. Ignorar mudanças de proprietário/permissões em exFAT, FAT e sistemas desconhecidos; preservar conteúdo e datas, metadados POSIX suportados e metadados do S3. A detecção não cria arquivos de teste nem inventários adicionais. Ler contadores estruturados JSON do rclone, incluindo estatísticas de uma linha sem prefixo. Mostrar arquivos conferidos/copiados, remoções, movimentos e tempo decorrido. Durante comparação/exclusões sem total confiável, mostrar atividade sem percentual e retomar o progresso medido quando houver totais de transferência. Manter monotonicidade global e reservar 100% para sucesso. Ajustar a linha à largura do terminal, considerar células Unicode e apagar linhas refluídas no redimensionamento. Cobrir streaming real do rclone, restauração sem POSIX, limpeza em interrupções/timeouts e renderização em terminal real.
+
+## 21. Detalhamento dos logs e saída do rclone — 0.10.2
+
+Escolher níveis de log do arquivo e do terminal independentemente, com erros e resumos por padrão. Solicitar somente saída `ERROR` ao rclone no sync simples, exceto quando alguma saída pedir `detailed`; então solicitar `DEBUG` e transmitir esses registros às saídas detalhadas. Manter estatísticas do progresso interativo sem habilitar outras mensagens do rclone. Preservar arquivos mais novos no destino com `--update`. No rclone 1.60, somente a saída detalhada permite identificar arquivos mais novos ignorados e falhar o job para revisão; o modo padrão de baixo volume não consegue fazer isso. O tratamento de conflitos dos lotes não muda.

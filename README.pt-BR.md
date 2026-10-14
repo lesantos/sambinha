@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.10.1** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.10.2** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
@@ -60,6 +60,7 @@ A simulação executa `rclone sync --dry-run` e grava um log sem alterar os dado
 - **Jobs:** executam sequencialmente. Cada job tem `continue_on_job_error = true` por padrão; use `false` para interromper quando esse job falhar. Qualquer falha deixa o código de saída diferente de zero, e os erros identificam o job.
 - **Discos:** verificações de origem/destino local têm padrão `true` e geram erro acima de 95% de ocupação. Use `false` na respectiva opção por job para suprimir a checagem, como `check_source_disk = false` no Seafile/FUSE. Temporários continuam sendo verificados.
 - **Proteções e progresso:** cada job simples tem um limite absoluto `max_delete`; `--allow-mass-deletion` o ignora em uma execução. As exclusões nativas do rclone preservam os caminhos excluídos. Backups/verificações normais simultâneos com o mesmo `state_dir` são recusados. O progresso acompanha as estatísticas do `rclone sync`.
+- **Detalhamento dos logs:** arquivo e terminal mostram erros e resumos por padrão. `log_file_level` e `log_terminal_level` aceitam `error`, `summary` ou `detailed`. O sync simples solicita somente erros ao rclone por padrão. No rclone 1.60, `--update` continua preservando arquivos mais novos no destino, mas identificá-los e falhar por esses conflitos exige `detailed` em pelo menos uma saída.
 
 ## Mais informações
 

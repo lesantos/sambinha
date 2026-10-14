@@ -1,6 +1,19 @@
-# Resultados dos testes do Sambinha 0.10.1
+# Resultados dos testes do Sambinha 0.10.2
 
 [English](test-results.md)
+
+Em 2026-10-13, Linux, Python 3.12.3: a execução completa com cobertura de ramos e `SAMBINHA_HTTP_S3_TESTS=1` executou **339 testes em 761.289 segundos: 337 passaram, sem falhas, 2 ignorados**. Os dois casos preexistentes de conflito/corrida com links no destino continuam adiados. Foram usados rclone/7-Zip reais, Moto em processo/HTTP localhost e um pseudoterminal real, sem credenciais AWS ou Cronitor reais. A cobertura da aplicação incluindo ramos foi **92%**, acima dos **85%** exigidos.
+
+Os novos testes cobrem níveis independentes de log, saída padrão `ERROR` do rclone, streaming detalhado, retenção limitada da saída em memória, falha no callback e preservação de arquivos mais novos no destino no modo padrão. Os testes de documentação/exemplos bilíngues e a varredura do conteúdo com Gitleaks também passaram.
+
+Reproduzir:
+
+```bash
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -q
+.venv/bin/python -m coverage report --include='sambinha/*' --fail-under=85
+```
+
+## Resultados históricos: 0.10.1
 
 Em 2026-10-13, Linux, Python 3.12.3: a execução completa com cobertura de ramos e `SAMBINHA_HTTP_S3_TESTS=1` executou **330 testes em 942.539 segundos: 328 passaram, sem falhas, 2 ignorados**. Os dois casos preexistentes de conflito/corrida com links no destino continuam adiados. Foram usados rclone/7-Zip reais, Moto em processo/HTTP localhost e um pseudoterminal real, sem credenciais AWS ou Cronitor reais.
 

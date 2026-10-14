@@ -11,6 +11,7 @@ from .secrets import expand, read_environment
 
 STORAGE_CLASSES = {"STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING",
                    "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"}
+LOG_LEVELS = {"error", "summary", "detailed"}
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,8 @@ class Config:
     fingerprint_full_scan_days: int = 7
     transfer_workers: int = 4
     batch_workers: int = 2
+    log_file_level: str = "summary"
+    log_terminal_level: str = "summary"
 
 
 def local_path(value, base, environment=None):
@@ -105,6 +108,10 @@ def validate(config: Config) -> Config:
             raise ConfigError(f"{name}: inteiro fora do intervalo permitido")
     if type(config.dry_run) is not bool:
         raise ConfigError("dry_run deve ser booleano")
+    for name in ("log_file_level", "log_terminal_level"):
+        value = getattr(config, name)
+        if not isinstance(value, str) or value not in LOG_LEVELS:
+            raise ConfigError(f"{name} deve ser error, summary ou detailed")
     if type(config.fingerprint_cache) is not bool:
         raise ConfigError("fingerprint_cache deve ser booleano")
     if not isinstance(config.verification_mode, str) or config.verification_mode not in {"simple", "hash"}:

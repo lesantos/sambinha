@@ -2,7 +2,7 @@
 
 [Português do Brasil](specification.pt-BR.md)
 
-This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.10.1**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
+This document consolidates the original backup requirements and all product changes requested in the conversation through version **0.10.2**. English is the default version; the Brazilian Portuguese companion must contain equivalent requirements. The sections below define behavior and acceptance criteria; release milestones at the end provide traceability. The 0.6.1 section updates the earlier hash-only requirements.
 
 ## 1. Platform, architecture and configuration
 
@@ -20,7 +20,7 @@ This document consolidates the original backup requirements and all product chan
 - Support local folders, including mounted volumes, and Amazon S3. Both destinations must support the `simple` and `batch` strategies.
 - Copy only files that are missing or differ from the destination. Use checksums rather than falling back to size-only comparisons when a required checksum is unavailable.
 - Simple backups delegate file/directory synchronization and exclusions to rclone; local syncs preserve metadata and empty source directories where supported. S3 does not offer native POSIX permissions.
-- If the destination has a newer file, preserve it, report the conflict and fail that job. Batch comparisons must use original timestamps from the confirmed index, not archive upload times.
+- If the destination has a newer file, preserve it. Batch jobs report the conflict and fail, comparing original timestamps from the confirmed index rather than archive upload times. Simple sync uses `--update`; rclone 1.60 only identifies the conflict at `DEBUG`, requested when an output is set to `detailed`.
 - Keep deleted source files for 10 days and previous edited versions for 2 days by default, with configurable retention. Expire history during subsequent executions, including at the exact deadline; zero-day retention allows immediate cleanup.
 - Simple backups use rclone `--backup-dir` for displaced/deleted files and purge run histories after the larger of `deleted_days` and `version_days`, since rclone does not distinguish these causes. Retired batch archives remain at immutable keys until expiry; a lot containing edits and deletions uses the longest applicable retention.
 - Reactivated active archives must not be deleted by earlier retirement records. Publish retry information when retention cleanup succeeds locally but updating the remote recovery index fails.
@@ -214,8 +214,12 @@ Each job completes exclusions, preflight, a private inventory/cache, transfers/r
 
 ## 19. Simple history, conflicts and selected restore — 0.10.0
 
-Reject overlapping destinations across jobs while allowing an earlier job's destination to be a later job's source. At the end of each simple job, expire run-scoped `--backup-dir` history using the larger of deletion and version retention because rclone does not identify why each path was displaced. Preserve newer destination files, report them and fail the job for manual review. Let rclone replace file/directory conflicts while retaining displaced items in history. Support repeatable `restore --path` selectors for current simple destination files/directories. Cover local and S3 behavior and run the full suite before publishing 0.10.0.
+Reject overlapping destinations across jobs while allowing an earlier job's destination to be a later job's source. At the end of each simple job, expire run-scoped `--backup-dir` history using the larger of deletion and version retention because rclone does not identify why each path was displaced. Preserve newer destination files, report their paths and fail the job for manual review. Let rclone replace file/directory conflicts while retaining displaced items in history. Support repeatable `restore --path` selectors for current simple destination files/directories. Cover local and S3 behavior and run the full suite before publishing 0.10.0.
 
 ## 20. Destination attributes and terminal activity — 0.10.1
 
 Detect native POSIX attribute support before local backup/restore metadata operations. Skip ownership/permission changes on exFAT, FAT and unknown filesystems; retain contents and modification times, supported POSIX metadata and S3 metadata. Detection must not create probes or extra inventories. Read rclone structured JSON counters, including one-line statistics without a prefix. Show checked/copied/deleted/moved counts and elapsed activity. During comparison/deletion without a reliable total, show activity without a percentage, and resume measured progress when transfer totals are known. Preserve overall monotonicity and reserve 100% for success. Fit progress to the terminal width, handle Unicode cell widths and erase reflowed rows on resize. Cover real rclone streaming, non-POSIX restore, interruption/timeout cleanup and real terminal rendering.
+
+## 21. Log detail and rclone output — 0.10.2
+
+Select file and terminal log levels independently; default to errors and summaries. Request only `ERROR` output from rclone simple sync unless either output requests `detailed`; then request `DEBUG` and stream those records to the selected detailed outputs. Keep interactive progress statistics without enabling other rclone messages. Preserve newer destination data through `--update`. With rclone 1.60, only detailed output permits identifying skipped newer files and failing the job for review; the default low-volume mode cannot do so. Batch conflict handling remains unchanged.

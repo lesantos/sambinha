@@ -7,6 +7,11 @@ log_dir = "./logs"
 # Manter logs escritos nos últimos 14 dias; 0 desativa a limpeza automática.
 # Logs antigos inativos do Sambinha são removidos em execuções sem simulação.
 log_retention_days = 14
+# Níveis independentes: error, summary (padrão) ou detailed.
+# summary grava erros, alertas, resumos por job e resultado final.
+# detailed inclui eventos de arquivos; não altera o -vv interno do rclone.
+log_file_level = "summary"
+log_terminal_level = "summary"
 # Retenção do histórico de lotes; jobs simples mantêm indefinidamente os arquivos do backup-dir.
 deleted_days = 10
 version_days = 2
