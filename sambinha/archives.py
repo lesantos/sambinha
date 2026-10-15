@@ -1,14 +1,24 @@
 """Snapshot, compress and validate a batch before any upload."""
 from pathlib import Path
+import json
 import shutil
 
 from .errors import BackupError
+from .disks import check_disk
 from .inventory import verify
 from .process import show_progress
 from .profiles import settings
 
 
+def temporary_bytes(batch):
+    """Estimate originals plus an incompressible archive and staging overhead."""
+    metadata = len(json.dumps(batch.control(), ensure_ascii=False).encode("utf-8"))
+    overhead = max(1024 ** 2, 16384 * len(batch.files) + 2 * metadata)
+    return 2 * sum(item.size for item in batch.files) + overhead
+
+
 def compress(ctx, batch, work: Path):
+    check_disk(work, "temporários", required_bytes=temporary_bytes(batch))
     snapshot = work / "snapshot"
     snapshot.mkdir()
     preparing = ctx.progress.scope(0, 0.2) if ctx.progress else None
@@ -45,4 +55,6 @@ def compress(ctx, batch, work: Path):
             members[name] = int(fields["Size"])
     if members != {f.path: f.size for f in batch.files}:
         raise BackupError("Lote incompleto ou caminhos incorretos; envio interrompido")
+    # Uploads need only the validated immutable archive, not the source copy.
+    shutil.rmtree(snapshot)
     return archive

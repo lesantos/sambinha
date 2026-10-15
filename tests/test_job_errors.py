@@ -72,7 +72,7 @@ class JobFailurePolicyTests(Sandbox):
             with self.subTest(policy=policy):
                 config = self.two_jobs(policy, f'disk-{policy}')
                 def usage(path):
-                    return Usage(0, 0, 0) if Path(path) == self.source else Usage(100, 10, 90)
+                    return Usage(0, 0, 0) if Path(path) == self.source else Usage(100 * 1024**2, 10 * 1024**2, 90 * 1024**2)
                 with patch('shutil.disk_usage', side_effect=usage):
                     self.assert_failure_policy(config)
                 error = next(e for e in self.events if e['event'] == 'error')

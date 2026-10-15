@@ -6,7 +6,7 @@ import tempfile
 from .errors import BackupError
 
 
-def check_disk(path, label, event=None):
+def check_disk(path, label, event=None, *, required_bytes=0):
     directory = Path(path)
     try:
         while not directory.exists() and directory.parent != directory:
@@ -24,6 +24,9 @@ def check_disk(path, label, event=None):
               total_bytes=usage.total, free_bytes=usage.free)
     if (usage.total - usage.free) * 100 > usage.total * 95:
         raise BackupError(f"Disco de {label} com ocupação de {percent:.2f}%, acima de 95%: {directory}")
+    if usage.free < required_bytes:
+        raise BackupError(f"Espaço insuficiente no disco de {label}: {directory}; "
+                          f"necessários {required_bytes} bytes, disponíveis {usage.free} bytes")
 
 
 def check_disks(job, event=None, *, temporary_path=None, check_temporary=True, check_source=True):

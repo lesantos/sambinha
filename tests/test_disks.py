@@ -22,10 +22,16 @@ class DiskTests(Sandbox):
 
     def test_nonexistent_destination_checks_nearest_existing_filesystem(self):
         target = self.root / 'new' / 'backup'
-        with patch('shutil.disk_usage', return_value=Usage(100, 10, 90)) as usage:
+        with patch('shutil.disk_usage', return_value=Usage(100 * 1024**2, 10 * 1024**2, 90 * 1024**2)) as usage:
             check_disk(target, 'destino')
         usage.assert_called_once_with(self.root)
         self.assertFalse(target.exists())
+
+    def test_required_space_uses_available_bytes_and_accepts_exact_fit(self):
+        with patch('shutil.disk_usage', return_value=Usage(100, 50, 40)):
+            check_disk(self.source, 'temporários', required_bytes=40)
+            with self.assertRaisesRegex(BackupError, 'necessários 41 bytes, disponíveis 40 bytes'):
+                check_disk(self.source, 'temporários', required_bytes=41)
 
     def test_s3_checks_source_and_local_temporary_space_without_bucket_disk_query(self):
         job = replace(self.config.jobs[0], type='s3', logic='batch', destination='aws:bucket')
@@ -80,7 +86,7 @@ class DiskTests(Sandbox):
                         measured.append(Path(path))
                         unavailable = (Path(path) == self.source if role == 'source' else
                                        Path(path) in (destination, self.root))
-                        return Usage(0, 0, 0) if unavailable else Usage(100, 10, 90)
+                        return Usage(0, 0, 0) if unavailable else Usage(100 * 1024**2, 10 * 1024**2, 90 * 1024**2)
                     # The nearest existing destination parent must also remain
                     # unmeasured; temporary storage always has a real capacity.
                     with patch('shutil.disk_usage', side_effect=usage):
@@ -140,7 +146,7 @@ class DiskTests(Sandbox):
             filled = True
             return result
         def usage(path):
-            return Usage(100, 96, 4) if filled and Path(path) == self.destination else Usage(100, 10, 90)
+            return Usage(100, 96, 4) if filled and Path(path) == self.destination else Usage(100 * 1024**2, 10 * 1024**2, 90 * 1024**2)
         with patch.object(Storage, 'put', put), patch('shutil.disk_usage', side_effect=usage):
             self.assertEqual(self.execute(), 1)
         self.assertIn('destino', self.notifications[-1][3])

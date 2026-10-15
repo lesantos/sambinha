@@ -1,14 +1,15 @@
 """Immutable batch uploads and transactional recovery-index publication."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import copy
 import json
 from pathlib import Path
 import tempfile
+import threading
 
-from ..archives import compress
+from ..archives import compress, temporary_bytes
 from ..batches import plan
 from ..context import Context
-from ..disks import check_disks
+from ..disks import check_disk, check_disks
 from ..errors import BackupError
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
@@ -148,16 +149,48 @@ def _pending_uploads(ctx, batches, old, active):
 
 def _upload_pending(ctx, pending, active):
     if pending:
+        workers = min(ctx.config.batch_workers, len(pending))
+        # Check the largest possible simultaneous staging demand, including
+        # dedicated files and existing groups exceeding the configured limit.
+        required = sum(sorted((temporary_bytes(item) for item in pending), reverse=True)[:workers])
+        check_disk(tempfile.gettempdir(), "temporários", ctx.event, required_bytes=required)
         scopes = (ctx.progress.scope(0.1, 0.85).parallel(
             [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
         ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes)}
-        with ThreadPoolExecutor(max_workers=ctx.config.batch_workers) as pool:
-            futures = [(item, pool.submit(upload_batch, ctx, item)) for item in pending]
-            for item, future in futures:
-                control, events = future.result()
-                active[item.key] = control
-                for event, values in events:
-                    ctx.event(event, **values)
+        stopped = threading.Event()
+
+        def upload(item):
+            try:
+                return upload_batch(ctx, item)
+            except BaseException:
+                # Mark failure inside the worker before it accepts more work.
+                stopped.set()
+                raise
+
+        remaining = iter(pending)
+        pool = ThreadPoolExecutor(max_workers=workers)
+        futures = {}
+        try:
+            while True:
+                while len(futures) < workers and not stopped.is_set():
+                    item = next(remaining, None)
+                    if item is None:
+                        break
+                    futures[pool.submit(upload, item)] = item
+                if not futures:
+                    break
+                done, _ = wait(futures, return_when=FIRST_COMPLETED)
+                # Consume every completed result before submitting replacements.
+                for future in done:
+                    item = futures.pop(future)
+                    control, events = future.result()
+                    active[item.key] = control
+                    for event, values in events:
+                        ctx.event(event, **values)
+        finally:
+            stopped.set()
+            # In-flight workers finish their own temporary-directory cleanup.
+            pool.shutdown(wait=True, cancel_futures=True)
 
 
 def batch(ctx: Context):

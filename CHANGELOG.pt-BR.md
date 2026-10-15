@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## 0.13.2 — 2026-10-15
+
+Mantenha no máximo `batch_workers` tarefas de lote em andamento e interrompa o agendamento dos pendentes após qualquer falha de worker, inclusive quando um worker anterior ainda estiver ocupado. Aguarde a limpeza dos lotes em andamento e preserve a publicação transacional de estado/índice.
+
+Remova as cópias dos originais após validar integridade e membros do arquivo compactado, antes dos envios. Estime o espaço temporário pelos maiores lotes reais que podem coexistir (originais, arquivo sem ganho de compressão e margem), incluindo grupos excedidos e arquivos individuais, e confira novamente antes de copiar cada lote. Preserve a checagem de ocupação acima de 95% e as checagens temporárias obrigatórias. Atualize a documentação bilíngue e acrescente regressões de S3 bloqueado, interrupção após falhas, limpeza e capacidade.
+
 ## 0.13.1 — 2026-10-14
 
 Troca `max_bytes` por `max_megabytes` e `--max-bytes` por `--max-megabytes`. O limite passa a ser informado em MB (1 MB = 1.048.576 bytes), com padrão 1024. Aceita decimais; atualiza exemplos e instruções de migração preservando o tamanho dos lotes.

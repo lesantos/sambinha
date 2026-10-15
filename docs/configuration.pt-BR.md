@@ -47,7 +47,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.13.1**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.13.2**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -293,7 +293,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.13.1**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.13.2**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -330,6 +330,8 @@ Em jobs batch, `verify-local-metadata` usa a origem atual e os JSONs locais, sem
 Cada job simples configura `max_delete` (padrão 100), limite absoluto passado ao rclone. Ao excedê-lo, o rclone interrompe a sincronização com erro. Jobs batch continuam usando o bloqueio percentual calculado pelo índice anterior. `--allow-mass-deletion` ignora o limite aplicável naquela execução.
 
 Por padrão, discos da origem e do destino local geram erro com ocupação **acima de 95%**; exatamente 95% é aceito. Espaço indisponível à conta também entra na ocupação. Os discos temporários dos lotes e a saída de restauração são verificados. Um bucket S3 não oferece porcentagem de ocupação de disco local. Há verificações antes do backup e antes de transferências/exclusões, e eventos `disk_usage` registram espaço livre e ocupação.
+
+A criação de lotes também confere os bytes temporários disponíveis para os maiores lotes reais simultâneos antes de iniciar os workers e novamente antes de copiar cada lote. Cópias dos originais validadas são removidas antes do envio, e falhas interrompem os lotes pendentes. Veja [espaço temporário e concorrência](performance.pt-BR.md).
 
 Cada tarefa emite `summary`: arquivos novos, modificados, removidos e intactos, lotes reutilizados/recriados, bytes originais previstos, bytes de conteúdo realmente transferidos, histórico pendente e sucesso. Compactação pode mudar a quantidade de bytes enviados; controles e índice não entram nessa medida de conteúdo.
 

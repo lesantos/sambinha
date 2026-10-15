@@ -2,6 +2,12 @@
 
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
+## 0.13.2 — 2026-10-15
+
+Keep at most `batch_workers` batch tasks in flight and stop scheduling pending batches after any worker failure, including errors observed before an earlier worker finishes. Wait for in-flight cleanup and preserve transactional state/index publication.
+
+Remove source snapshots after archive integrity and member validation, before uploads. Estimate temporary space from the actual largest simultaneous batches (originals plus an incompressible archive and overhead), including oversized groups and dedicated files, and recheck before copying each batch. Keep the existing 95% occupancy check and mandatory temporary checks. Update bilingual guidance and add blocked-S3, failure-cancellation, cleanup and capacity regressions.
+
 ## 0.13.1 — 2026-10-14
 
 Replace `max_bytes` with `max_megabytes` and `--max-bytes` with `--max-megabytes`. Express the limit in MB (1 MB = 1,048,576 bytes), default 1024. Accept decimals; update examples and migration instructions while preserving batch sizes.

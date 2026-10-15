@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.1**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.2**.
 
 ## How it protects your files
 
@@ -17,6 +17,8 @@ Batch jobs retain deleted files for **10 days** and replaced versions for **2 da
 Each simple job has an absolute `max_delete` limit (default 100), passed to rclone. When more destination files would be deleted, rclone stops the sync with an error. Batch jobs retain the percentage guard based on their prior index. `--allow-mass-deletion` bypasses the applicable guard for one invocation.
 
 By default, source and local destination disks are checked before the backup and before transfers/deletions. Occupancy **above 95%** produces an error; exactly 95% is accepted. Batch temporary storage is also checked. S3 buckets do not expose a local disk occupancy percentage.
+
+Batch creation also checks available temporary bytes for the largest simultaneous actual batches before starting workers, then rechecks each batch before staging originals. Validated snapshots are removed before upload, and a batch failure stops pending work. See [temporary space and concurrency](performance.md).
 
 Metadata and logs use private permissions. Relative paths and indexes are validated before retention or recovery. Known secrets are redacted from errors, logs and telemetry. Retries are bounded: one attempt and up to three retries, two seconds apart.
 
