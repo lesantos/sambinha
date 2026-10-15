@@ -21,24 +21,8 @@ LOG_LEVELS = {"error", "summary", "detailed"}
 def _validate_global(config: Config):
     if not config.jobs:
         raise ConfigError("Configure pelo menos um [[jobs]]")
-    for name in ("deleted_days", "version_days", "timeout", "deletion_alert_threshold", "verify_interval_days",
-                 "log_retention_days"):
-        value = getattr(config, name)
-        if type(value) is not int or value < (1 if name == "timeout" else 0):
-            raise ConfigError(f"{name}: inteiro fora do intervalo permitido")
-    if type(config.dry_run) is not bool:
-        raise ConfigError("dry_run deve ser booleano")
-    for name in ("log_file_level", "log_terminal_level"):
-        value = getattr(config, name)
-        if not isinstance(value, str) or value not in LOG_LEVELS:
-            raise ConfigError(f"{name} deve ser error, summary ou detailed")
-    if type(config.fingerprint_cache) is not bool:
-        raise ConfigError("fingerprint_cache deve ser booleano")
-    if not isinstance(config.verification_mode, str) or config.verification_mode not in {"simple", "hash"}:
-        raise ConfigError("verification_mode deve ser simple ou hash")
-    for name in ("fingerprint_full_scan_days", "transfer_workers", "batch_workers", "recovery_index_versions"):
-        if type(getattr(config, name)) is not int or getattr(config, name) < 1:
-            raise ConfigError(f"{name} deve ser um inteiro positivo")
+    if type(config.timeout) is not int or config.timeout < 1:
+        raise ConfigError("timeout: inteiro fora do intervalo permitido")
     if not isinstance(config.cronitor_url, str) or (config.cronitor_url and
             urlsplit(config.cronitor_url).scheme != "https"):
         raise ConfigError("cronitor_url deve usar HTTPS")
@@ -58,13 +42,28 @@ def _validate_job(job: Job, seen: set[str]):
     if job.name in seen:
         raise ConfigError(f"Job duplicado: {job.name}")
     seen.add(job.name)
-    for name in ("check_source_disk", "check_destination_disk", "continue_on_job_error"):
+    for name in ("check_source_disk", "check_destination_disk", "continue_on_job_error", "dry_run", "fingerprint_cache"):
         if type(getattr(job, name)) is not bool:
             raise ConfigError(f"{name} deve ser booleano: {job.name}")
+    for name in ("deleted_days", "version_days", "log_retention_days", "deletion_alert_threshold", "verify_interval_days"):
+        if type(getattr(job, name)) is not int or getattr(job, name) < 0:
+            raise ConfigError(f"{name}: inteiro não negativo por job: {job.name}")
+    for name in ("fingerprint_full_scan_days", "transfer_workers", "batch_workers", "recovery_index_versions"):
+        if type(getattr(job, name)) is not int or getattr(job, name) < 1:
+            raise ConfigError(f"{name} deve ser um inteiro positivo por job: {job.name}")
+    for name in ("log_file_level", "log_terminal_level"):
+        if not isinstance(getattr(job, name), str) or getattr(job, name) not in LOG_LEVELS:
+            raise ConfigError(f"{name} deve ser error, summary ou detailed: {job.name}")
+    if not isinstance(job.verification_mode, str) or job.verification_mode not in {"simple", "hash"}:
+        raise ConfigError(f"verification_mode deve ser simple ou hash: {job.name}")
     if job.type not in {"local", "s3"} or job.logic not in {"simple", "batch"}:
         raise ConfigError(f"Tipo ou lógica inválidos: {job.name}")
     if job.storage_class not in STORAGE_CLASSES:
         raise ConfigError(f"Classe S3 inválida: {job.storage_class}")
+    if job.control_storage_class not in STORAGE_CLASSES:
+        raise ConfigError(f"Classe S3 de controles inválida: {job.control_storage_class}")
+    if job.type == "s3" and job.control_storage_class in {"GLACIER", "DEEP_ARCHIVE"}:
+        raise ConfigError("control_storage_class deve permitir leitura imediata; use STANDARD, STANDARD_IA, ONEZONE_IA, INTELLIGENT_TIERING ou GLACIER_IR")
     if job.type == "s3" and job.logic == "simple" and job.storage_class in {"GLACIER", "DEEP_ARCHIVE"}:
         raise ConfigError("simple exige S3 acessível sem restore; use GLACIER_IR ou batch")
     value = job.max_megabytes

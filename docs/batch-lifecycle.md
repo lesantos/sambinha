@@ -5,15 +5,13 @@
 ## Configuration and migration
 
 ```toml
-[backup]
-recovery_index_versions = 3
-
 [[jobs]]
 name = "documents-s3"
 source = "/mnt/source/documents"
 destination = "aws:bucket/documents"
 type = "s3"
 logic = "batch"
+recovery_index_versions = 3
 max_megabytes = 1024
 compression_level = 3
 compression_threads = 2

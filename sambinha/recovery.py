@@ -21,20 +21,26 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
     progress = Progress(redact=redactor)
     if isinstance(runner, Runner):
         runner.progress = progress
+    job_levels = {job.name: (job.log_file_level, job.log_terminal_level) for job in config.jobs}
+    first_job = config.jobs[0] if config.jobs else None
     log = RunLog(config.log_dir, redact=redactor, progress=progress,
-                 file_level=config.log_file_level, terminal_level=config.log_terminal_level)
+                 file_level=first_job.log_file_level if first_job else "summary",
+                 terminal_level=first_job.log_terminal_level if first_job else "summary",
+                 job_levels=job_levels)
+    all_dry_run = bool(config.jobs) and all(job.dry_run for job in config.jobs)
+    log_retention_days = max((job.log_retention_days for job in config.jobs), default=14)
     failed = False
-    log.event("start", action=action, dry_run=config.dry_run)
+    log.event("start", action=action, dry_run=all_dry_run)
     try:
         runner.load_config_secrets(config.rclone_config)
         runner.require([config.rclone])
         if action == "restore" and (len(config.jobs) != 1 or output is None):
             raise BackupError("Restauração exige --job com uma tarefa e --output")
-        with lock(config.state_dir) if action != "restore" and not config.dry_run else nullcontext():
-            if not config.dry_run:
-                removed_logs = log.prune(config.log_retention_days)
+        with lock(config.state_dir) if action != "restore" and not all_dry_run else nullcontext():
+            if not all_dry_run:
+                removed_logs = log.prune(log_retention_days)
                 if removed_logs:
-                    log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
+                    log.event("log_cleanup", removed_logs=removed_logs, retention_days=log_retention_days)
             for job in config.jobs:
                 try:
                     runner.require([job.compressor] if job.logic == "batch"
@@ -47,7 +53,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                                     (action == "verify-destination-integrity" and job.type == "s3"))
                     if action == "restore":
                         restore_job(config, job, runner, log, output, selectors)
-                    elif config.dry_run:
+                    elif job.dry_run:
                         log.event("would_verify", job=job.name, action=action)
                     else:
                         activities = {"verify-local-metadata": verify_local_metadata_job,
@@ -58,7 +64,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                     failed = True
                     message = str(JobError(job.name, exc))
                     log.event("error", job=job.name, error=message)
-                    if notifier and not config.dry_run:
+                    if notifier and not job.dry_run:
                         notifier(config.cronitor_url, "fail", log.id, redactor(message)[:2000])
                     if not job.continue_on_job_error:
                         break

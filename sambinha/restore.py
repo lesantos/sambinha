@@ -95,18 +95,18 @@ def restore_job(config, job, runner, log, output, selectors=()):
     selectors = tuple(safe_relative(p.rstrip("/")) for p in selectors)
     storage = Storage(job, config, runner)
     if job.logic == "simple":
-        storage.restore_simple(output, selectors, dry_run=config.dry_run)
-        log.event("restore_summary", job=job.name, dry_run=config.dry_run,
+        storage.restore_simple(output, selectors, dry_run=job.dry_run)
+        log.event("restore_summary", job=job.name, dry_run=job.dry_run,
                   strategy="rclone_copy", selectors=list(selectors))
         return
-    with restore_workspace(output, dry_run=config.dry_run) as work:
+    with restore_workspace(output, dry_run=job.dry_run) as work:
         storage.temporary_directory = work
         state = read_index(config, job, storage, work)
         files = indexed_files(state, job.logic)
         selected = {p: f for p, f in files.items() if matches(p, selectors)}
         if selectors and any(not any(matches(p, (s,)) for p in files) for s in selectors):
             raise BackupError("Caminho solicitado não está no índice ativo")
-        if config.dry_run:
+        if job.dry_run:
             log.event("restore_summary", job=job.name, files=len(selected),
                       bytes=sum(f["size"] for f in selected.values()), dry_run=True)
             return

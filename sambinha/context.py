@@ -27,7 +27,7 @@ class Context:
         self.state_path = self.directory / "state.json"
         self.identity = identity(job)
         self.state = load_state(self.state_path, self.identity) if state is None else state
-        if not config.dry_run:
+        if not job.dry_run:
             prepare_controls(config, job, self.state)
         self.metrics = {"reused_batches": 0, "rebuilt_batches": 0,
                         "bytes_planned": 0, "bytes_transferred": 0}
@@ -66,7 +66,7 @@ class Context:
 
     def summary(self, success):
         current = {f.path: f.metadata() for f in self.files}
-        self.event("summary", success=success, dry_run=self.config.dry_run,
+        self.event("summary", success=success, dry_run=self.job.dry_run,
                    total_files=len(current), new_files=len(current.keys() - self.before_files.keys()),
                    modified_files=sum(p in self.before_files and f != self.before_files[p]
                                       for p, f in current.items()), removed_files=len(self.removed),
@@ -84,7 +84,7 @@ class Context:
                  for entry in self.state["retired"]}
         included = self.selection.include_paths(p for members in paths.values() for p in members)
         candidates = [(entry, paths[entry["key"]]) for entry in self.state["retired"]
-                      if alert_time(entry, self.config.deleted_days, self.config.version_days) <= self.now
+                      if alert_time(entry, self.job.deleted_days, self.job.version_days) <= self.now
                       and all(p in included for p in paths[entry["key"]])]
         self.forecast.add(self.job.name, candidates)
 
@@ -107,9 +107,9 @@ class Context:
             if entry["expires"] > self.now:
                 remaining.append(entry)
                 continue
-            self.event("would_expire" if self.config.dry_run else "expire", path=entry["key"],
+            self.event("would_expire" if self.job.dry_run else "expire", path=entry["key"],
                        files=paths[entry["key"]], deletion_at=date(entry["expires"]))
-            if not self.config.dry_run:
+            if not self.job.dry_run:
                 self.storage.delete(entry["key"])
                 if entry.get("control"):
                     self.storage.delete(entry["control"])

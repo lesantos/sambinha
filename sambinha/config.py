@@ -1,5 +1,5 @@
 """Validated TOML configuration and command-line overrides."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import os
 from pathlib import Path
 import tomllib
@@ -11,6 +11,12 @@ from .errors import ConfigError
 from .paths import destinations_overlap as destinations_overlap, overlap as overlap
 from .secrets import expand, read_environment
 
+JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "version_days", "log_retention_days",
+                                "log_file_level", "log_terminal_level", "deletion_alert_threshold",
+                                "verify_interval_days", "verification_mode", "fingerprint_cache",
+                                "fingerprint_full_scan_days", "transfer_workers", "batch_workers", "dry_run"})
+JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
+
 
 @dataclass(frozen=True)
 class Job:
@@ -20,6 +26,7 @@ class Job:
     type: str = "local"
     logic: str = "simple"
     storage_class: str = "GLACIER_IR"
+    control_storage_class: str = "STANDARD"
     max_megabytes: int | float = 1024
     individual_batch_percent: float = 100
     batch_size_alert_percent: float = 200
@@ -36,6 +43,20 @@ class Job:
     continue_on_job_error: bool = True
     compression_level: int = 3
     compression_threads: int = 2
+    recovery_index_versions: int = 3
+    deleted_days: int = 10
+    version_days: int = 2
+    log_retention_days: int = 14
+    log_file_level: str = "summary"
+    log_terminal_level: str = "summary"
+    deletion_alert_threshold: int = 1000
+    verify_interval_days: int = 0
+    verification_mode: str = "simple"
+    fingerprint_cache: bool = True
+    fingerprint_full_scan_days: int = 7
+    transfer_workers: int = 4
+    batch_workers: int = 2
+    dry_run: bool = False
 
     @property
     def max_bytes(self) -> int:
@@ -48,27 +69,39 @@ class Config:
     jobs: tuple[Job, ...]
     state_dir: Path = field(default_factory=lambda: Path("state").resolve())
     log_dir: Path = field(default_factory=lambda: Path("logs").resolve())
-    log_retention_days: int = 14
-    deleted_days: int = 10
-    version_days: int = 2
-    dry_run: bool = False
     cronitor_url: str = field(default="", repr=False)
     rclone: str = "rclone"
     rclone_config: str = ""
     timeout: int = 3600
     secrets_file: Path | None = None
     environment: dict[str, str] | None = field(default=None, repr=False, compare=False)
-    deletion_alert_threshold: int = 1000
-    verify_interval_days: int = 0
-    fingerprint_cache: bool = True
-    verification_mode: str = "simple"
-    fingerprint_full_scan_days: int = 7
-    transfer_workers: int = 4
-    batch_workers: int = 2
     metadata_dir: Path | None = None
-    log_file_level: str = "summary"
-    log_terminal_level: str = "summary"
-    recovery_index_versions: int = 3
+    # Source-compatible Python overrides. These are deliberately excluded from
+    # TOML's [backup] keys; loaded values always live on their individual jobs.
+    log_retention_days: int | None = field(default=None, repr=False, compare=False)
+    deleted_days: int | None = field(default=None, repr=False, compare=False)
+    version_days: int | None = field(default=None, repr=False, compare=False)
+    dry_run: bool | None = field(default=None, repr=False, compare=False)
+    deletion_alert_threshold: int | None = field(default=None, repr=False, compare=False)
+    verify_interval_days: int | None = field(default=None, repr=False, compare=False)
+    fingerprint_cache: bool | None = field(default=None, repr=False, compare=False)
+    verification_mode: str | None = field(default=None, repr=False, compare=False)
+    fingerprint_full_scan_days: int | None = field(default=None, repr=False, compare=False)
+    transfer_workers: int | None = field(default=None, repr=False, compare=False)
+    batch_workers: int | None = field(default=None, repr=False, compare=False)
+    log_file_level: str | None = field(default=None, repr=False, compare=False)
+    log_terminal_level: str | None = field(default=None, repr=False, compare=False)
+    recovery_index_versions: int | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self):
+        # Preserve callers that use dataclasses.replace(config, option=value),
+        # while applying that invocation override explicitly to each job.
+        overrides = {name: getattr(self, name) for name in JOB_SCOPED_OPTIONS
+                     if getattr(self, name) is not None}
+        if overrides:
+            object.__setattr__(self, "jobs", tuple(replace(job, **overrides) for job in self.jobs))
+            for name in overrides:
+                object.__setattr__(self, name, None)
 
 
 def local_path(value, base, environment=None):
@@ -96,7 +129,11 @@ def load(path: Path, overrides: dict | None = None) -> Config:
             raise ConfigError("Seções desconhecidas no TOML")
         global_values = dict(data.get("backup", {}))
         job_keys = set(Job.__dataclass_fields__)
-        config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"}
+        config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"} - JOB_SCOPED_OPTIONS
+        per_job_in_backup = set(global_values) & JOB_ONLY_OPTIONS
+        if per_job_in_backup:
+            names = ", ".join(sorted(per_job_in_backup))
+            raise ConfigError(f"Configurações por job não podem ficar em [backup]: {names}; mova-as para [[jobs]]")
         unknown_parameters(global_values, config_keys, "[backup]", ("backup",))
         raw_jobs = data.get("jobs", [])
         if not isinstance(raw_jobs, list):

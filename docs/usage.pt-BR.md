@@ -96,7 +96,11 @@ As regras são copiadas para um arquivo temporário no início de cada job, mant
 ## Alerta antecipado de exclusões definitivas
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents-s3"
+source = "~/Documentos"
+destination = "aws:SEU-BUCKET/documentos"
+logic = "batch"
 deletion_alert_threshold = 1000
 ```
 
@@ -173,7 +177,7 @@ Estados 0.3.x continuam compatíveis. Lotes antigos sem tamanho de envio registr
 
 Nas cópias e sincronizações interativas, o progresso lê as estatísticas estruturadas do rclone. O terminal mostra arquivos conferidos/copiados, remoções, movimentos e tempo decorrido; um indicador de atividade continua atualizando enquanto aguarda a próxima amostra. O percentual de transferência usa contadores de bytes (ou de arquivos nas transferências de zero bytes). Durante comparação e exclusões anteriores à cópia pode não existir um total confiável: o terminal mostra atividade sem percentual até conhecer os totais de transferência. Essa opção mais rápida não faz inventário adicional. A linha se adapta à largura do terminal, abreviando caminhos e contadores para evitar quebras; o redimensionamento limpa linhas refluídas. Movimentos para o histórico, sozinhos, não indicam transferência concluída. Esses detalhes do terminal ficam fora dos logs JSON/stdout.
 
-`[backup].verification_mode = "simple"` é o padrão; `"hash"` passa `--checksum` aos syncs simples e ativa fingerprints SHA-256/MD5 nos índices batch. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam aos inventários batch.
+`verification_mode = "simple"` inside each job é o padrão; `"hash"` passa `--checksum` aos syncs simples e ativa fingerprints SHA-256/MD5 nos índices batch. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam aos inventários batch.
 
 O stderr interativo exibe etapa, diretório e percentual do backup: jobs simples acompanham estatísticas do `rclone sync`, enquanto fases batch usam contadores ponderados e estimativas limitadas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; só chega a 100% após sucesso. Eventos por arquivo aparecem nos logs JSON ou stdout somente quando o respectivo nível é `detailed`. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#retenção-dos-logs).
 

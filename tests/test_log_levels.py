@@ -111,13 +111,13 @@ class LogLevelTests(Sandbox):
 
     def test_config_and_cli_levels(self):
         path = self.root / "config.toml"
-        path.write_text('[backup]\nlog_file_level="detailed"\nlog_terminal_level="error"\n'
-                        '[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n')
+        path.write_text('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'
+                        'log_file_level="detailed"\nlog_terminal_level="error"\n')
         loaded = load(path)
-        self.assertEqual((loaded.log_file_level, loaded.log_terminal_level), ("detailed", "error"))
+        self.assertEqual((loaded.jobs[0].log_file_level, loaded.jobs[0].log_terminal_level), ("detailed", "error"))
         arguments = vars(parser().parse_args(["--log-file-level", "error", "--log-terminal-level", "summary"]))
         overridden = load(path, {name: arguments[name] for name in ("log_file_level", "log_terminal_level")})
-        self.assertEqual((overridden.log_file_level, overridden.log_terminal_level), ("error", "summary"))
+        self.assertEqual((overridden.jobs[0].log_file_level, overridden.jobs[0].log_terminal_level), ("error", "summary"))
         for name in ("log_file_level", "log_terminal_level"):
             for invalid in ("info", 1, [], None):
                 with self.subTest(name=name, invalid=invalid), self.assertRaises(ConfigError):

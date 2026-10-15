@@ -21,18 +21,16 @@ P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhame
 Todos os arquivos usam `compression_level = 3` e `compression_threads = 2`, configuráveis por job. Níveis válidos: 0–9; threads: 1–64. O algoritmo e o formato do 7-Zip determinam o uso real de threads. Não se classifica por extensão para definir compactação ou fronteiras de lotes. Configurações antigas por categoria devem ser substituídas; grupos intactos preservam suas revisões.
 
 ```toml
-[backup]
-verification_mode = "simple" # Padrão; use "hash" para comparar o conteúdo.
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
-transfer_workers = 4
-batch_workers = 2
-
 [[jobs]]
 name = "files"
 source = "~/Files"
 destination = "/mnt/backup/files"
 logic = "batch"
+verification_mode = "simple" # Padrão; use "hash" para comparar o conteúdo.
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
 compression_level = 3
 compression_threads = 2
 individual_batch_percent = 100

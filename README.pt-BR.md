@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.13.2** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.13.3** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
@@ -26,8 +26,6 @@ Crie `sambinha.toml`. Os caminhos são relativos a esse arquivo; `~` e variávei
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
-log_retention_days = 14
-verification_mode = "simple"
 
 [[jobs]]
 name = "documents"
@@ -35,6 +33,8 @@ source = "~/Documentos"
 destination = "/mnt/backup/documents"
 type = "local"
 logic = "simple"
+log_retention_days = 14
+verification_mode = "simple"
 max_delete = 100 # Limite absoluto deste job, passado ao rclone sync.
 check_source_disk = true
 check_destination_disk = true

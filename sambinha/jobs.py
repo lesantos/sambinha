@@ -51,7 +51,7 @@ class JobExecution:
                       selected_dirs=inventory.selected_dirs, forecast=self.forecast, state=inventory.previous,
                       progress=self.progress.scope(0.2, 0.9))
         self.context = ctx
-        cached_inventory = inventory.fingerprints if self.config.fingerprint_cache else {}
+        cached_inventory = inventory.fingerprints if self.job.fingerprint_cache else {}
         ctx.inventory_changed = (ctx.state.get("fingerprints") != cached_inventory or
                                  ctx.state.get("last_full_scan") != inventory.last_full_scan)
         ctx.state["fingerprints"] = cached_inventory
@@ -65,12 +65,12 @@ class JobExecution:
 
     def _verify_if_due(self, effective):
         ctx = self.context
-        interval = self.config.verify_interval_days * DAY
+        interval = self.job.verify_interval_days * DAY
         due = interval and ("last_verified" not in ctx.state or
                             ctx.now - ctx.state["last_verified"] >= interval)
         if not due:
             return
-        if self.config.dry_run:
+        if self.job.dry_run:
             ctx.event("would_verify", mode="source_metadata")
             return
         from .recovery import verify_local_metadata_job
@@ -87,6 +87,6 @@ class JobExecution:
         if self.context is not None:
             self.context.summary(success)
         elif self.job.logic == "simple":
-            self.log.event("summary", job=self.job.name, success=success, dry_run=self.config.dry_run,
+            self.log.event("summary", job=self.job.name, success=success, dry_run=self.job.dry_run,
                            strategy="rclone_sync",
                            max_delete=-1 if self.allow_mass_deletion else self.job.max_delete)

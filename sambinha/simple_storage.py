@@ -42,8 +42,8 @@ class SimpleStorageMixin:
                 if self.log:
                     self.log.event("would_replace_link" if dry_run else "replace_link",
                                    job=self.job.name, path=path)
-        detailed = (self.config.log_file_level == "detailed" or
-                    self.config.log_terminal_level == "detailed")
+        detailed = (self.job.log_file_level == "detailed" or
+                    self.job.log_terminal_level == "detailed")
         newer = set()
 
         def on_output(record):
@@ -63,7 +63,7 @@ class SimpleStorageMixin:
                 self.log.event("rclone", **details)
 
         self.command("sync", root, self.job.destination, "--backup-dir", self.path(backup_dir),
-                     *self.comparison_flags(), "--update", "--transfers", str(self.config.transfer_workers),
+                     *self.comparison_flags(), "--update", "--transfers", str(self.job.transfer_workers),
                      "--max-delete", str(max_delete), "--delete-before",
                      "--create-empty-src-dirs",
                      *metadata_flags(self.job.destination, remote=self.job.type == "s3"), *filters,

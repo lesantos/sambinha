@@ -5,7 +5,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from sambinha.config import Config, Job, load
+from sambinha.config import Config, Job, JOB_SCOPED_OPTIONS, load
 from sambinha.secrets import read_environment
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +54,7 @@ class ExampleTests(unittest.TestCase):
                 match = re.match(r'^\s*(?:#\s*)?([a-z_]+)\s*=', line)
                 if match and section is not None:
                     section.add(match[1])
-        expected = {field.name for field in fields(Config)} - {'jobs', 'environment'}
+        expected = {field.name for field in fields(Config)} - {'jobs', 'environment'} - JOB_SCOPED_OPTIONS
         self.assertEqual(global_keys, expected)
         expected_jobs = {field.name for field in fields(Job)} - {
             'max_delete', 'max_delete_percent', 'deletion_min_files'}

@@ -12,7 +12,9 @@ def command(config, job, runner, operation, *args, retry=False, standard=False, 
         # minimum billed size 128 KiB and minimum duration 90 days. GLACIER
         # and DEEP_ARCHIVE need restore and bill at least 90/180 days.
         # STANDARD costs more per GB, without archival restore constraints.
-        flags += ["--s3-storage-class", "STANDARD" if standard else job.storage_class]
+        storage_class = (job.control_storage_class if standard == "control" else
+                         "STANDARD" if standard else job.storage_class)
+        flags += ["--s3-storage-class", storage_class]
     progress = {"progress_directory": progress_directory} if progress_directory is not None else {}
     if on_output is not None:
         progress["on_output"] = on_output

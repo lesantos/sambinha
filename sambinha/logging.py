@@ -22,12 +22,13 @@ LOG_NAME = re.compile(r"\d{8}T\d{6}-[0-9a-f]{32}\.jsonl\Z")
 
 class RunLog:
     def __init__(self, directory: Path, redact=None, progress=None, *,
-                 file_level="summary", terminal_level="summary"):
+                 file_level="summary", terminal_level="summary", job_levels=None):
         private_directory(directory)
         self.redact = redact or (lambda value: value)
         self.progress = progress
         self.file_level = file_level
         self.terminal_level = terminal_level
+        self.job_levels = {} if job_levels is None else dict(job_levels)
         self.id = uuid.uuid4().hex
         self.path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{self.id}.jsonl"
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -77,11 +78,14 @@ class RunLog:
         return removed
 
     def event(self, event, **details):
+        file_level, terminal_level = self.job_levels.get(
+            details.get("job"), (self.file_level, self.terminal_level))
+
         def visible(level):
             return (level == "detailed" or
                     (event in ERROR_EVENTS if level == "error" else event in SUMMARY_EVENTS))
-        to_file = visible(self.file_level)
-        to_terminal = visible(self.terminal_level)
+        to_file = visible(file_level)
+        to_terminal = visible(terminal_level)
         if not to_file and not to_terminal:
             return
         record = {"time": datetime.now(timezone.utc).isoformat(), "event": event, **details}

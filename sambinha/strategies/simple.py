@@ -13,11 +13,11 @@ def simple(config, job, runner, log, now, progress, *, allow_mass_deletion=False
     log.event("sync_start", job=job.name, max_delete=max_delete, backup_dir=backup_dir)
     show_progress(runner, progress.scope(0.2, 0.95))
     storage = Storage(job, config, runner, log=log)
-    newer = storage.sync_simple(job.source, backup_dir, max_delete=max_delete, dry_run=config.dry_run)
-    retention_days = max(config.deleted_days, config.version_days)
-    expired = storage.expire_simple_history(now, retention_days, dry_run=config.dry_run)
+    newer = storage.sync_simple(job.source, backup_dir, max_delete=max_delete, dry_run=job.dry_run)
+    retention_days = max(job.deleted_days, job.version_days)
+    expired = storage.expire_simple_history(now, retention_days, dry_run=job.dry_run)
     for history in expired:
-        log.event("would_expire" if config.dry_run else "expire_history",
+        log.event("would_expire" if job.dry_run else "expire_history",
                   job=job.name, path=history, retention_days=retention_days)
     if newer:
         raise BackupError("Arquivos mais novos preservados no destino; job marcado como falho "

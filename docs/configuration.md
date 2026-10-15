@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.2**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.3**.
 
 ## How it protects your files
 
@@ -11,6 +11,10 @@ Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and
 New batches use depth-first traversal with files/subdirectories sorted together by mtime (oldest first, ties by name). Divert large files without closing the normal batch. There are no category or member-count boundaries. Confirmed membership stays stable through edits, growth and removals; only manual rebalance redistributes oversized groups. See [stable batches and recovery](batch-lifecycle.md).
 
 Batch jobs report an error before replacing files newer at the destination. Simple jobs pass `--update` to rclone, which preserves destination files it considers newer. Independent jobs continue after a job failure.
+
+For S3 batch jobs, `storage_class` applies to the `.7z` archives and `control_storage_class` applies to JSON files and recovery indexes. Controls default to `STANDARD` so the metadata needed to list and restore backups stays immediately accessible; the archive class is independently configurable per job.
+
+Run logs contain events from the whole invocation, so cleanup uses the longest `log_retention_days` among the configured jobs. This preserves the retention window requested by every job.
 
 Batch jobs retain deleted files for **10 days** and replaced versions for **2 days** by default. Simple jobs purge expired rclone `--backup-dir` run directories after the larger of `deleted_days` and `version_days`. Rclone does not label each saved path as a deletion or replacement, so simple history uses the longer period for every item. Cleanup lists only immediate history directories and then purges expired run directories.
 
@@ -45,11 +49,6 @@ Create `sambinha.toml`, with paths relative to the configuration file. `~` and e
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
-log_retention_days = 14
-deleted_days = 10
-version_days = 2
-verify_interval_days = 7
-verification_mode = "simple" # Default: size in bytes and modification time.
 
 [[jobs]]
 name = "documents"
@@ -57,6 +56,11 @@ source = "~/Documents"
 destination = "/mnt/backup/documents"
 type = "local"
 logic = "simple"
+log_retention_days = 14
+deleted_days = 10
+version_days = 2
+verify_interval_days = 7
+verification_mode = "simple" # Default: size in bytes and modification time.
 ```
 
 Keep the destination outside the source. Destinations of different jobs cannot overlap, but an earlier job's destination may be a later job's source; review the interactions below and preserve `state_dir`. State and logs must not overlap the source, destination or each other. Connect and mount external disks before starting; optional `source_mount` and `destination_mount` checks can pin the expected nonempty volumes.
@@ -122,18 +126,24 @@ This applies to backup and manual verification. Preflight belongs to each job. A
 
 ## Log retention
 
-`[backup].log_file_level` and `[backup].log_terminal_level` independently select the JSON events written to the file and printed to stdout. Both accept `"error"` (errors only), `"summary"` (errors, alerts, per-job summaries, and the final result), and `"detailed"` (all events, including per-file events). Both default to `"summary"`. Simple sync asks rclone for only `ERROR` output by default; if either output is `detailed`, it asks for `DEBUG` and forwards those records to the detailed output. Detailed logs can be large. Interactive stderr progress still receives only the periodic statistics it needs. With rclone 1.60, notices about newer destination files protected by `--update` appear only at `DEBUG`; the default therefore preserves those files without failing the job, while `detailed` identifies them and fails the job for review. Override the levels for one run with `--log-file-level` and `--log-terminal-level`.
+each job’s `log_file_level` and `log_terminal_level` independently select the JSON events written to the file and printed to stdout. Both accept `"error"` (errors only), `"summary"` (errors, alerts, per-job summaries, and the final result), and `"detailed"` (all events, including per-file events). Both default to `"summary"`. Simple sync asks rclone for only `ERROR` output by default; if either output is `detailed`, it asks for `DEBUG` and forwards those records to the detailed output. Detailed logs can be large. Interactive stderr progress still receives only the periodic statistics it needs. With rclone 1.60, notices about newer destination files protected by `--update` appear only at `DEBUG`; the default therefore preserves those files without failing the job, while `detailed` identifies them and fails the job for review. Override the levels for one run with `--log-file-level` and `--log-terminal-level`.
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 log_file_level = "summary"
 log_terminal_level = "summary"
 ```
 
-`[backup].log_retention_days = 14` keeps Sambinha audit logs written within the last 14 days. Set a different number of days, or `0` to keep logs indefinitely. `--log-retention-days 30` overrides the setting for one invocation. Non-simulated backup, restore and verification runs remove only inactive regular log files matching Sambinha's timestamp/UUID `.jsonl` naming format in `log_dir`. The age is measured from the last write, not the filename date. The current log, logs held open by other invocations, symlinks, subdirectories and unrelated files are preserved. Dry runs do not remove logs. No separate cleanup timer is installed.
+`log_retention_days = 14` inside each job keeps Sambinha audit logs written within the last 14 days. Set a different number of days, or `0` to keep logs indefinitely. `--log-retention-days 30` overrides the setting for one invocation. Non-simulated backup, restore and verification runs remove only inactive regular log files matching Sambinha's timestamp/UUID `.jsonl` naming format in `log_dir`. The age is measured from the last write, not the filename date. The current log, logs held open by other invocations, symlinks, subdirectories and unrelated files are preserved. Dry runs do not remove logs. No separate cleanup timer is installed.
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 log_retention_days = 14
 ```
 
@@ -144,7 +154,10 @@ log_retention_days = 14
 To compare contents using SHA-256 and MD5, configure:
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 verification_mode = "hash"
 ```
 
@@ -194,17 +207,16 @@ For batch jobs, `verify-local-metadata` uses the current source and local JSON m
 Performance settings provide fingerprint caching for batch inventories, native simple-job syncs with bounded rclone transfers, limited concurrent batch compression/uploads and a uniform compression level and thread count. Simple jobs do not build a separate recursive inventory.
 
 ```toml
-[backup]
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
-transfer_workers = 4
-batch_workers = 2
-
 [[jobs]]
 name = "media"
 source = "~/Files"
 destination = "/mnt/backup/media"
 logic = "batch"
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
+
 compression_level = 3
 compression_threads = 2
 individual_batch_percent = 100

@@ -25,7 +25,8 @@ def execute(config, job, runner, log, progress, forecast, now, *, on_context=Non
     check_disks(job, check_source=False)
     state = backup_state(config, job, runner, allow_new=False, log=log)
     files = [File(**f) for c in state['active'].values() for f in c['files']]
-    effective = replace(config, verification_mode='simple')
+    effective = replace(config, jobs=(replace(job, verification_mode='simple'),))
+    job = effective.jobs[0]
     ctx = Context(effective, job, runner, log, files, now, state=state, rebalancing=True,
                   progress=progress, forecast=forecast)
     if on_context:
@@ -35,7 +36,7 @@ def execute(config, job, runner, log, progress, forecast, now, *, on_context=Non
                 if not individual(control) and len(control['files']) > 1
                 and sum(f['size'] for f in control['files']) > job.max_bytes}
     ctx.event('rebalance_summary', affected_batches=len(affected), preserved_batches=len(state['active']) - len(affected),
-              dry_run=config.dry_run)
+              dry_run=job.dry_run)
     if not affected:
         if state.get("index_pending"):
             batch(ctx)
@@ -45,7 +46,7 @@ def execute(config, job, runner, log, progress, forecast, now, *, on_context=Non
         ctx.source = work / 'source'
         ctx.source.mkdir()
         ctx.storage.temporary_directory = work
-        if not config.dry_run:
+        if not job.dry_run:
             for key, control in affected.items():
                 with tempfile.TemporaryDirectory(dir=work) as lot:
                     extracted = unpack(ctx.storage, runner, key, control, Path(lot))

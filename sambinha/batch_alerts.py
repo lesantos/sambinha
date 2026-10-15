@@ -14,6 +14,6 @@ def collect(ctx):
         if size * 100 >= ctx.job.max_bytes * percent:
             message = f'Job {ctx.job.name}: lote {key} com {size} bytes, alerta em {percent:g}% de {ctx.job.max_bytes} bytes'
             ctx.event('batch_size_alert', archive=key, bytes=size, threshold_percent=percent, message=message,
-                      dry_run=ctx.config.dry_run)
+                      dry_run=ctx.job.dry_run)
             alerts.append(message)
     return alerts

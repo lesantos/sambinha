@@ -24,8 +24,8 @@ def verify_local_metadata_job(config, job, runner, log, state=None, *, progress=
         return {"mode": "rclone_check"}
     check_mounts(replace(job, destination_mount=None), runner)
     state = local_state(config, job) if state is None else state
-    prepare_controls(config, job, state, write_missing=not config.dry_run)
-    controls = {key: cached_control(config, job, key, value, write_missing=not config.dry_run)
+    prepare_controls(config, job, state, write_missing=not job.dry_run)
+    controls = {key: cached_control(config, job, key, value, write_missing=not job.dry_run)
                 for key, value in state['active'].items()}
     previous = {path: metadata for control in controls.values() for path, metadata in member_metadata(control).items()}
     selection = Selection(job.exclude_files, config, runner, ignored_roots=(job.source,))
@@ -74,9 +74,9 @@ def verify_destination_metadata_job(config, job, runner, log, state=None, *, pro
         work = Path(temp)
         storage.temporary_directory = work
         state = _reference(config, job, storage, work, state)
-        prepare_controls(config, job, state, write_missing=not config.dry_run)
+        prepare_controls(config, job, state, write_missing=not job.dry_run)
         root = control_directory(config, job)
-        controls = {key: cached_control(config, job, key, value, write_missing=not config.dry_run)
+        controls = {key: cached_control(config, job, key, value, write_missing=not job.dry_run)
                     for key, value in {**state.get('excluded', {}), **state['active']}.items()}
         for entry in state.get('retired', []):
             if entry.get('control'):

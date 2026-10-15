@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.13.3 — 2026-10-15
+
+Make retention, verification, logging, deletion alerts, fingerprint caching, transfer and batch concurrency, recovery-index history and dry-run settings independent per job. Add `control_storage_class` for S3 JSON/control objects; `storage_class` continues to apply to `.7z` batch archives. Control objects default to `STANDARD`, while batch archives use their configured storage class. Move settings into each job in both public TOML examples.
+
 [Português do Brasil](CHANGELOG.pt-BR.md)
 
 ## 0.13.2 — 2026-10-15

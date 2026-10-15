@@ -5,41 +5,27 @@
 state_dir = "./state"
 log_dir = "./logs"
 # Gerações de metadados confirmadas; dados seguem retenção.
-recovery_index_versions = 3
 metadata_dir = "./metadata" # JSONs locais dos lotes, ao lado de state e logs.
 # Manter logs escritos nos últimos 14 dias; 0 desativa a limpeza automática.
 # Logs antigos inativos do Sambinha são removidos em execuções sem simulação.
-log_retention_days = 14
 # Níveis independentes: error, summary (padrão) ou detailed.
 # summary grava erros, alertas, resumos por job e resultado final.
 # detailed inclui eventos de arquivos; não altera o -vv interno do rclone.
-log_file_level = "summary"
-log_terminal_level = "summary"
 # Retenção do histórico de lotes; jobs simples mantêm indefinidamente os arquivos do backup-dir.
-deleted_days = 10
-version_days = 2
 # Aviso consultivo do Cronitor acima desta quantidade de exclusões definitivas previstas.
 # Não interrompe o backup nem muda prazos; execute diariamente para receber aviso prévio.
-deletion_alert_threshold = 1000
 # Verificação diária usa JSONs locais e tamanho/data; não consulta o S3.
 # 0 desativa a checagem após backup; use 1 para checar diariamente após backups.
 # Atividades independentes (selecione um job batch):
 # sambinha verify-local-metadata --job documents-s3         # diário; informa needs_update
 # sambinha verify-destination-metadata --job documents-s3   # mensal; compara cópias dos JSONs
 # sambinha verify-destination-integrity --job documents-s3                # manual; teste de integridade do 7-Zip
-verify_interval_days = 0
 # Padrão: tamanho em bytes e data de modificação em nanossegundos, sem ler conteúdo.
 # Use "hash" nos inventários do backup; verify-local-metadata diário de lotes compara só tamanho/data.
-verification_mode = "simple"
 # As opções de cache/leitura completa abaixo só se aplicam aos hashes no modo hash.
 # P1: reutiliza hashes apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais.
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
 # P2: listas literais limitadas e transferências concorrentes em um processo rclone.
-transfer_workers = 4
 # P4: cada worker tem temporários, estado de subprocesso e uploads próprios.
-batch_workers = 2
-dry_run = false
 rclone = "rclone"
 # Indique a configuração do rclone; vazio usa ~/.config/rclone/rclone.conf.
 rclone_config = "./rclone.example.conf"
@@ -56,6 +42,20 @@ timeout = 3600
 # A mesma origem pode ter tarefas/destinos/estratégias independentes.
 [[jobs]]
 name = "documents-local"
+recovery_index_versions = 3
+deleted_days = 10
+version_days = 2
+log_retention_days = 14
+log_file_level = "summary"
+log_terminal_level = "summary"
+deletion_alert_threshold = 1000
+verify_interval_days = 0
+verification_mode = "simple"
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
+dry_run = false
 source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
@@ -80,6 +80,7 @@ continue_on_job_error = true
 # archive_format = "7z"
 # Configuração S3; não afeta destinos locais.
 # storage_class = "GLACIER_IR"
+# control_storage_class = "STANDARD"
 # Padrões nativos de exclusão do rclone; caminhos são relativos a este TOML.
 exclude_files = "./excludes.example.txt"
 # Fixe os volumes esperados (montados e não vazios), quando aplicável.
@@ -91,6 +92,20 @@ max_delete = 100
 
 [[jobs]]
 name = "documents-s3"
+recovery_index_versions = 3
+deleted_days = 10
+version_days = 2
+log_retention_days = 14
+log_file_level = "summary"
+log_terminal_level = "summary"
+deletion_alert_threshold = 1000
+verify_interval_days = 0
+verification_mode = "simple"
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
+dry_run = false
 source = "~/Documents"
 # aws é o remote de rclone.example.conf; crie o bucket primeiro.
 # Prefira prefixos separados: jobs sobrepostos podem substituir dados/controles.
@@ -133,5 +148,6 @@ archive_format = "7z" # 7z ou zip
 # Não há preços fixos: custo depende de região, volume e operações de API.
 # Veja https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
 storage_class = "GLACIER_IR"
+control_storage_class = "STANDARD" # JSONs/índices; arquivos compactados usam storage_class.
 max_delete_percent = 50
 deletion_min_files = 20

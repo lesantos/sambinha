@@ -25,6 +25,10 @@ Nos jobs batch, um arquivo mais novo no destino causa erro antes da substituiç�
 
 Jobs batch mantêm arquivos apagados por **10 dias** e versões substituídas por **2 dias**. Jobs simples removem diretórios expirados de `--backup-dir` após o maior valor entre `deleted_days` e `version_days`, pois o rclone não identifica se cada arquivo foi apagado ou substituído. A limpeza lista somente diretórios imediatos do histórico e apaga os diretórios de execução expirados.
 
+Em jobs batch no S3, `storage_class` define a classe dos arquivos `.7z`, e `control_storage_class` define a classe dos JSONs e índices de recuperação. Os controles usam `STANDARD` por padrão para que os metadados necessários para listar e restaurar backups continuem imediatamente acessíveis; cada job escolhe sua classe de lotes.
+
+Os logs agrupam eventos da execução inteira; a limpeza usa o maior `log_retention_days` entre os jobs configurados para preservar o prazo solicitado por todos.
+
 Antes de começar, o Sambinha verifica se as ferramentas necessárias estão disponíveis. Durante o envio, tenta novamente até três vezes se uma operação falhar, esperando dois segundos entre as tentativas. Ao terminar, grava um relatório. Se você configurar o Cronitor, um serviço de acompanhamento, ele também pode receber um aviso de sucesso ou erro.
 
 ## Prepare o computador
@@ -47,7 +51,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.13.2**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.13.3**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -57,10 +61,6 @@ Comece com uma cópia simples para outra pasta ou disco. Na pasta do projeto, cr
 [backup]
 state_dir = "./state"
 log_dir = "./logs"
-log_retention_days = 14
-deleted_days = 10
-version_days = 2
-verification_mode = "simple" # Padrão: tamanho em bytes e data de modificação.
 
 [[jobs]]
 name = "meus-documentos"
@@ -68,6 +68,10 @@ source = "~/Documentos"
 destination = "/mnt/backup/documentos"
 type = "local"
 logic = "simple"
+log_retention_days = 14
+deleted_days = 10
+version_days = 2
+verification_mode = "simple" # Padrão: tamanho em bytes e data de modificação.
 ```
 
 Troque `source` pela pasta que deseja proteger e `destination` pela pasta onde a cópia será guardada. O destino deve ficar fora da pasta de origem. Se ele estiver em um disco externo, conecte e monte o disco antes de executar. Destinos de jobs diferentes não podem se sobrepor; o destino de um job anterior pode ser origem de outro posterior. Consulte as interações abaixo.
@@ -178,7 +182,7 @@ Para pastas comuns que não dependem de um disco montado específico, as opçõe
 
 O alerta `deletion_alert_threshold` vale somente para históricos batch. Quando mais de 1000 arquivos ou versões batch estiverem próximos da exclusão definitiva, o Sambinha envia um evento ao Cronitor e registra os caminhos e datas. O histórico simples de `--backup-dir` não é contado nem limpo pelo Sambinha.
 
-Para histórico batch, o aviso começa dois dias antes do vencimento. Configure `deletion_alert_threshold` em `[backup]` para mudar o limite.
+Para histórico batch, o aviso começa dois dias antes do vencimento. Configure `deletion_alert_threshold` dentro de cada `[[jobs]]` para definir o limite independente daquele job.
 
 ## Como recuperar um arquivo
 
@@ -216,18 +220,24 @@ Os jobs executam sequencialmente, na ordem do TOML. Cada job lê suas exclusões
 
 ## Retenção dos logs
 
-`[backup].log_file_level` e `[backup].log_terminal_level` escolhem independentemente os eventos JSON gravados no arquivo e mostrados no stdout. Ambos aceitam `"error"` (somente erros), `"summary"` (erros, alertas, resumos por job e resultado final) e `"detailed"` (todos os eventos, inclusive por arquivo). O padrão dos dois é `"summary"`. No sync simples, o Sambinha solicita ao rclone apenas o nível `ERROR` por padrão; se qualquer saída estiver em `detailed`, solicita `DEBUG` e encaminha esses registros à saída detalhada. A opção detalhada pode produzir logs grandes. O progresso interativo continua no stderr e recebe apenas as estatísticas periódicas necessárias. Com o rclone 1.60, os avisos de arquivos mais novos preservados por `--update` só aparecem em `DEBUG`; portanto, o padrão preserva esses arquivos sem marcá-los como falha, enquanto `detailed` permite identificá-los e falhar o job para revisão. Para uma execução, use `--log-file-level` e `--log-terminal-level`.
+`log_file_level` e `log_terminal_level` de cada job escolhem independentemente os eventos JSON gravados no arquivo e mostrados no stdout. Ambos aceitam `"error"` (somente erros), `"summary"` (erros, alertas, resumos por job e resultado final) e `"detailed"` (todos os eventos, inclusive por arquivo). O padrão dos dois é `"summary"`. No sync simples, o Sambinha solicita ao rclone apenas o nível `ERROR` por padrão; se qualquer saída estiver em `detailed`, solicita `DEBUG` e encaminha esses registros à saída detalhada. A opção detalhada pode produzir logs grandes. O progresso interativo continua no stderr e recebe apenas as estatísticas periódicas necessárias. Com o rclone 1.60, os avisos de arquivos mais novos preservados por `--update` só aparecem em `DEBUG`; portanto, o padrão preserva esses arquivos sem marcá-los como falha, enquanto `detailed` permite identificá-los e falhar o job para revisão. Para uma execução, use `--log-file-level` e `--log-terminal-level`.
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 log_file_level = "summary"
 log_terminal_level = "summary"
 ```
 
-`[backup].log_retention_days = 14` mantém os logs de auditoria do Sambinha escritos nos últimos 14 dias. Escolha outro número de dias ou `0` para guardar os logs indefinidamente. `--log-retention-days 30` substitui a configuração para uma execução. Backups, restaurações e verificações sem simulação removem apenas arquivos de log regulares e inativos com o formato de nome timestamp/UUID `.jsonl` do Sambinha, diretamente em `log_dir`. A idade conta da última escrita, não da data no nome. O log atual, logs abertos por outras execuções, links simbólicos, subdiretórios e arquivos de outros tipos são preservados. Simulações não removem logs. A limpeza depende das execuções do programa; não instala um timer separado.
+`log_retention_days = 14` em cada job mantém os logs de auditoria do Sambinha escritos nos últimos 14 dias. Escolha outro número de dias ou `0` para guardar os logs indefinidamente. `--log-retention-days 30` substitui a configuração para uma execução. Backups, restaurações e verificações sem simulação removem apenas arquivos de log regulares e inativos com o formato de nome timestamp/UUID `.jsonl` do Sambinha, diretamente em `log_dir`. A idade conta da última escrita, não da data no nome. O log atual, logs abertos por outras execuções, links simbólicos, subdiretórios e arquivos de outros tipos são preservados. Simulações não removem logs. A limpeza depende das execuções do programa; não instala um timer separado.
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 log_retention_days = 14
 ```
 
@@ -276,7 +286,10 @@ Isso vale para backup e verificação manual. O preflight pertence a cada job. U
 Para comparar o conteúdo por SHA-256 e MD5, configure:
 
 ```toml
-[backup]
+[[jobs]]
+name = "documents"
+source = "~/Documents"
+destination = "/mnt/backup/documents"
 verification_mode = "hash"
 ```
 
@@ -293,7 +306,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.13.2**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.13.3**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 
@@ -340,17 +353,16 @@ Cada tarefa emite `summary`: arquivos novos, modificados, removidos e intactos, 
 As opções de performance incluem cache de fingerprints com leitura completa periódica, transferências simples agrupadas, compactação/envio de lotes com concorrência limitada, cache de filtros por job e nível/threads únicos para todos os tipos. Desde 0.9.0 os inventários são independentes por job para observar alterações feitas pelos anteriores. Confira o [guia de performance](performance.pt-BR.md).
 
 ```toml
-[backup]
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
-transfer_workers = 4
-batch_workers = 2
-
 [[jobs]]
 name = "media"
 source = "~/Files"
 destination = "/mnt/backup/media"
 logic = "batch"
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
+
 compression_level = 3
 compression_threads = 2
 individual_batch_percent = 100

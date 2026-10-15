@@ -31,7 +31,7 @@ def parser():
                         help="Comparar tamanho/data de alteração (simple) ou conteúdo (hash)")
     for name in ("log_file_level", "log_terminal_level"):
         result.add_argument("--" + name.replace("_", "-"), choices=("error", "summary", "detailed"), default=None)
-    for name in ("source", "destination", "type", "logic", "storage_class", "compressor", "archive_format",
+    for name in ("source", "destination", "type", "logic", "storage_class", "control_storage_class", "compressor", "archive_format",
                  "state_dir", "log_dir", "metadata_dir", "cronitor_url", "rclone", "rclone_config", "secrets_file", "exclude_files",
                  "source_mount", "destination_mount"):
         result.add_argument("--" + name.replace("_", "-"), default=None)

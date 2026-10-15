@@ -16,14 +16,14 @@ class ConfigurationTests(Sandbox):
 
     def test_defaults_and_relative_paths(self):
         config = load(self.toml())
-        self.assertEqual(config.deleted_days, 10)
-        self.assertEqual(config.version_days, 2)
+        self.assertEqual(config.jobs[0].deleted_days, 10)
+        self.assertEqual(config.jobs[0].version_days, 2)
         self.assertEqual(config.jobs[0].max_megabytes, 1024)
         self.assertEqual(config.jobs[0].max_bytes, 1024**3)
         self.assertEqual(config.jobs[0].compression_level, 3)
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
-        self.assertEqual(config.log_retention_days, 14)
+        self.assertEqual(config.jobs[0].log_retention_days, 14)
         self.assertTrue(config.jobs[0].continue_on_job_error)
         self.assertTrue(config.jobs[0].check_source_disk)
         self.assertTrue(config.jobs[0].check_destination_disk)
@@ -51,10 +51,12 @@ class ConfigurationTests(Sandbox):
             load(self.toml('continue_on_job_error=true'))
 
     def test_override_only_supplied_values(self):
-        config = load(self.toml('deleted_days=17\ndry_run=true'), {"version_days": 0, "dry_run": False, "max_megabytes": 100})
-        self.assertEqual(config.deleted_days, 17)
-        self.assertEqual(config.version_days, 0)
-        self.assertFalse(config.dry_run)
+        jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'
+                'deleted_days=17\ndry_run=true\n')
+        config = load(self.toml(jobs=jobs), {"version_days": 0, "dry_run": False, "max_megabytes": 100})
+        self.assertEqual(config.jobs[0].deleted_days, 17)
+        self.assertEqual(config.jobs[0].version_days, 0)
+        self.assertFalse(config.jobs[0].dry_run)
         self.assertEqual(config.jobs[0].max_megabytes, 100)
         self.assertEqual(config.jobs[0].max_bytes, 100 * 1024 ** 2)
 
@@ -135,11 +137,12 @@ class ConfigurationTests(Sandbox):
                 validate(replace(self.config, **values))
 
     def test_log_retention_toml_cli_and_zero_disables_cleanup(self):
-        config = load(self.toml('log_retention_days=30'))
-        self.assertEqual(config.log_retention_days, 30)
+        jobs = '[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\nlog_retention_days=30\n'
+        config = load(self.toml(jobs=jobs))
+        self.assertEqual(config.jobs[0].log_retention_days, 30)
         arguments = vars(parser().parse_args(['--log-retention-days', '0']))
-        self.assertEqual(load(self.toml('log_retention_days=30'),
-                              {'log_retention_days': arguments['log_retention_days']}).log_retention_days, 0)
+        self.assertEqual(load(self.toml(jobs=jobs),
+                              {'log_retention_days': arguments['log_retention_days']}).jobs[0].log_retention_days, 0)
 
     def test_invalid_job_values(self):
         for values in ({"name": "../bad"}, {"type": "ftp"}, {"logic": "unknown"},

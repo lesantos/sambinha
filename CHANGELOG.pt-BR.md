@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.13.3 — 2026-10-15
+
+Torna independentes por job as opções de retenção, verificação, logs, alertas de exclusão, cache de fingerprints, concorrência de transferências e lotes, histórico do índice de recuperação e simulação. Adiciona `control_storage_class` para objetos JSON/de controle no S3; `storage_class` continua aplicável aos arquivos de lote `.7z`. Controles usam `STANDARD` por padrão, enquanto os lotes usam a classe configurada. Move as opções para cada job nos exemplos TOML públicos.
+
 [English](CHANGELOG.md)
 
 ## 0.13.2 — 2026-10-15

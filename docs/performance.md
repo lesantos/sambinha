@@ -21,18 +21,16 @@ P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sha
 Every file uses `compression_level = 3` and `compression_threads = 2`, configurable per job. Levels range from 0–9 and threads from 1–64; actual parallelism depends on the 7-Zip format/algorithm. Extensions do not choose compression or batch boundaries. Replace obsolete category settings; intact groups retain their archive revisions.
 
 ```toml
-[backup]
-verification_mode = "simple" # Default; use "hash" for content comparisons.
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
-transfer_workers = 4
-batch_workers = 2
-
 [[jobs]]
 name = "files"
 source = "~/Files"
 destination = "/mnt/backup/files"
 logic = "batch"
+verification_mode = "simple" # Default; use "hash" for content comparisons.
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
 compression_level = 3
 compression_threads = 2
 individual_batch_percent = 100

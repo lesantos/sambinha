@@ -40,7 +40,7 @@ class Storage(SimpleStorageMixin):
             return {}
         # Unknown/missing S3 bucket errors are fatal, never interpreted as empty.
         filters = ["--exclude-from", str(self.job.exclude_files)] if self.job.exclude_files else []
-        hashes = ["--hash"] if self.config.verification_mode == "hash" else []
+        hashes = ["--hash"] if self.job.verification_mode == "hash" else []
         raw = self.command("lsjson", self.job.destination, "--recursive", "--files-only", *hashes,
                            "--exclude", "/.sambinha/**", *filters)
         try:
@@ -87,7 +87,7 @@ class Storage(SimpleStorageMixin):
         return False
 
     def comparison_flags(self):
-        if self.config.verification_mode == "simple":
+        if self.job.verification_mode == "simple":
             return ["--ignore-checksum", "--modify-window", "1ns"]
         return ["--checksum"]
 

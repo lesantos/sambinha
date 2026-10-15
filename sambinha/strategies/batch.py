@@ -47,7 +47,7 @@ def upload_batch(ctx, item):
             "path": item.key, "files": [f.path for f in item.files],
             "bytes": compressed.size if transferred else 0})]
         show_progress(worker.runner, worker.progress.scope(0.95, 1) if worker.progress else None)
-        transferred = worker.storage.put(control_path, item.key + ".json", standard=True)
+        transferred = worker.storage.put(control_path, item.key + ".json", standard="control")
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
         write_control(ctx.config, ctx.job, item.key, control)
         return control, events
@@ -81,13 +81,13 @@ def _plan_batches(ctx):
             continue
         deleted = any(f["path"] not in current_files for f in control["files"])
         changed = any(f["path"] in current_files and current_files[f["path"]] != f for f in control["files"])
-        days = max(ctx.config.deleted_days if deleted else 0,
-                   ctx.config.version_days if changed or ctx.rebalancing else 0)
+        days = max(ctx.job.deleted_days if deleted else 0,
+                   ctx.job.version_days if changed or ctx.rebalancing else 0)
         entry = retirement(key, [f["path"] for f in control["files"]],
                            "deleted" if deleted else "version", ctx.now, days, key + ".json")
         next_state["retired"].append(entry)
         ctx.scheduled(entry)
-        ctx.event("would_retire" if ctx.config.dry_run else "retired", path=key, days=days)
+        ctx.event("would_retire" if ctx.job.dry_run else "retired", path=key, days=days)
     # Reactivated lots must never be deleted by their former retirement record.
     next_state["retired"] = [r for r in next_state["retired"] if r["key"] not in active]
     return batches, old, active, next_state
@@ -112,12 +112,12 @@ def _available(ctx, item, control, entries=None):
     if 'archive_size' in control and size != control['archive_size']:
         return False
     if not has_control:
-        ctx.event('would_repair_control' if ctx.config.dry_run else 'repair_control', path=item.key + '.json')
-        if not ctx.config.dry_run:
+        ctx.event('would_repair_control' if ctx.job.dry_run else 'repair_control', path=item.key + '.json')
+        if not ctx.job.dry_run:
             with tempfile.TemporaryDirectory(prefix='sambinha-control-') as temp:
                 path = Path(temp) / 'control.json'
                 atomic_json(path, control)
-                ctx.storage.put(path, item.key + '.json', standard=True)
+                ctx.storage.put(path, item.key + '.json', standard="control")
     return True
 
 
@@ -138,10 +138,10 @@ def _pending_uploads(ctx, batches, old, active):
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
             continue
-        ctx.event("would_batch" if ctx.config.dry_run else "batch_start",
+        ctx.event("would_batch" if ctx.job.dry_run else "batch_start",
                   archive=item.key, files=[f.path for f in item.files], bytes=sum(f.size for f in item.files),
                   compression_profile=settings(ctx.job, item.files)[0])
-        if ctx.config.dry_run:
+        if ctx.job.dry_run:
             continue
         pending.append(item)
     return pending
@@ -149,7 +149,7 @@ def _pending_uploads(ctx, batches, old, active):
 
 def _upload_pending(ctx, pending, active):
     if pending:
-        workers = min(ctx.config.batch_workers, len(pending))
+        workers = min(ctx.job.batch_workers, len(pending))
         # Check the largest possible simultaneous staging demand, including
         # dedicated files and existing groups exceeding the configured limit.
         required = sum(sorted((temporary_bytes(item) for item in pending), reverse=True)[:workers])
@@ -196,7 +196,7 @@ def _upload_pending(ctx, pending, active):
 def batch(ctx: Context):
     """Plan, upload, publish, commit, then expire retired archives in that order."""
     batches, old, active, next_state = _plan_batches(ctx)
-    if not ctx.config.dry_run:
+    if not ctx.job.dry_run:
         for key, control in {**ctx.state.get("excluded", {}), **old}.items():
             cached_control(ctx.config, ctx.job, key, control)
     pending = _pending_uploads(ctx, batches, old, active)
@@ -205,13 +205,13 @@ def batch(ctx: Context):
     if (ctx.state_path.exists() and next_state == ctx.state and not pending and not ctx.inventory_changed
             and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"])):
         return
-    if ctx.config.dry_run:
+    if ctx.job.dry_run:
         ctx.state = next_state
         ctx.expire()
         ctx.event("would_transfer", path=".sambinha/control.tar.gz")
         return
     verifying = [f for item in pending for f in item.files] if ctx.rebalancing else ctx.files
-    verify(ctx.source, verifying, mode=ctx.config.verification_mode,
+    verify(ctx.source, verifying, mode=ctx.job.verification_mode,
            progress=ctx.progress.scope(0.85, 0.9) if ctx.progress else None)
     show_progress(ctx.runner, ctx.progress.scope(0.9, 1) if ctx.progress else None)
     # Publish the recovery index before the local commit. If upload fails, the

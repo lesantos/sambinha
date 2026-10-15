@@ -31,8 +31,14 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
     progress = Progress(redact=redactor)
     if isinstance(runner, Runner):
         runner.progress = progress
+    job_levels = {job.name: (job.log_file_level, job.log_terminal_level) for job in config.jobs}
+    first_job = config.jobs[0] if config.jobs else None
     log = RunLog(config.log_dir, redact=redactor, progress=progress,
-                 file_level=config.log_file_level, terminal_level=config.log_terminal_level)
+                 file_level=first_job.log_file_level if first_job else "summary",
+                 terminal_level=first_job.log_terminal_level if first_job else "summary",
+                 job_levels=job_levels)
+    all_dry_run = bool(config.jobs) and all(job.dry_run for job in config.jobs)
+    log_retention_days = max((job.log_retention_days for job in config.jobs), default=14)
     failed = False
     errors = []
 
@@ -44,7 +50,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
 
     def telemetry(state, message=""):
         nonlocal failed
-        if config.dry_run:
+        if all_dry_run:
             return
         try:
             if message:
@@ -57,14 +63,14 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
 
     deletion_alerts = []
     batch_alerts = []
-    log.event("start", dry_run=config.dry_run, sources=[str(j.source) for j in config.jobs])
+    log.event("start", dry_run=all_dry_run, sources=[str(j.source) for j in config.jobs])
     try:
         runner.load_config_secrets(config.rclone_config)
-        with nullcontext() if config.dry_run else lock(config.state_dir):
-            if not config.dry_run:
-                removed_logs = log.prune(config.log_retention_days)
+        with nullcontext() if all_dry_run else lock(config.state_dir):
+            if not all_dry_run:
+                removed_logs = log.prune(log_retention_days)
                 if removed_logs:
-                    log.event("log_cleanup", removed_logs=removed_logs, retention_days=config.log_retention_days)
+                    log.event("log_cleanup", removed_logs=removed_logs, retention_days=log_retention_days)
             telemetry("run")
             runner.require([config.rclone])
             runner.run([config.rclone, "version"])
@@ -76,8 +82,8 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                 job_progress = progress.scope(0.95 * index / len(config.jobs),
                                               0.95 * (index + 1) / len(config.jobs))
                 success = False
-                forecast = DeletionForecast(config.deletion_alert_threshold, log,
-                                            lambda message: telemetry("fail", message))
+                forecast = DeletionForecast(job.deletion_alert_threshold, log,
+                                            lambda message, dry_run=job.dry_run: (None if dry_run else telemetry("fail", message)))
                 execution = JobExecution(config, job, runner, log, job_progress, forecast, clock,
                                          allow_mass_deletion, STRATEGIES, rebalancing=action == 'rebalance')
                 log.event("directory", job=job.name, source=str(job.source), destination=job.destination)

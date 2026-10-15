@@ -35,7 +35,7 @@ class LogRetentionTests(Sandbox):
         future = self.old_log(-DAY, now=now)
         log = RunLog(self.config.log_dir)
         self.addCleanup(log.close)
-        self.assertEqual(log.prune(self.config.log_retention_days, now=now), 1)
+        self.assertEqual(log.prune(self.config.jobs[0].log_retention_days, now=now), 1)
         self.assertFalse(expired.exists())
         for path in (boundary, recent, future, log.path):
             self.assertTrue(path.exists(), path)

@@ -150,12 +150,12 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         if (allow_new and not invalid and not candidates and
                 (not entries or own_initialization)):
             state = previous or load_state(work / 'empty-state.json', identity(job))
-            if not config.dry_run:
+            if not job.dry_run:
                 atomic_json(initialized, {'identity': identity(job)})
             return state
         state, controls = remote_index(config, job, storage, work, entries=entries)
         state['index_pending'] = True
-        if not config.dry_run:
+        if not job.dry_run:
             for key, control in controls.items():
                 write_control(config, job, key, control)
             for key, control in {**state.get('excluded', {}), **state['active']}.items():
@@ -202,12 +202,12 @@ def publish(ctx, state):
                     raise BackupError('Controles excedem limite de metadados')
                 tar.add(path, arcname='controls/' + key + '.json')
         key = PREFIX + generation + '.tar.gz'
-        ctx.storage.put(archive, key, standard=True)
+        ctx.storage.put(archive, key, standard="control")
         marker = work / 'commit.json'
         atomic_json(marker, {'generation': generation, 'size': archive.stat().st_size,
                              'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()})
-        ctx.storage.put(marker, PREFIX + generation + '.commit.json', standard=True)
-        transferred = ctx.storage.put(archive, '.sambinha/control.tar.gz', standard=True)
+        ctx.storage.put(marker, PREFIX + generation + '.commit.json', standard="control")
+        transferred = ctx.storage.put(archive, '.sambinha/control.tar.gz', standard="control")
         ctx.event('transferred' if transferred else 'identical', path='.sambinha/control.tar.gz')
 
 
@@ -216,7 +216,7 @@ def finish(ctx):
     entries = listing(ctx.storage)
     generations = sorted((k[len(PREFIX):-12] for k in entries if k.startswith(PREFIX)
                           and k.endswith('.commit.json') and GENERATION.fullmatch(k[len(PREFIX):-12])), reverse=True)
-    for generation in generations[ctx.config.recovery_index_versions:]:
+    for generation in generations[ctx.job.recovery_index_versions:]:
         # Remove confirmation first; an interrupted prune never exposes a bad candidate.
         ctx.storage.delete(PREFIX + generation + '.commit.json')
         ctx.storage.delete(PREFIX + generation + '.tar.gz')

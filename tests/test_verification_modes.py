@@ -20,10 +20,11 @@ class VerificationModeTests(Sandbox):
     def test_default_toml_and_cli_select_simple_or_hash(self):
         path = self.root / 'config.toml'
         path.write_text('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n')
-        self.assertEqual(load(path).verification_mode, 'simple')
-        self.assertEqual(load(path, {'verification_mode': 'hash'}).verification_mode, 'hash')
-        path.write_text('[backup]\nverification_mode="hash"\n' + path.read_text())
-        self.assertEqual(load(path).verification_mode, 'hash')
+        self.assertEqual(load(path).jobs[0].verification_mode, 'simple')
+        self.assertEqual(load(path, {'verification_mode': 'hash'}).jobs[0].verification_mode, 'hash')
+        path.write_text(path.read_text().replace('destination="destination"',
+                                                 'destination="destination"\nverification_mode="hash"'))
+        self.assertEqual(load(path).jobs[0].verification_mode, 'hash')
         self.assertEqual(parser().parse_args(['--verification-mode', 'simple']).verification_mode, 'simple')
         for mode in ('unknown', None, True, [], {}):
             with self.subTest(mode=mode), self.assertRaises(ConfigError):

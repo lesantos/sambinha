@@ -5,41 +5,27 @@
 state_dir = "./state"
 log_dir = "./logs"
 # Confirmed metadata generations; data follows retention.
-recovery_index_versions = 3
 metadata_dir = "./metadata" # Local batch JSON mirrors, beside state and logs.
 # Keep logs written in the last 14 days; 0 disables automatic cleanup.
 # Old inactive Sambinha logs are removed during non-simulated invocations.
-log_retention_days = 14
 # Independent levels: error, summary (default), or detailed.
 # summary records errors, alerts, per-job summaries, and the final result.
 # detailed includes per-file events; it does not change rclone's internal -vv.
-log_file_level = "summary"
-log_terminal_level = "summary"
 # Batch history retention; simple jobs keep rclone backup-dir files indefinitely.
-deleted_days = 10
-version_days = 2
 # Soft Cronitor alert for more than this many impending permanent deletions.
 # Does not stop backups or change deadlines; run daily for advance notice.
-deletion_alert_threshold = 1000
 # Daily source verification uses only local JSONs and size/time; no S3 reads.
 # 0 disables the check after backup; set 1 to check once per day after backups.
 # Independent activities (select a batch job):
 # sambinha verify-local-metadata --job documents-s3         # daily; reports needs_update
 # sambinha verify-destination-metadata --job documents-s3   # monthly; compare JSON replicas
 # sambinha verify-destination-integrity --job documents-s3                # manual; 7-Zip integrity test
-verify_interval_days = 0
 # Default: compare size in bytes and nanosecond modification time without reading contents.
 # Use "hash" for backup inventories; daily batch verify-local-metadata still compares only size/time.
-verification_mode = "simple"
 # P1: in hash mode, reuse hashes only when device/inode/size/mtime/ctime/mode all match.
 # These options never enable content hashing in simple mode.
-fingerprint_cache = true
-fingerprint_full_scan_days = 7
 # P2: bounded raw file lists and concurrent transfers in one rclone process.
-transfer_workers = 4
 # P4: each worker has separate staging, subprocess state and uploads.
-batch_workers = 2
-dry_run = false
 rclone = "rclone"
 # Point to a rclone configuration; empty uses ~/.config/rclone/rclone.conf.
 rclone_config = "./rclone.example.conf"
@@ -56,6 +42,20 @@ timeout = 3600
 # The same source may have multiple independent jobs/destinations/strategies.
 [[jobs]]
 name = "documents-local"
+recovery_index_versions = 3
+deleted_days = 10
+version_days = 2
+log_retention_days = 14
+log_file_level = "summary"
+log_terminal_level = "summary"
+deletion_alert_threshold = 1000
+verify_interval_days = 0
+verification_mode = "simple"
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
+dry_run = false
 source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
@@ -80,6 +80,7 @@ continue_on_job_error = true
 # archive_format = "7z"
 # S3 setting; does not affect a local destination.
 # storage_class = "GLACIER_IR"
+# control_storage_class = "STANDARD"
 # Native rclone exclusion patterns; paths are relative to this TOML.
 exclude_files = "./excludes.example.txt"
 # Pin expected mounted volumes (must be mounted and nonempty), if applicable.
@@ -91,6 +92,20 @@ max_delete = 100
 
 [[jobs]]
 name = "documents-s3"
+recovery_index_versions = 3
+deleted_days = 10
+version_days = 2
+log_retention_days = 14
+log_file_level = "summary"
+log_terminal_level = "summary"
+deletion_alert_threshold = 1000
+verify_interval_days = 0
+verification_mode = "simple"
+fingerprint_cache = true
+fingerprint_full_scan_days = 7
+transfer_workers = 4
+batch_workers = 2
+dry_run = false
 source = "~/Documents"
 # aws is the remote in rclone.example.conf; create the bucket first.
 # Prefer separate prefixes: overlapping jobs can overwrite data/recovery controls.
@@ -133,5 +148,6 @@ archive_format = "7z" # 7z or zip
 # No prices are hardcoded: cost depends on region, volume and API operations.
 # See https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
 storage_class = "GLACIER_IR"
+control_storage_class = "STANDARD" # JSON controls and indexes; archive class remains storage_class.
 max_delete_percent = 50
 deletion_min_files = 20
