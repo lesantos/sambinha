@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 
 from .errors import BackupError, job_errors
+from .discovery import Discovery
 from .inventory import safe_relative, path_has_symlink
 
 SKIP_LINK_FLAGS = ("--skip-links", "--links=false", "--copy-links=false")
@@ -89,26 +90,27 @@ class Selection:
     def source(self, root):
         if not self.exclude_file:
             return None, None
-        # Split source discovery into one non-recursive command per directory.
-        # Exclusions are applied to each directory's file names in a temporary
-        # tree that retains their paths relative to the original source root.
-        # This preserves root-anchored rclone patterns while keeping every
-        # source listing command bounded to a single directory.
-        queue = [(Path(root), "")]
+        # One server, one bounded operation per directory. Rclone applies its
+        # native rules directly with a stable source root, without dummy trees.
+        queue = [""]
         included_files = set()
-        while queue:
-            directory, relative = queue.pop()
-            children = self.listing(directory, recursive=False, apply_exclusions=False)
-            candidates = set()
-            for item in children:
-                name = safe_relative(item["Path"])
-                path = PurePosixPath(relative, name).as_posix()
-                safe_relative(path)
-                if item.get("IsDir", False):
-                    queue.append((directory / name, path))
-                else:
-                    candidates.add(path)
-            included_files.update(self.include_paths(candidates))
+        visited = 0
+        with Discovery(self.config, self.runner, root, self.exclude_file) as discovery:
+            while queue:
+                relative = queue.pop()
+                if relative and path_has_symlink(root, relative):
+                    continue
+                progress = getattr(self.runner, "progress", None)
+                if progress:
+                    progress.update("Listando origem", Path(root) / relative,
+                                    activity=f"diretórios: {visited} | arquivos: {len(included_files)}",
+                                    indeterminate=True)
+                for item in discovery.listing(relative):
+                    if item["IsDir"]:
+                        queue.append(item["Path"])
+                    else:
+                        included_files.add(item["Path"])
+                visited += 1
 
         included_dirs = set()
         for path in included_files:

@@ -1,6 +1,12 @@
-# Resultados dos testes do Sambinha 0.13.0
+# Resultados dos testes do Sambinha 0.14.0
 
 [English](test-results.md)
+
+## Validação da versão 0.14.0
+
+As 16 novas regressões da descoberta passaram com rclone real em Linux/Python 3.12. Cobrem filtros nativos relativos à raiz, poda de diretórios excluídos, travessia com um processo, compatibilidade com regex, caracteres de controle dos arquivos Icon do Finder, links na origem, autenticação HTTP, isolamento do ambiente, timeout de inicialização e por diretório, interrupção, queda do servidor, respostas inválidas e preservação de dados/estado confirmados após falhas da descoberta. Os testes existentes de filtros e exemplos públicos também passaram.
+
+Uma comparação sintética com 100 diretórios selecionou os mesmos arquivos: a descoberta passou de 201 processos / 92,819 s para um processo / 1,700 s. Isso mede somente descoberta local. Wheel e distribuição fonte compilam com sucesso; a validação do release verifica separadamente seu conteúdo instalado. A coleção completa roda com `SAMBINHA_HTTP_S3_TESTS=1` e exige cobertura de pelo menos 85%, incluindo branches, no [CI do GitHub](https://github.com/lesantos/sambinha/actions/workflows/tests.yml). As notas da versão 0.14.0 registram os totais finais da suíte completa e a execução do CI.
 
 ## Validação da 0.13.0
 

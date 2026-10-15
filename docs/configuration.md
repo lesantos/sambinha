@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.13.3**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.0**.
 
 ## How it protects your files
 
@@ -266,6 +266,8 @@ Put one rclone exclusion pattern per line in `excludes.txt`:
 The **file location** is relative to `sambinha.toml`, not the terminal's working directory. The **patterns** are relative to the job's source. For a source `/mnt/dados`, `/cache/**` matches `/mnt/dados/cache/`, not the system directory `/cache/`; it does not match a nested `projects/cache/`. `*.tmp` and `*.log` match files in any subdirectory. Blank lines and lines beginning with `#` are ignored. Rules use rclone syntax, rather than Git's ignore-file syntax.
 
 The shipped TOML examples already set `exclude_files = "./excludes.example.txt"`. That template has no active exclusions; uncomment the patterns you want or copy it to `excludes.txt` and update the job's path. A [Brazilian Portuguese template](../excludes.example.pt-BR.txt) is also provided.
+
+For Finder/macOS Icon files, use `Icon[\x0d␍]`: it matches the trailing CR or its visible rclone representation without excluding names such as `Icon.png` or `Icon1`. Prefer glob patterns when possible; embedded `{{...}}` regex rules prevent rclone from pruning excluded directories. Batch discovery uses one authenticated local rclone process, with a separate `timeout` deadline for each directory. Rules are frozen per job, so edits apply on the next execution. See [discovery and performance](performance.md#bounded-source-discovery).
 
 Run a simulation to check the selected file count and planned work before the backup:
 

@@ -51,7 +51,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.13.3**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.14.0**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -161,6 +161,8 @@ No `excludes.txt`, coloque um padrão de exclusão do rclone por linha:
 A **localização do arquivo** é relativa ao `sambinha.toml`, não à pasta atual do terminal. Já os **padrões** são relativos à origem da tarefa. Para a origem `/mnt/dados`, `/cache/**` corresponde a `/mnt/dados/cache/`, e não à pasta `/cache/` do sistema; também não corresponde a `projects/cache/`. `*.tmp` e `*.log` correspondem a arquivos em qualquer subdiretório. Linhas vazias e linhas iniciadas com `#` são ignoradas. A sintaxe é a do rclone, não a de um `.gitignore`.
 
 Os exemplos TOML já configuram `exclude_files = "./excludes.example.txt"`. Esse modelo não tem exclusões ativas: descomente os padrões desejados ou copie o arquivo para `excludes.txt` e ajuste o caminho na tarefa. Há também um [modelo em português](../excludes.example.pt-BR.txt).
+
+Para arquivos Icon do Finder/macOS, use `Icon[\x0d␍]`: corresponde ao CR final ou à sua representação visível pelo rclone, preservando nomes como `Icon.png` e `Icon1`. Prefira padrões glob quando possível; regras regex `{{...}}` impedem que o rclone evite diretórios excluídos. A descoberta batch usa um único processo local autenticado do rclone, com prazo `timeout` separado por diretório. As regras são congeladas por job, então edições valem na próxima execução. Veja [descoberta e performance](performance.pt-BR.md#descoberta-da-origem-com-operações-limitadas).
 
 Confira a quantidade de arquivos selecionados e o trabalho previsto com uma simulação:
 
@@ -306,7 +308,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.13.3**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.14.0**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

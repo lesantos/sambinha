@@ -10,3 +10,6 @@
 # Directories at the source root, including all their contents:
 # /cache/**
 # /node_modules/**
+
+# macOS Finder Icon files: CR or its visible rclone representation.
+# Icon[\x0d␍]

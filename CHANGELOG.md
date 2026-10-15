@@ -1,5 +1,11 @@
 # Sambinha changes
 
+## 0.14.0 — 2026-10-15
+
+Discover batch sources with exclusions through one private, authenticated local `rclone rcd` process. List one directory at a time using `operations/list`, with native filters anchored to the original source root, instead of launching rclone and building dummy filter trees for every directory. Apply the configured timeout independently to each directory; cancel outstanding work and stop/reap the server on failure, timeout or interruption. Never commit a partial inventory. Show directory/file discovery counters and keep historical-path matching unchanged.
+
+Document the glob `Icon[\x0d␍]` for macOS Finder Icon files, including rclone's visible CR representation, without disabling directory-filter optimization through `{{...}}`. Add regressions for native patterns, pruning, one-process traversal, links, authentication, timeouts, invalid responses, interruption and committed-state preservation. Existing backups, configuration and archive formats remain compatible.
+
 ## 0.13.3 — 2026-10-15
 
 Make retention, verification, logging, deletion alerts, fingerprint caching, transfer and batch concurrency, recovery-index history and dry-run settings independent per job. Add `control_storage_class` for S3 JSON/control objects; `storage_class` continues to apply to `.7z` batch archives. Control objects default to `STANDARD`, while batch archives use their configured storage class. Move settings into each job in both public TOML examples.

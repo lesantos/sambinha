@@ -1,5 +1,11 @@
 # Novidades do Sambinha
 
+## 0.14.0 — 2026-10-15
+
+Descobre origens batch com exclusões usando um único processo local privado e autenticado `rclone rcd`. Lista um diretório por vez com `operations/list`, aplicando filtros nativos relativos à raiz original da origem, sem iniciar rclone e construir árvores temporárias de filtros em cada diretório. Aplica o timeout configurado independentemente a cada diretório; cancela operações pendentes e encerra/recolhe o servidor em falhas, timeout ou interrupções. Nunca confirma um inventário parcial. Mostra contadores de diretórios/arquivos na descoberta e mantém a avaliação de nomes históricos.
+
+Documenta o glob `Icon[\x0d␍]` para arquivos Icon do Finder/macOS, incluindo a representação visível de CR pelo rclone, sem desativar a otimização de filtros de diretórios por `{{...}}`. Adiciona regressões para padrões nativos, poda, travessia com um processo, links, autenticação, timeout, respostas inválidas, interrupção e preservação do estado confirmado. Backups existentes, configuração e formatos dos arquivos continuam compatíveis.
+
 ## 0.13.3 — 2026-10-15
 
 Torna independentes por job as opções de retenção, verificação, logs, alertas de exclusão, cache de fingerprints, concorrência de transferências e lotes, histórico do índice de recuperação e simulação. Adiciona `control_storage_class` para objetos JSON/de controle no S3; `storage_class` continua aplicável aos arquivos de lote `.7z`. Controles usam `STANDARD` por padrão, enquanto os lotes usam a classe configurada. Move as opções para cada job nos exemplos TOML públicos.

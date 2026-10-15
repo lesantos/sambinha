@@ -150,27 +150,27 @@ class FilteringTests(Sandbox):
         self.assertEqual(self.execute(), 0)
         self.assertEqual((self.destination / 'skip.tmp').read_bytes(), b'new')
 
-    def test_source_listing_is_split_into_nonrecursive_calls_per_directory(self):
+    def test_source_listing_reuses_one_server_with_full_relative_paths(self):
         rules = self.exclude('*.tmp\n', logic='batch')
         selection = Selection(rules, self.config, Runner())
         root = self.source
         entries = {
-            root: [{'Path': 'nested', 'IsDir': True}, {'Path': 'root.txt'}],
-            root / 'nested': [{'Path': 'leaf', 'IsDir': True}, {'Path': 'skip.tmp'}],
-            root / 'nested' / 'leaf': [{'Path': 'keep.txt'}],
+            '': [{'Path': 'nested', 'IsDir': True}, {'Path': 'root.txt', 'IsDir': False}],
+            'nested': [{'Path': 'nested/leaf', 'IsDir': True}],
+            'nested/leaf': [{'Path': 'nested/leaf/keep.txt', 'IsDir': False}],
         }
         calls = []
-        def listing(directory, files_only=False, *, recursive=True, apply_exclusions=True):
-            calls.append((Path(directory), recursive, apply_exclusions))
-            return entries[Path(directory)]
-        with patch.object(selection, 'listing', side_effect=listing), \
-             patch.object(selection, 'include_paths', side_effect=lambda paths: set(paths)):
+        def listing(relative):
+            calls.append(relative)
+            return entries[relative]
+        with patch('sambinha.filtering.Discovery') as server, \
+             patch.object(selection, 'include_paths', side_effect=AssertionError('dummy tree')):
+            server.return_value.__enter__.return_value.listing.side_effect = listing
             files, directories = selection.source(root)
-        self.assertEqual(files, {'root.txt', 'nested/skip.tmp', 'nested/leaf/keep.txt'})
+        self.assertEqual(files, {'root.txt', 'nested/leaf/keep.txt'})
         self.assertEqual(directories, {'nested', 'nested/leaf'})
-        self.assertEqual(calls, [(root, False, False),
-                                 (root / 'nested', False, False),
-                                 (root / 'nested' / 'leaf', False, False)])
+        self.assertEqual(calls, ['', 'nested', 'nested/leaf'])
+        server.assert_called_once_with(self.config, selection.runner, root, rules)
 
     def test_invalid_native_pattern_stops_before_copy(self):
         self.file('file')

@@ -10,11 +10,19 @@ P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sha
 | --- | --- | --- |
 | P1 | Fingerprint cache | In `verification_mode = "hash"`, `fingerprint_cache = true` reuses hashes only if device, inode, size, mtime, ctime and mode match. `fingerprint_full_scan_days = 7` forces full reads periodically; `--no-fingerprint-cache` disables reuse. Default `"simple"` uses only size/mtime and never hashes the inventory. |
 | P2 | Native simple sync | Simple jobs use one `rclone sync` operation for traversal, exclusions, updates and deletions; replaced/deleted files go to `--backup-dir`. `transfer_workers = 4` controls rclone concurrency. No Sambinha recursive inventory is built for simple jobs. |
-| P2 | Batch discovery with exclusions | `lsjson` lists one directory per non-recursive call to limit each response size. Sambinha still combines the results into one global inventory before planning batches. |
+| P2 | Batch discovery with exclusions (0.14.0) | One authenticated local `rclone rcd` serves non-recursive directory listings over HTTP. Native filters retain the original source root; no rclone restart or dummy tree per directory. Each listing has its own `timeout` deadline. The complete inventory is still required before batch planning. |
 | P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Batch concurrency | `batch_workers = 2`; each worker compresses and uploads in private staging. The main thread publishes the index only after every new batch finishes successfully. |
 | P5 | Filter cache | Repeated historical-name selections reuse immutable results within one execution. Rules are still evaluated by rclone and frozen before work. |
 | P6 | Uniform compression | One per-job level/thread count for every file; no category boundaries. |
+
+## Bounded source discovery
+
+Batch jobs with `exclude_files` start one private rclone RC process for discovery and stop it when discovery finishes. The client uses authenticated direct loopback HTTP calls, not a new `rclone rc` command per directory. The configured global `timeout` applies separately to each directory; server startup is limited to the smaller of that timeout and 10 seconds. Failed, timed-out or interrupted discovery cancels pending work, terminates/reaps the server and never plans deletions or commits a partial inventory. Discovery is sequential to avoid excessive seeks on hard disks. `batch_workers` and `transfer_workers` do not control discovery.
+
+Native directory filters can avoid excluded subtrees when rclone can infer those rules. Embedded `{{...}}` regex patterns disable that optimization. For Finder/macOS Icon files, use the glob `Icon[\x0d␍]`, which handles CR and its visible rclone representation while preserving other names such as `Icon.png` and `Icon1`. Rules are frozen per job; edits affect the next execution. Historical-name filtering still uses temporary trees because those files may no longer exist.
+
+A synthetic comparison on 2026-10-15 used 100 child directories, each with one included file and one excluded `*.tmp` file. The previous discovery launched 201 rclone processes and took 92.819 s; persistent discovery launched one process and took 1.700 s, selecting the same 100 files. This small local benchmark measures discovery only, not compression/upload speed or the completion time of a multi-terabyte backup.
 
 ## Uniform compression defaults
 

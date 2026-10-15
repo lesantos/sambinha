@@ -10,11 +10,19 @@ P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhame
 | --- | --- | --- |
 | P1 | Cache de fingerprints batch | Em `verification_mode = "hash"`, `fingerprint_cache = true` reaproveita apenas com dispositivo/inode/tamanho/mtime/ctime/permissões iguais. `fingerprint_full_scan_days = 7` força leitura completa; `--no-fingerprint-cache` desativa. Jobs simples não criam inventário de fingerprints. |
 | P2 | Sincronização simples nativa | Jobs simples usam uma operação `rclone sync` para percorrer árvores, aplicar exclusões, atualizar e remover; arquivos substituídos/apagados vão para `--backup-dir`. `transfer_workers = 4` controla a concorrência. Não há inventário recursivo separado do Sambinha nos jobs simples. |
-| P2 | Descoberta batch com exclusões | `lsjson` lista um diretório por chamada não recursiva para limitar o tamanho de cada resposta. O Sambinha ainda reúne os resultados em um inventário global antes de planejar os lotes. |
+| P2 | Descoberta batch com exclusões (0.14.0) | Um único `rclone rcd` local autenticado atende listagens não recursivas por HTTP. Filtros nativos conservam a raiz original; sem reiniciar rclone ou criar árvores temporárias por diretório. Cada listagem tem seu próprio prazo `timeout`. O inventário completo ainda precede o planejamento dos lotes. |
 | P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Lotes concorrentes | `batch_workers = 2`; staging separado por worker. A thread principal só confirma o índice depois de todos os uploads. |
 | P5 | Cache de filtros | Seleções repetidas de nomes históricos reaproveitam resultados imutáveis na execução; o rclone continua avaliando as regras congeladas. |
 | P6 | Compressão única | Um nível e quantidade de threads por job para todos os arquivos, sem fronteiras por categoria. |
+
+## Descoberta da origem com operações limitadas
+
+Jobs batch com `exclude_files` iniciam um único processo RC privado do rclone para a descoberta e o encerram ao concluir. O cliente faz chamadas HTTP autenticadas diretamente ao loopback, sem iniciar um comando `rclone rc` por diretório. O `timeout` global configurado vale separadamente para cada diretório; a inicialização do servidor tem limite igual ao menor valor entre esse timeout e 10 segundos. Falhas, timeout ou interrupção cancelam operações pendentes, encerram/recolhem o servidor e nunca planejam exclusões ou confirmam inventário parcial. A descoberta é sequencial para evitar buscas excessivas em HDs. `batch_workers` e `transfer_workers` não controlam a descoberta.
+
+Filtros nativos de diretórios podem evitar subárvores excluídas quando o rclone consegue inferir essas regras. Padrões regex `{{...}}` desativam essa otimização. Para arquivos Icon do Finder/macOS, use o glob `Icon[\x0d␍]`, que reconhece CR e sua representação visível pelo rclone, preservando nomes como `Icon.png` e `Icon1`. As regras são congeladas por job; edições valem na próxima execução. Nomes históricos continuam sendo avaliados com árvores temporárias, pois os arquivos podem não existir mais.
+
+Uma comparação sintética em 2026-10-15 usou 100 subdiretórios, cada um com um arquivo incluído e um `*.tmp` excluído. A descoberta anterior iniciou 201 processos rclone e levou 92,819 s; a descoberta persistente iniciou um processo e levou 1,700 s, selecionando os mesmos 100 arquivos. Esse pequeno teste local mede somente descoberta, sem estimar compactação, upload ou conclusão de um backup de vários terabytes.
 
 ## Compressão única e padrões
 

@@ -10,3 +10,6 @@
 # Pastas na raiz da origem, incluindo todo o conteúdo:
 # /cache/**
 # /node_modules/**
+
+# Arquivos Icon do Finder/macOS: CR ou sua representação visível pelo rclone.
+# Icon[\x0d␍]

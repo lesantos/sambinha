@@ -1,6 +1,12 @@
-# Sambinha 0.13.0 test results
+# Sambinha 0.14.0 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+## 0.14.0 validation
+
+The 16 new discovery regressions passed with real rclone on Linux/Python 3.12. Coverage includes root-anchored native filters, excluded-directory pruning, one-process traversal, regex compatibility, Finder Icon control characters, source links, HTTP authentication, environment isolation, startup and per-directory timeouts, interruption, server crashes, invalid responses and preservation of previously committed backup data/state after discovery failure. Existing filtering and public-example checks also passed.
+
+A synthetic 100-directory comparison selected identical files: discovery changed from 201 processes / 92.819 s to one process / 1.700 s. This measures local discovery only. Wheel and source distribution build successfully; release validation checks their installed contents separately. The full collection runs with `SAMBINHA_HTTP_S3_TESTS=1` and an 85% branch-inclusive coverage gate in [GitHub CI](https://github.com/lesantos/sambinha/actions/workflows/tests.yml). The 0.14.0 release notes record the completed full-suite totals and CI run.
 
 ## 0.13.0 validation
 
