@@ -1,6 +1,12 @@
-# Sambinha 0.14.0 test results
+# Sambinha 0.14.1 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+## 0.14.1 validation
+
+All 32 focused terminal/progress/rclone tests passed, including real terminal sizing and rclone integration. The new layout regression checks that activity counters precede the path and keep their position when the path changes, in full and compact layouts with determinate and indeterminate progress. Existing checks cover Unicode width, resizing, redaction, interruption and separation from audit logs.
+
+Release notes record final full-suite results, branch-inclusive coverage and CI for the tagged commit. Wheel/source packages and SHA-256 checksums are validated separately before publication.
 
 ## 0.14.0 validation
 

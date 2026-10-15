@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.14.1 — 2026-10-15
+
+Exibir o caminho do diretório ou arquivo atual no final da linha de progresso, depois do percentual, etapa e contadores de atividade. Manter as contagens antes dos caminhos de tamanho variável nos formatos completo e compacto. Preservar o ajuste à largura do terminal, tratamento de Unicode, ocultação de dados sensíveis e progresso sem percentual. Adicionar regressões de layout e atualizar a documentação bilíngue.
+
 ## 0.14.0 — 2026-10-15
 
 Descobre origens batch com exclusões usando um único processo local privado e autenticado `rclone rcd`. Lista um diretório por vez com `operations/list`, aplicando filtros nativos relativos à raiz original da origem, sem iniciar rclone e construir árvores temporárias de filtros em cada diretório. Aplica o timeout configurado independentemente a cada diretório; cancela operações pendentes e encerra/recolhe o servidor em falhas, timeout ou interrupções. Nunca confirma um inventário parcial. Mostra contadores de diretórios/arquivos na descoberta e mantém a avaliação de nomes históricos.

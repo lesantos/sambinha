@@ -179,7 +179,7 @@ Nas cópias e sincronizações interativas, o progresso lê as estatísticas est
 
 `verification_mode = "simple"` inside each job é o padrão; `"hash"` passa `--checksum` aos syncs simples e ativa fingerprints SHA-256/MD5 nos índices batch. O override é `--verification-mode simple|hash`. As opções de cache/leitura completa periódica só se aplicam aos inventários batch.
 
-O stderr interativo exibe etapa, diretório e percentual do backup: jobs simples acompanham estatísticas do `rclone sync`, enquanto fases batch usam contadores ponderados e estimativas limitadas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; só chega a 100% após sucesso. Eventos por arquivo aparecem nos logs JSON ou stdout somente quando o respectivo nível é `detailed`. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#retenção-dos-logs).
+O stderr interativo exibe percentual do backup, etapa e contadores, com o caminho no final da linha para facilitar a leitura das contagens: jobs simples acompanham estatísticas do `rclone sync`, enquanto fases batch usam contadores ponderados e estimativas limitadas. O percentual cobre o backup inteiro, entre etapas, diretórios e tarefas; só chega a 100% após sucesso. Eventos por arquivo aparecem nos logs JSON ou stdout somente quando o respectivo nível é `detailed`. O progresso não entra nos logs JSON nem stdout e é desativado quando stderr não é um terminal. Veja o [guia completo](configuration.pt-BR.md#retenção-dos-logs).
 
 ## Links simbólicos
 

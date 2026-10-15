@@ -1,6 +1,12 @@
-# Resultados dos testes do Sambinha 0.14.0
+# Resultados dos testes do Sambinha 0.14.1
 
 [English](test-results.md)
+
+## Validação da versão 0.14.1
+
+Passaram os 32 testes focados de terminal/progresso/rclone, incluindo largura de terminal real e integração com rclone. A nova regressão verifica que os contadores de atividade aparecem antes do caminho e mantêm sua posição quando o caminho muda, nos formatos completo e compacto, com e sem percentual. Os testes existentes cobrem largura Unicode, redimensionamento, ocultação de dados sensíveis, interrupção e separação dos logs de auditoria.
+
+As notas da release registram os resultados finais da suíte completa, cobertura incluindo branches e CI do commit da tag. Wheel, distribuição fonte e checksums SHA-256 são validados separadamente antes da publicação.
 
 ## Validação da versão 0.14.0
 

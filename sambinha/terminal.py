@@ -60,9 +60,10 @@ def progress_line(percent, stage, directory, activity, columns, *, indeterminate
     # Leave a cell free: writing through the right margin can auto-wrap.
     budget = max(0, columns - 1)
     prefix = "Em andamento" if indeterminate else f"{percent:5.1f}% do backup (estimado)"
-    parts = [prefix, stage, directory]
+    parts = [prefix, stage]
     if activity:
         parts.append(activity)
+    parts.append(directory)
     text = " | ".join(parts)
     if cell_width(text) <= budget:
         return text
@@ -70,17 +71,17 @@ def progress_line(percent, stage, directory, activity, columns, *, indeterminate
     aliases = {"Sincronizando arquivos": "Sincronizando", "Copiando arquivos": "Copiando",
                "Copiando arquivo": "Copiando", "Concluindo tarefa": "Concluindo",
                "Backup concluído": "Concluído"}
-    suffix = compact_activity(activity) if activity else ""
-    stage_budget = max(4, budget - cell_width(prefix) - cell_width(suffix) - 9 - 4)
+    counters = compact_activity(activity) if activity else ""
+    stage_budget = max(4, budget - cell_width(prefix) - cell_width(counters) - 9 - 4)
     label = stage if cell_width(stage) <= stage_budget else aliases.get(stage, stage)
     parts = [prefix, shorten(label, stage_budget)]
-    fixed = " | ".join(parts + ([suffix] if suffix else []))
+    if counters:
+        parts.append(counters)
+    fixed = " | ".join(parts)
     remaining = budget - cell_width(fixed) - 3
     if remaining >= 4:
         parts.append(shorten(directory, remaining, tail=True))
     elif cell_width(fixed) > budget:
         # On very narrow terminals prefer counters to the stage/path.
-        parts = [prefix]
-    if suffix:
-        parts.append(suffix)
+        parts = [prefix] + ([counters] if counters else [])
     return shorten(" | ".join(parts), budget)

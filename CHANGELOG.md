@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.14.1 — 2026-10-15
+
+Show the current directory or file path last in terminal progress, after the percentage, stage and activity counters. Keep counts ahead of variable-length paths in both full and compact layouts. Preserve terminal-width fitting, Unicode handling, redaction and indeterminate progress. Add layout regressions and update bilingual documentation.
+
 ## 0.14.0 — 2026-10-15
 
 Discover batch sources with exclusions through one private, authenticated local `rclone rcd` process. List one directory at a time using `operations/list`, with native filters anchored to the original source root, instead of launching rclone and building dummy filter trees for every directory. Apply the configured timeout independently to each directory; cancel outstanding work and stop/reap the server on failure, timeout or interruption. Never commit a partial inventory. Show directory/file discovery counters and keep historical-path matching unchanged.

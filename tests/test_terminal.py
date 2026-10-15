@@ -17,6 +17,22 @@ def last_frame(text):
 
 
 class TerminalLayoutTests(unittest.TestCase):
+    def test_counters_precede_path_and_keep_their_position_when_path_changes(self):
+        activity = "conferidos: 40 | copiados: 2 | tempo: 3s"
+        for columns in (80, 240):
+            for indeterminate in (True, False):
+                frames = []
+                for path in ("/dados/a", "/dados/" + "diretorio/" * 4 + "arquivo.txt"):
+                    with self.subTest(columns=columns, indeterminate=indeterminate, path=path):
+                        frame = progress_line(25, "Sincronizando arquivos", path, activity,
+                                              columns, indeterminate=indeterminate)
+                        fields = frame.split(" | ")
+                        self.assertTrue(path.endswith(fields[-1].lstrip("…")), frame)
+                        self.assertIn("40", " | ".join(fields[:-1]))
+                        self.assertLess(cell_width(frame), columns)
+                        frames.append(frame)
+                self.assertEqual(frames[0].index("40"), frames[1].index("40"))
+
     def test_real_terminal_width_prevents_wrapping_and_update_newlines(self):
         master, slave = os.openpty()
         try:
