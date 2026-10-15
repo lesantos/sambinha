@@ -1,6 +1,14 @@
-# Resultados dos testes do Sambinha 0.14.1
+# Resultados dos testes do Sambinha 0.14.2
 
 [English](test-results.md)
+
+## Validação da versão 0.14.2
+
+Os 32 testes focados de inventário/descoberta/percurso passaram com rclone real. A cobertura inclui filtros e análise de metadados unificados, ordem DFS por data/nome, exclusões nativas e poda de subárvores, origens vazias/totalmente excluídas, reaproveitamento/invalidação do cache de hashes, links simbólicos na origem, substituições concorrentes de arquivos/diretórios, ausência de verificações repetidas dos ancestrais por arquivo, HTTP síncrono sem consultas de acompanhamento, prazos independentes, orçamento de timeout com resposta incremental, interrupção e rejeição de inventários parciais antes da publicação do backup.
+
+Três repetições medidas antes/depois, após um aquecimento de cada versão, produziram inventários ordenados, conjuntos de diretórios selecionados e assinaturas de fingerprints idênticos. A amostra sintética com 10.000 arquivos reduziu a mediana do inventário em 60,9%; a amostra da origem exFAT somente leitura, com 604 arquivos selecionados, reduziu em 64,1%. Veja [método, limites e resultados brutos](performance.pt-BR.md#inventário-batch-unificado). Os tempos cobrem somente descoberta/inventário; outros testes rodavam durante a medição sintética.
+
+Os resultados finais da suíte completa, cobertura, pacotes e CI ficam nas notas do release.
 
 ## Validação da versão 0.14.1
 

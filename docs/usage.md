@@ -109,6 +109,8 @@ Interactive stderr shows backup completion, stage and counters, with the path at
 
 Source symbolic links are always ignored. Linked directories are not traversed; links to files, broken links and cycles do not stop a normal inventory. Sambinha never creates destination links or translates them into `.rclonelink` files. A target that also appears independently as a regular source file is backed up normally.
 
+This policy also applies to the combined discovery/inventory walk: the scanner opens real directories without following links and reads selected entries relative to those descriptors. It does not recheck every ancestor for every file or read/hash a link target. If a selected regular file or an active directory is replaced during the walk, detected races abort the inventory rather than follow the replacement. This optimization does not introduce an option to follow source links.
+
 In a local destination, a link that conflicts with a selected source file or directory is unlinked and replaced by a real file or directory. Only the link is removed; its target is untouched. Links without a conflict, including excluded paths and paths corresponding only to source links, are left intact. Dry runs leave every destination link intact. Batch uploads apply this policy to archive/control paths and rebuild active archives whose paths have become links.
 
 In batch jobs, indexed copies/history at source-link paths stay protected. In simple syncs, a source link is absent from the source tree, so a same-named regular destination file can be classified as removed and moved into `--backup-dir`; the normal history expiration deadline still applies. Simple run histories are purged as whole directories, including any newly excluded paths within an expired run.

@@ -72,42 +72,45 @@ class Discovery:
             return self.runner.safe_error(stream.read().decode("utf-8", errors="replace"))
 
     def _call(self, operation, values, deadline):
+        self._remaining(deadline)
+        self.connection.request("POST", "/" + operation, body=json.dumps(values), headers={
+            "Authorization": self.authorization, "Content-Type": "application/json"})
+        self._remaining(deadline)
+        response = self.connection.getresponse()
+        chunks = []
+        while True:
+            # Refresh the remaining budget on every read, rather than granting
+            # a fresh full timeout each time the server sends another chunk.
+            self._remaining(deadline)
+            chunk = response.read1(64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        data = json.loads(b"".join(chunks))
+        self._remaining(deadline)
+        if response.status != 200 or not isinstance(data, dict):
+            raise BackupError("rclone de descoberta falhou: " + self.runner.safe_error(str(data)))
+        return data
+
+    def _remaining(self, deadline):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError()
         self.connection.timeout = remaining
         if self.connection.sock:
             self.connection.sock.settimeout(remaining)
-        self.connection.request("POST", "/" + operation, body=json.dumps(values), headers={
-            "Authorization": self.authorization, "Content-Type": "application/json"})
-        response = self.connection.getresponse()
-        data = json.loads(response.read())
-        if response.status != 200 or not isinstance(data, dict):
-            raise BackupError("rclone de descoberta falhou: " + self.runner.safe_error(str(data)))
-        return data
 
     def listing(self, relative):
         if relative:
             safe_relative(relative)
         deadline = time.monotonic() + self.timeout
-        job = None
         try:
             # A fixed fs keeps anchored rules relative to the original source.
-            job = self._call("operations/list", {
-                "fs": str(self.root), "remote": relative, "_async": True,
+            records = self._call("operations/list", {
+                "fs": str(self.root), "remote": relative, "_async": False,
                 "opt": {"recurse": False, "noModTime": True, "noMimeType": True},
-            }, deadline)["jobid"]
-            while True:
-                status = self._call("job/status", {"jobid": job}, deadline)
-                if status["finished"]:
-                    if not status["success"]:
-                        raise BackupError("rclone de descoberta falhou: " +
-                                          self.runner.safe_error(str(status.get("error", ""))))
-                    records = status["output"]["list"]
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError()
-                time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+            }, deadline)["list"]
+            self._remaining(deadline)
             if not isinstance(records, list):
                 raise ValueError("lista esperada")
             for item in records:
@@ -115,29 +118,18 @@ class Discovery:
                 parent = PurePosixPath(path).parent.as_posix()
                 if parent != (relative or ".") or type(item["IsDir"]) is not bool:
                     raise ValueError("caminho fora do diretório consultado")
+            self._remaining(deadline)
             return records
         except TimeoutError:
-            self._cancel(job)
             self.close()
             raise BackupError(f"Timeout ao listar diretório da origem: {self.root / relative}") from None
         except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError) as exc:
-            self._cancel(job)
             self.close()
             raise BackupError(f"Inventário filtrado inválido em {self.root / relative}: "
                               f"{type(exc).__name__}") from None
         except BaseException:
-            self._cancel(job)
             self.close()
             raise
-
-    def _cancel(self, job):
-        if job is not None:
-            try:
-                # A failed request may have left its HTTP connection unusable.
-                self.connection.close()
-                self._call("job/stop", {"jobid": job}, time.monotonic() + 1)
-            except (OSError, http.client.HTTPException, ValueError, BackupError):
-                pass
 
     def close(self):
         if self.connection:

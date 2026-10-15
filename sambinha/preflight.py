@@ -53,11 +53,13 @@ def _read_inventory(config, job, runner, now, reading):
     force = (not job.fingerprint_cache or "last_full_scan" not in previous or
              now < previous["last_full_scan"] or
              now - previous["last_full_scan"] >= job.fingerprint_full_scan_days * DAY)
-    selected_files, selected_dirs = Selection(job.exclude_files, config, runner).source(job.source)
+    selection = Selection(job.exclude_files, config, runner)
+    selected_dirs = set() if job.exclude_files else None
     fingerprints = {}
-    files = scan(job.source, selected_files, selected_dirs,
-                 cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
-                 mode=job.verification_mode, progress=reading.scope(0.1, 1) if reading else None)
+    with selection.source_listing(job.source) as listing:
+        files = scan(job.source, listing=listing, selected_dirs_out=selected_dirs,
+                     cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
+                     mode=job.verification_mode, progress=reading)
     return JobInventory(files, selected_dirs, fingerprints,
                         now if force else previous["last_full_scan"], previous)
 

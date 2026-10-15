@@ -1,6 +1,14 @@
-# Sambinha 0.14.1 test results
+# Sambinha 0.14.2 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+## 0.14.2 validation
+
+The 32 focused inventory/discovery/traversal regressions passed with real rclone. Coverage includes fused filtering and metadata inspection, mtime/name DFS order, native exclusions and pruned subtrees, empty/all-excluded sources, hash-cache reuse/invalidation, source symlinks, file/directory replacement races, no per-file ancestor rescans, synchronous HTTP without polling, independent deadlines, incremental-response timeout budgets, interruption and rejection of partial inventories before backup publication.
+
+Three measured before/after repetitions after one warmup per version produced identical ordered inventories, selected-directory sets and fingerprint signatures. The 10,000-file synthetic sample reduced median inventory time by 60.9%; a read-only exFAT source sample with 604 selected files reduced it by 64.1%. See [method, limits and raw results](performance.md#combined-batch-inventory). These timings cover discovery/inventory only; the synthetic run overlapped other tests.
+
+Final full-suite, coverage, package and CI results are recorded in the release notes.
 
 ## 0.14.1 validation
 

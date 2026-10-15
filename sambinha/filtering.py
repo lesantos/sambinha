@@ -68,6 +68,15 @@ class Selection:
         self.ignored_roots = tuple(ignored_roots)
         self._included = {}
 
+    @contextmanager
+    def source_listing(self, root):
+        """Supply native filtered child names to the single inventory walk."""
+        if not self.exclude_file:
+            yield None
+        else:
+            with Discovery(self.config, self.runner, root, self.exclude_file) as discovery:
+                yield discovery.listing
+
     def listing(self, root, files_only=False, *, recursive=True, apply_exclusions=True):
         arguments = [self.config.rclone, "lsjson", str(root),
                      "--retries", "1", "--low-level-retries", "1", *SKIP_LINK_FLAGS]

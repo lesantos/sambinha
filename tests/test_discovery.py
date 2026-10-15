@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sambinha.discovery import Discovery
 from sambinha.errors import BackupError
@@ -92,30 +92,56 @@ class DiscoveryTests(Sandbox):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
-    def test_timeout_cancels_job_and_kills_server_without_returning_partial_inventory(self):
+    def test_timeout_kills_server_without_returning_partial_inventory(self):
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:
-            server.timeout = 0.05
-            original = server._call
-            calls = []
-            def waiting(operation, values, deadline):
-                calls.append(operation)
-                if operation == 'job/status':
-                    return {'finished': False}
-                return original(operation, values, deadline)
-            with patch.object(server, '_call', side_effect=waiting):
+            with patch.object(server.connection, 'getresponse', side_effect=TimeoutError):
                 with self.assertRaisesRegex(BackupError, 'Timeout.*origem'):
                     server.listing('')
-            self.assertIn('job/stop', calls)
+            self.assertIsNotNone(server.process.poll())
+
+    def test_listing_is_one_synchronous_request_without_polling_or_sleep(self):
+        self.file('keep')
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            with patch.object(server, '_call', wraps=server._call) as call, \
+                 patch('sambinha.discovery.time.sleep', side_effect=AssertionError('polling')):
+                self.assertEqual([r['Path'] for r in server.listing('')], ['keep'])
+            call.assert_called_once()
+            operation, values, _ = call.call_args.args
+            self.assertEqual(operation, 'operations/list')
+            self.assertFalse(values['_async'])
+            self.assertFalse(values['opt']['recurse'])
+
+    def test_directory_deadline_is_renewed_for_each_request(self):
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            server.timeout = 1
+            now = [100.0]
+            def listing(operation, values, deadline):
+                now[0] += 0.75
+                server._remaining(deadline)
+                return {'list': []}
+            with patch('sambinha.discovery.time.monotonic', side_effect=lambda: now[0]), \
+                 patch.object(server, '_call', side_effect=listing):
+                self.assertEqual(server.listing(''), [])
+                self.assertEqual(server.listing(''), [])
+
+    def test_incremental_response_cannot_extend_the_directory_deadline(self):
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            server.timeout = 0.05
+            now = [100.0]
+            response = Mock(status=200)
+            def read(size):
+                now[0] += 0.03
+                return b' '
+            response.read1.side_effect = read
+            with patch('sambinha.discovery.time.monotonic', side_effect=lambda: now[0]), \
+                 patch.object(server.connection, 'getresponse', return_value=response):
+                with self.assertRaisesRegex(BackupError, 'Timeout.*origem'):
+                    server.listing('')
             self.assertIsNotNone(server.process.poll())
 
     def test_interruption_stops_the_outstanding_job_and_server(self):
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:
-            original = server._call
-            def interrupt(operation, values, deadline):
-                if operation == 'job/status':
-                    raise KeyboardInterrupt()
-                return original(operation, values, deadline)
-            with patch.object(server, '_call', side_effect=interrupt):
+            with patch.object(server.connection, 'getresponse', side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     server.listing('')
             self.assertIsNotNone(server.process.poll())
@@ -164,8 +190,7 @@ class DiscoveryTests(Sandbox):
                         [{'Path': 'a/b', 'IsDir': False}], [{'Path': 'keep'}]]:
             with self.subTest(records=records):
                 with Discovery(self.config, Runner(), self.source, self.rules()) as server:
-                    with patch.object(server, '_call', side_effect=[{'jobid': 1}, {
-                        'finished': True, 'success': True, 'output': {'list': records}}, {}]):
+                    with patch.object(server, '_call', return_value={'list': records}):
                         with self.assertRaises(BackupError):
                             server.listing('')
                     self.assertIsNotNone(server.process.poll())

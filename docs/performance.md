@@ -24,6 +24,35 @@ Native directory filters can avoid excluded subtrees when rclone can infer those
 
 A synthetic comparison on 2026-10-15 used 100 child directories, each with one included file and one excluded `*.tmp` file. The previous discovery launched 201 rclone processes and took 92.819 s; persistent discovery launched one process and took 1.700 s, selecting the same 100 files. This small local benchmark measures discovery only, not compression/upload speed or the completion time of a multi-terabyte backup.
 
+## Combined batch inventory
+
+Discovery and inventory now share one sequential DFS traversal in modification-time/name order. For jobs with exclusions, each directory uses one synchronous `operations/list` request; there are no `job/status` polls or polling sleeps. Selected children receive local metadata checks immediately, without a second recursive source walk or a global candidate list. Unfiltered inventories also inspect files during their first walk. Daily local metadata verification uses the same path.
+
+Source symlinks are ignored, including file links, directory links, broken links and cycles. Real directories stay open during their DFS visit; relative no-follow operations avoid repeating ancestor-link checks per file while preventing content reads through replacement links. File signatures and directory identity checks still reject detected changes. Full inventory completion remains mandatory before batch planning, uploads or deletion handling; this does not overlap uploads with scanning or add discovery workers.
+
+The total file/byte count is unknown during the combined walk, so terminal progress displays directory/file counters (and bytes for the current hash read) without an inventory percentage until completion.
+
+Reproduce a read-only before/after comparison with a saved package tree from before the change:
+
+```sh
+python scripts/benchmark-inventory.py \
+  --baseline-root /tmp/sambinha-before \
+  --source /path/to/sample \
+  --exclude-file /path/to/excludes.txt \
+  --output /tmp/inventory-benchmark.json
+```
+
+The baseline directory must contain the original `sambinha/` package. The script warms up each version, alternates their order for three measured repetitions, and compares the complete ordered metadata, selected directories and fingerprint signatures. It never runs backup or contacts S3. `--mode hash` additionally reads sample contents; the default is `simple`. Results measure inventory only, with filesystem caches warmed and any ambient machine load; they do not predict whole-backup speed.
+
+A comparison on 2026-10-15 against commit `b9402f7` (Python 3.12.3, rclone v1.60.1-DEV) produced identical inventories in every warmup and measured run:
+
+| Sample | Before (median) | After (median) | Time reduction |
+| --- | ---: | ---: | ---: |
+| Synthetic, 10,000 selected files, 421 listed directories | 33.984 s | 13.302 s | 60.9% |
+| Read-only exFAT source sample, 604 selected files, 199 listed directories | 12.152 s | 4.357 s | 64.1% |
+
+In the synthetic measured runs, HTTP calls fell from 922–932 to 421; in the exFAT sample, from 546–556 to 199. The same ordered paths, full metadata, selected-directory sets and fingerprint-cache signatures were checked. Other tests overlapped the synthetic measurement; the exFAT measurement ran separately. These are warmed-cache samples under ambient host load, not a cold-disk or full-source benchmark. [Raw timings and results](benchmarks/inventory-2026-10-15.json).
+
 ## Uniform compression defaults
 
 Every file uses `compression_level = 3` and `compression_threads = 2`, configurable per job. Levels range from 0–9 and threads from 1–64; actual parallelism depends on the 7-Zip format/algorithm. Extensions do not choose compression or batch boundaries. Replace obsolete category settings; intact groups retain their archive revisions.

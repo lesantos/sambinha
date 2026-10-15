@@ -24,6 +24,35 @@ Filtros nativos de diretórios podem evitar subárvores excluídas quando o rclo
 
 Uma comparação sintética em 2026-10-15 usou 100 subdiretórios, cada um com um arquivo incluído e um `*.tmp` excluído. A descoberta anterior iniciou 201 processos rclone e levou 92,819 s; a descoberta persistente iniciou um processo e levou 1,700 s, selecionando os mesmos 100 arquivos. Esse pequeno teste local mede somente descoberta, sem estimar compactação, upload ou conclusão de um backup de vários terabytes.
 
+## Inventário batch unificado
+
+Descoberta e inventário agora compartilham um percurso sequencial DFS por data de modificação/nome. Nos jobs com exclusões, cada diretório usa uma chamada síncrona `operations/list`, sem consultas `job/status` ou pausas de acompanhamento. As entradas selecionadas recebem consultas de metadados locais imediatamente, dispensando um segundo percurso recursivo da origem e uma lista global de candidatos. Inventários sem exclusões também analisam os arquivos no primeiro percurso. A verificação diária local de metadados usa o mesmo fluxo.
+
+Links simbólicos na origem são ignorados, incluindo links para arquivos, diretórios, alvos ausentes e ciclos. Diretórios reais permanecem abertos durante sua visita DFS; operações relativas sem seguir links dispensam verificar os ancestrais novamente para cada arquivo e impedem ler conteúdo através de links que substituam entradas. Assinaturas dos arquivos e identidade dos diretórios continuam rejeitando alterações detectadas. O inventário completo continua obrigatório antes do planejamento dos lotes, envios e tratamento de exclusões; a mudança não sobrepõe envios à varredura nem acrescenta workers à descoberta.
+
+O total de arquivos/bytes é desconhecido durante o percurso unificado; por isso o progresso mostra contadores de diretórios/arquivos (e bytes da leitura hash atual), sem percentual de inventário até a conclusão.
+
+Para reproduzir a comparação de leitura antes/depois, preserve uma árvore do pacote anterior à mudança:
+
+```sh
+python scripts/benchmark-inventory.py \
+  --baseline-root /tmp/sambinha-before \
+  --source /caminho/da/amostra \
+  --exclude-file /caminho/excludes.txt \
+  --output /tmp/inventory-benchmark.json
+```
+
+O diretório de referência deve conter o pacote `sambinha/` original. O script aquece cada versão, alterna sua ordem em três repetições medidas e compara todos os metadados ordenados, diretórios selecionados e assinaturas dos fingerprints. Nunca executa backup nem acessa S3. `--mode hash` também lê o conteúdo da amostra; o padrão é `simple`. Os resultados medem apenas o inventário, com caches do filesystem aquecidos e a carga ambiente da máquina; não estimam a velocidade do backup completo.
+
+Uma comparação em 2026-10-15 contra o commit `b9402f7` (Python 3.12.3, rclone v1.60.1-DEV) produziu inventários idênticos em todos os aquecimentos e execuções medidas:
+
+| Amostra | Antes (mediana) | Depois (mediana) | Redução do tempo |
+| --- | ---: | ---: | ---: |
+| Sintética, 10.000 arquivos selecionados, 421 diretórios listados | 33,984 s | 13,302 s | 60,9% |
+| Origem exFAT somente leitura, 604 arquivos selecionados, 199 diretórios listados | 12,152 s | 4,357 s | 64,1% |
+
+Nas repetições sintéticas, as chamadas HTTP caíram de 922–932 para 421; na amostra exFAT, de 546–556 para 199. Foram conferidos os mesmos caminhos ordenados, metadados completos, conjuntos de diretórios selecionados e assinaturas do cache de fingerprints. Outros testes rodavam durante a medição sintética; a medição exFAT ocorreu separadamente. São amostras com caches aquecidos e carga ambiente da máquina; não representam disco frio ou a origem inteira. [Tempos e resultados brutos](benchmarks/inventory-2026-10-15.json).
+
 ## Compressão única e padrões
 
 Todos os arquivos usam `compression_level = 3` e `compression_threads = 2`, configuráveis por job. Níveis válidos: 0–9; threads: 1–64. O algoritmo e o formato do 7-Zip determinam o uso real de threads. Não se classifica por extensão para definir compactação ou fronteiras de lotes. Configurações antigas por categoria devem ser substituídas; grupos intactos preservam suas revisões.

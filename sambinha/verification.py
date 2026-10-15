@@ -29,8 +29,8 @@ def verify_local_metadata_job(config, job, runner, log, state=None, *, progress=
                 for key, value in state['active'].items()}
     previous = {path: metadata for control in controls.values() for path, metadata in member_metadata(control).items()}
     selection = Selection(job.exclude_files, config, runner, ignored_roots=(job.source,))
-    selected_files, selected_dirs = selection.source(job.source)
-    files = scan(job.source, selected_files, selected_dirs, mode="simple", progress=progress)
+    with selection.source_listing(job.source) as listing:
+        files = scan(job.source, listing=listing, mode="simple", progress=progress)
     current = {item.path: (item.size, item.mtime_ns) for item in files}
     included = selection.include_paths(previous)
     added = current.keys() - included

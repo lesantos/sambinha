@@ -1,0 +1,162 @@
+{
+  "date": "2026-10-15",
+  "baseline_commit": "b9402f7c453030cdcf8d859a95d82e3c0be407ed",
+  "python": "3.12.3",
+  "rclone": "v1.60.1-DEV",
+  "method": "One warmup per version, three measured repetitions, alternating order. Metadata-only mode, native exclusions, no backup or S3 operations.",
+  "limits": "Warm filesystem caches, ambient host load; synthetic run overlapped other tests. Measures discovery and inventory only, not whole-backup performance.",
+  "results": {
+    "synthetic": {
+      "source": "10,000 selected files in 400 leaf directories under 20 groups",
+      "mode": "simple",
+      "repetitions": 3,
+      "warmups_per_version": 1,
+      "identical_inventories": true,
+      "samples": {
+        "before": [
+          {
+            "seconds": 31.779244433011627,
+            "files": 10000,
+            "selected_directories": 420,
+            "calls": {
+              "operations/list": 421,
+              "job/status": 501
+            },
+            "digest": "326b4f9c2bb536ed158f3931d60c2c1eb172a59431a910dbb393aafd38f354ad"
+          },
+          {
+            "seconds": 42.491123254993,
+            "files": 10000,
+            "selected_directories": 420,
+            "calls": {
+              "operations/list": 421,
+              "job/status": 503
+            },
+            "digest": "326b4f9c2bb536ed158f3931d60c2c1eb172a59431a910dbb393aafd38f354ad"
+          },
+          {
+            "seconds": 33.98414152499754,
+            "files": 10000,
+            "selected_directories": 420,
+            "calls": {
+              "operations/list": 421,
+              "job/status": 511
+            },
+            "digest": "326b4f9c2bb536ed158f3931d60c2c1eb172a59431a910dbb393aafd38f354ad"
+          }
+        ],
+        "after": [
+          {
+            "seconds": 13.30211283400422,
+            "files": 10000,
+            "selected_directories": 420,
+            "calls": {
+              "operations/list": 421
+            },
+            "digest": "326b4f9c2bb536ed158f3931d60c2c1eb172a59431a910dbb393aafd38f354ad"
+          },
+          {
+            "seconds": 15.908313015999738,
+            "files": 10000,
+            "selected_directories": 420,
+            "calls": {
+              "operations/list": 421
+            },
+            "digest": "326b4f9c2bb536ed158f3931d60c2c1eb172a59431a910dbb393aafd38f354ad"
+          },
+          {
+            "seconds": 11.123788599012187,
+            "files": 10000,
+            "selected_directories": 420,
+            "calls": {
+              "operations/list": 421
+            },
+            "digest": "326b4f9c2bb536ed158f3931d60c2c1eb172a59431a910dbb393aafd38f354ad"
+          }
+        ]
+      },
+      "median_seconds": {
+        "before": 33.98414152499754,
+        "after": 13.30211283400422
+      },
+      "speedup": 2.5547927572921956,
+      "time_reduction_percent": 60.85788183226681
+    },
+    "real": {
+      "source": "Read-only exFAT source subtree: 604 selected files",
+      "mode": "simple",
+      "repetitions": 3,
+      "warmups_per_version": 1,
+      "identical_inventories": true,
+      "samples": {
+        "before": [
+          {
+            "seconds": 10.261312828020891,
+            "files": 604,
+            "selected_directories": 190,
+            "calls": {
+              "operations/list": 199,
+              "job/status": 352
+            },
+            "digest": "5e60741b4d200d1a7bfadd8a01d4cc5134359a85cb3af945a1e4949792f4f93d"
+          },
+          {
+            "seconds": 12.152111475996207,
+            "files": 604,
+            "selected_directories": 190,
+            "calls": {
+              "operations/list": 199,
+              "job/status": 347
+            },
+            "digest": "5e60741b4d200d1a7bfadd8a01d4cc5134359a85cb3af945a1e4949792f4f93d"
+          },
+          {
+            "seconds": 15.704480511980364,
+            "files": 604,
+            "selected_directories": 190,
+            "calls": {
+              "operations/list": 199,
+              "job/status": 357
+            },
+            "digest": "5e60741b4d200d1a7bfadd8a01d4cc5134359a85cb3af945a1e4949792f4f93d"
+          }
+        ],
+        "after": [
+          {
+            "seconds": 4.356856978993164,
+            "files": 604,
+            "selected_directories": 190,
+            "calls": {
+              "operations/list": 199
+            },
+            "digest": "5e60741b4d200d1a7bfadd8a01d4cc5134359a85cb3af945a1e4949792f4f93d"
+          },
+          {
+            "seconds": 3.5240450550045352,
+            "files": 604,
+            "selected_directories": 190,
+            "calls": {
+              "operations/list": 199
+            },
+            "digest": "5e60741b4d200d1a7bfadd8a01d4cc5134359a85cb3af945a1e4949792f4f93d"
+          },
+          {
+            "seconds": 4.428152509004576,
+            "files": 604,
+            "selected_directories": 190,
+            "calls": {
+              "operations/list": 199
+            },
+            "digest": "5e60741b4d200d1a7bfadd8a01d4cc5134359a85cb3af945a1e4949792f4f93d"
+          }
+        ]
+      },
+      "median_seconds": {
+        "before": 12.152111475996207,
+        "after": 4.356856978993164
+      },
+      "speedup": 2.7891921939573203,
+      "time_reduction_percent": 64.14732544546547
+    }
+  }
+}

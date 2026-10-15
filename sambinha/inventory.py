@@ -30,16 +30,22 @@ def safe_relative(value: str) -> str:
     return value
 
 
-def fingerprint(root: Path, relative: str, *, progress=None) -> File:
-    if path_has_symlink(root, relative):
+def _source_info(root, relative, dir_fd, before):
+    safe_relative(relative)
+    if dir_fd is None and path_has_symlink(root, relative):
         raise BackupError(f"Origem mudou para link simbólico: {relative}")
-    path = root / safe_relative(relative)
-    before = path.lstat()
+    path = root / relative if dir_fd is None else relative.rsplit("/", 1)[-1]
+    before = before if before is not None else os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode):
         raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+    return path, before
+
+
+def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None) -> File:
+    path, before = _source_info(root, relative, dir_fd, before)
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     # O_NOFOLLOW stops a symlink replacement between lstat and open.
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
     with os.fdopen(fd, "rb") as stream:
         opened = os.fstat(stream.fileno())
         if (before.st_ino, before.st_dev) != (opened.st_ino, opened.st_dev):
@@ -56,13 +62,8 @@ def fingerprint(root: Path, relative: str, *, progress=None) -> File:
                 before.st_mtime_ns, stat.S_IMODE(before.st_mode))
 
 
-def metadata(root: Path, relative: str) -> File:
-    if path_has_symlink(root, relative):
-        raise BackupError(f"Origem mudou para link simbólico: {relative}")
-    path = root / safe_relative(relative)
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode):
-        raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+def metadata(root: Path, relative: str, *, dir_fd=None, before=None) -> File:
+    _, info = _source_info(root, relative, dir_fd, before)
     return File(relative, info.st_size, "", "", info.st_mtime_ns, stat.S_IMODE(info.st_mode))
 
 
@@ -89,77 +90,111 @@ def path_has_symlink(root, relative, cache=None):
 
 
 def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cache_out=None,
-         mode="hash", progress=None) -> list[File]:
-    if not root.is_dir() or root.is_symlink():
-        raise BackupError(f"Origem não é diretório regular: {root}")
-    result, candidates = [], []
-    visited, pending = 0, 1
+         mode="hash", progress=None, listing=None, selected_dirs_out=None) -> list[File]:
+    """Discover and inspect each directory once, in mtime/name DFS order.
+
+    A filtered listing supplies only direct child names from rclone. Metadata
+    and content are read relative to open real directories, never via source
+    symlinks or cached assumptions about ancestor paths.
+    """
+    # Lazy import: local_paths shares safe_relative with this module.
+    from .local_paths import DIRECTORY_FLAGS, directory as open_directory
+
+    result = []
+    visited = 0
     directory = root
-    listing = progress.scope(0, 0.25) if progress else None
-    inventory = progress.scope(0.25, 1) if progress else None
-    def walk(directory):
-        nonlocal visited, pending
-        with os.scandir(directory) as stream:
-            entries = [(entry, entry.stat(follow_symlinks=False)) for entry in stream]
-        entries.sort(key=lambda pair: (pair[1].st_mtime_ns, pair[0].name))
-        visited += 1
-        if progress:
-            listing.update("Listando origem", directory, visited, visited + pending + 1)
-        for entry, info in entries:
-            path = Path(entry.path)
-            relative = path.relative_to(root).as_posix()
-            if stat.S_ISLNK(info.st_mode):
-                continue
-            if stat.S_ISDIR(info.st_mode):
-                if included_dirs is None or relative in included_dirs:
-                    yield from walk(path)
-            else:
-                yield relative, info
-    for relative, before in walk(root):
-        if relative.split("/")[0] == ".sambinha":
-            raise BackupError(".sambinha é reservado para metadados")
-        if included_files is not None and relative not in included_files:
-            continue
-        if not stat.S_ISREG(before.st_mode):
-            raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
-        candidates.append((relative, before))
-    if progress:
-        listing.update("Listando origem", directory, 1, 1)
     stage = "Inventário simples" if mode == "simple" else "Calculando hashes"
-    total = len(candidates) if mode == "simple" else sum(max(1, info.st_size) for _, info in candidates)
-    completed = 0
-    for relative, before in candidates:
-        directory = (root / relative).parent
+
+    def report(current_stage, current_directory, *, read=None, size=None):
         if progress:
-            inventory.update(stage, directory, completed, total)
+            activity = f"diretórios: {visited} | arquivos: {len(result)}"
+            if read is not None:
+                activity += f" | bytes: {read}/{size}"
+            # The total is unknown until discovery ends. Do not manufacture a
+            # percentage or perform an extra walk just to obtain a denominator.
+            progress.update(current_stage, current_directory, activity=activity, indeterminate=True)
+
+    def inspect(fd, relative, before):
+        report(stage, directory)
         if mode == "simple":
-            item = metadata(root, relative)
+            item = metadata(root, relative, dir_fd=fd, before=before)
         else:
             cached = (cache or {}).get(relative)
             if (cached and cached["signature"] == signature(before)
                     and cached["file"].get("sha256") and cached["file"].get("md5")):
-                safe_relative(relative)
                 item = File(**cached["file"])
-            elif progress and progress.enabled:
+            else:
                 read = 0
                 def advance(size):
                     nonlocal read
                     read += size
-                    inventory.update(stage, directory, completed + read, total)
-                item = fingerprint(root, relative, progress=advance)
-            else:
-                item = fingerprint(root, relative)
-        after = (root / relative).lstat()
+                    report(stage, directory, read=read, size=before.st_size)
+                item = fingerprint(root, relative, dir_fd=fd, before=before,
+                                   progress=advance if progress and progress.enabled else None)
+        after = os.stat(relative.rsplit("/", 1)[-1], dir_fd=fd, follow_symlinks=False)
         if signature(before) != signature(after):
             raise BackupError(f"Arquivo mudou durante leitura: {relative}")
         result.append(item)
         if cache_out is not None:
             cache_out[relative] = {"signature": signature(after), "file": item.metadata()}
-        completed += 1 if mode == "simple" else max(1, item.size)
-        if progress:
-            inventory.update(stage, directory, completed, total)
+        report(stage, directory)
+
+    def walk(fd, prefix):
+        nonlocal visited, directory
+        directory = root / prefix
+        report("Listando origem", directory)
+        if listing is None:
+            with os.scandir(fd) as stream:
+                entries = [(entry.name, entry.stat(follow_symlinks=False)) for entry in stream]
+        else:
+            entries = []
+            for record in listing(prefix):
+                relative = safe_relative(record["Path"])
+                if PurePosixPath(relative).parent.as_posix() != (prefix or "."):
+                    raise BackupError(f"Caminho fora do diretório consultado: {relative}")
+                name = relative.rsplit("/", 1)[-1]
+                info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if not stat.S_ISLNK(info.st_mode) and stat.S_ISDIR(info.st_mode) != record["IsDir"]:
+                    raise BackupError(f"Origem mudou durante listagem: {relative}")
+                entries.append((name, info))
+        entries.sort(key=lambda pair: (pair[1].st_mtime_ns, pair[0]))
+        visited += 1
+        initial_count = len(result)
+        for name, before in entries:
+            if stat.S_ISLNK(before.st_mode):
+                continue
+            relative = prefix + "/" + name if prefix else name
+            if stat.S_ISDIR(before.st_mode):
+                if included_dirs is not None and relative not in included_dirs:
+                    continue
+                safe_relative(relative)
+                child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
+                try:
+                    opened = os.fstat(child)
+                    if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+                        raise BackupError(f"Diretório mudou durante leitura: {relative}")
+                    walk(child, relative)
+                    after = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    if (before.st_dev, before.st_ino, stat.S_IFMT(before.st_mode)) != (
+                            after.st_dev, after.st_ino, stat.S_IFMT(after.st_mode)):
+                        raise BackupError(f"Diretório mudou durante leitura: {relative}")
+                finally:
+                    os.close(child)
+            else:
+                if relative.split("/")[0] == ".sambinha":
+                    raise BackupError(".sambinha é reservado para metadados")
+                if included_files is not None and relative not in included_files:
+                    continue
+                safe_relative(relative)
+                directory = root / prefix
+                inspect(fd, relative, before)
+        if prefix and selected_dirs_out is not None and len(result) > initial_count:
+            selected_dirs_out.add(prefix)
+
+    with open_directory(root) as fd:
+        walk(fd, "")
     if progress:
-        inventory.update(stage, directory, 1, 1)
+        progress.update(stage, directory, 1, 1)
     return result
 
 

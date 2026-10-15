@@ -83,8 +83,8 @@ class VerificationModeTests(Sandbox):
         self.assertEqual([f.path for f in scan(self.source, mode='simple')], ['file'])
         (self.source / 'link').unlink()
         from sambinha.inventory import metadata
-        def changed(root, relative):
-            item = metadata(root, relative)
+        def changed(root, relative, **kwargs):
+            item = metadata(root, relative, **kwargs)
             path.write_bytes(b'changed during scan')
             return item
         with patch('sambinha.inventory.metadata', side_effect=changed), self.assertRaises(BackupError):

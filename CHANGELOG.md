@@ -1,5 +1,11 @@
 # Sambinha changes
 
+## 0.14.2 — 2026-10-15
+
+Combine native filtered discovery and batch inventory in one sequential mtime/name DFS walk, inspecting files as each directory is discovered. Use open directory descriptors and no-follow relative operations instead of repeating ancestor-link checks for every file. Source symlinks, including directory links, broken links and cycles, remain ignored; their targets are never inventoried or copied through the link. Preserve hash-cache signatures, race detection, native exclusions and complete-inventory publication guards.
+
+Use one synchronous `operations/list` HTTP request per directory, removing asynchronous job polling and sleeps. Keep independent directory deadlines and stop/reap the private rclone server on failures or interruptions. Apply the combined walk to local metadata verification as well. Add inventory/race regressions and a reproducible read-only before/after benchmark.
+
 ## 0.14.1 — 2026-10-15
 
 Show the current directory or file path last in terminal progress, after the percentage, stage and activity counters. Keep counts ahead of variable-length paths in both full and compact layouts. Preserve terminal-width fitting, Unicode handling, redaction and indeterminate progress. Add layout regressions and update bilingual documentation.

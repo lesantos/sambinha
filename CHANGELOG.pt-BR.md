@@ -1,5 +1,11 @@
 # Novidades do Sambinha
 
+## 0.14.2 — 2026-10-15
+
+Unificar descoberta com filtros nativos e inventário batch em um percurso sequencial DFS por data/nome, analisando os arquivos conforme cada diretório é descoberto. Usar descritores de diretórios abertos e operações relativas sem seguir links, em vez de repetir verificações dos ancestrais para cada arquivo. Links simbólicos na origem, incluindo diretórios ligados, links quebrados e ciclos, continuam ignorados; seus alvos nunca são inventariados ou copiados através do link. Preservar assinaturas do cache de hashes, detecção de alterações concorrentes, exclusões nativas e confirmação somente após inventário completo.
+
+Usar uma chamada HTTP síncrona `operations/list` por diretório, eliminando consultas e pausas de acompanhamento dos jobs assíncronos. Manter prazo independente por diretório e encerramento/recolhimento do servidor privado do rclone em falhas ou interrupções. Aplicar o percurso unificado também à verificação local de metadados. Adicionar regressões de inventário/alterações concorrentes e benchmark reproduzível de leitura antes/depois.
+
 ## 0.14.1 — 2026-10-15
 
 Exibir o caminho do diretório ou arquivo atual no final da linha de progresso, depois do percentual, etapa e contadores de atividade. Manter as contagens antes dos caminhos de tamanho variável nos formatos completo e compacto. Preservar o ajuste à largura do terminal, tratamento de Unicode, ocultação de dados sensíveis e progresso sem percentual. Adicionar regressões de layout e atualizar a documentação bilíngue.

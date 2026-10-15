@@ -64,8 +64,11 @@ class ProgressTests(Sandbox):
                 self.assertTrue(any(c.args[0] == 'Listando origem' for c in calls))
                 self.assertTrue(any(c.args[0] == stage and str(c.args[1]).endswith('/dir') for c in calls))
                 self.assertEqual(calls[-1].args[-2:], (1, 1))
+                self.assertTrue(any(c.kwargs.get('indeterminate') and 'arquivos:' in c.kwargs['activity']
+                                    for c in calls))
                 if mode == 'hash':
-                    self.assertTrue(any(c.args[0] == stage and 0 < c.args[2] < c.args[3] for c in calls))
+                    self.assertTrue(any(c.args[0] == stage and 'bytes:' in c.kwargs.get('activity', '')
+                                        for c in calls))
 
     def test_terminal_progress_never_enters_stdout_or_json_logs(self):
         self.file('dir/a')
