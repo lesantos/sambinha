@@ -28,7 +28,8 @@ class BatchContext:
         job = replace(self.config.jobs[0], type='s3', logic='batch',
                       destination='aws:fake-bucket/', max_megabytes=1 / MIB,
                       check_source_disk=False, check_destination_disk=False)
-        config = replace(self.config, jobs=(job,), batch_workers=workers)
+        config = replace(self.config, jobs=(replace(job, batch_workers=workers),))
+        job = config.jobs[0]
         files = scan(self.source)
         ctx = Context(config, job, Runner(), Mock(), files, 1000)
         pending = plan(files, job.max_bytes)

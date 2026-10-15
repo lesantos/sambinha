@@ -28,7 +28,7 @@ class VerificationModeTests(Sandbox):
         self.assertEqual(parser().parse_args(['--verification-mode', 'simple']).verification_mode, 'simple')
         for mode in ('unknown', None, True, [], {}):
             with self.subTest(mode=mode), self.assertRaises(ConfigError):
-                validate(replace(self.config, verification_mode=mode))
+                validate(replace(self.config, jobs=(replace(self.config.jobs[0], verification_mode=mode),)))
 
     def test_simple_inventory_never_opens_contents_even_without_cache(self):
         self.file('dir/file', b'original')
@@ -95,7 +95,8 @@ class VerificationModeTests(Sandbox):
         runner = Mock()
         runner.run.return_value = '[]'
         runner.last_stderr = None
-        storage = Storage(self.config.jobs[0], replace(self.config, verification_mode='simple'), runner)
+        job = replace(self.config.jobs[0], verification_mode='simple')
+        storage = Storage(job, replace(self.config, jobs=(job,)), runner)
         storage.inventory()
         self.assertNotIn('--hash', runner.run.call_args.args[0])
         storage.put(self.file('file'), 'file', protected_mtime_ns=0)

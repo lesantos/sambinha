@@ -121,4 +121,4 @@ class LogLevelTests(Sandbox):
         for name in ("log_file_level", "log_terminal_level"):
             for invalid in ("info", 1, [], None):
                 with self.subTest(name=name, invalid=invalid), self.assertRaises(ConfigError):
-                    validate(replace(self.config, **{name: invalid}))
+                    validate(replace(self.config, jobs=(replace(self.config.jobs[0], **{name: invalid}),)))
