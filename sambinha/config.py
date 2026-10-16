@@ -32,7 +32,6 @@ class Job:
     batch_size_alert_percent: float = 200
     compressor: str = "7z"
     archive_format: str = "7z"
-    temp_dir: Path | None = None
     exclude_files: Path | None = None
     source_mount: Path | None = None
     destination_mount: Path | None = None
@@ -77,6 +76,7 @@ class Config:
     secrets_file: Path | None = None
     environment: dict[str, str] | None = field(default=None, repr=False, compare=False)
     metadata_dir: Path | None = None
+    temp_dir: Path | None = None
     # Source-compatible Python overrides. These are deliberately excluded from
     # TOML's [backup] keys; loaded values always live on their individual jobs.
     log_retention_days: int | None = field(default=None, repr=False, compare=False)
@@ -157,9 +157,10 @@ def load(path: Path, overrides: dict | None = None) -> Config:
         global_values["environment"] = environment if secrets_file is not None else None
         for name in ("state_dir", "log_dir"):
             global_values[name] = local_path(global_values.get(name, "state" if name == "state_dir" else "logs"), base, environment)
-        metadata_dir = global_values.get("metadata_dir")
-        global_values["metadata_dir"] = (local_path(metadata_dir, base, environment)
-                                         if metadata_dir is not None and metadata_dir != "" else None)
+        for name in ("metadata_dir", "temp_dir"):
+            value = global_values.get(name)
+            global_values[name] = (local_path(value, base, environment)
+                                   if value is not None and value != "" else None)
         if global_values.get("rclone_config"):
             global_values["rclone_config"] = str(local_path(global_values["rclone_config"], base, environment))
         global_values["cronitor_url"] = expand(
@@ -173,9 +174,6 @@ def load(path: Path, overrides: dict | None = None) -> Config:
                 continue
             raw.update({k: v for k, v in overrides.items() if k in job_keys})
             raw["source"] = local_path(raw["source"], base, environment)
-            temporary_directory = raw.get("temp_dir")
-            raw["temp_dir"] = (local_path(temporary_directory, base, environment)
-                               if temporary_directory is not None and temporary_directory != "" else None)
             exclude_file = raw.get("exclude_files")
             raw["exclude_files"] = local_path(exclude_file, base, environment) if exclude_file is not None and exclude_file != "" else None
             for name in ("source_mount", "destination_mount"):

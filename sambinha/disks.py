@@ -7,10 +7,10 @@ import tempfile
 from .errors import BackupError
 
 
-def get_temporary_path(job):
-    if job.temp_dir is None:
+def get_temporary_path(config):
+    if config.temp_dir is None:
         return tempfile.gettempdir()
-    directory = Path(job.temp_dir)
+    directory = Path(config.temp_dir)
     if not directory.is_dir() or not os.access(directory, os.W_OK | os.X_OK):
         raise BackupError(f"Diretório temporário configurado não existe ou não permite gravação: {directory}")
     return directory
@@ -39,11 +39,13 @@ def check_disk(path, label, event=None, *, required_bytes=0):
                           f"necessários {required_bytes} bytes, disponíveis {usage.free} bytes")
 
 
-def check_disks(job, event=None, *, temporary_path=None, check_temporary=True, check_source=True):
+def check_disks(job, event=None, *, config=None, temporary_path=None,
+                check_temporary=True, check_source=True):
     if check_source and job.check_source_disk:
         check_disk(job.source, "origem", event)
     if job.type == "local" and job.check_destination_disk:
         check_disk(job.destination, "destino", event)
     if job.logic == "batch" and check_temporary:
-        path = temporary_path if temporary_path is not None else get_temporary_path(job)
+        path = (temporary_path if temporary_path is not None else
+                get_temporary_path(config) if config is not None else tempfile.gettempdir())
         check_disk(path, "temporários", event)

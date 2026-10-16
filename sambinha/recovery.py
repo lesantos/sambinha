@@ -47,6 +47,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                                    and action in {"restore", "verify-destination-integrity"} else [])
                     if action != "verify-local-metadata" or job.logic == "simple":
                         check_disks(job, lambda event, **values: log.event(event, job=job.name, **values),
+                                    config=config,
                                     temporary_path=output if action == "restore" else None,
                                     check_source=action == "verify-local-metadata",
                                     check_temporary=action == "restore" or

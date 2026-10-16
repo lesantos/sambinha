@@ -76,7 +76,7 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
             if checking:
                 checking.update("Verificando discos", job.source)
             check_mounts(job, runner)
-            check_disks(job)
+            check_disks(job, config=config)
             if job.exclude_files:
                 try:
                     with job.exclude_files.open(encoding="utf-8") as stream:

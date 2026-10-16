@@ -139,7 +139,7 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
     if previous is not None and not journal.exists():
         return previous
     storage = Storage(job, config, runner)
-    with tempfile.TemporaryDirectory(prefix='sambinha-bootstrap-') as temp:
+    with tempfile.TemporaryDirectory(prefix='sambinha-bootstrap-', dir=config.temp_dir) as temp:
         work = Path(temp)
         entries = listing(storage)
         own_initialization = False
@@ -178,7 +178,7 @@ def publish(ctx, state):
     state['generation'] = generation
     journal = ctx.directory / 'publication.json'
     atomic_json(journal, {'identity': ctx.identity, 'generation': generation})
-    with tempfile.TemporaryDirectory(prefix='sambinha-index-') as temp:
+    with tempfile.TemporaryDirectory(prefix='sambinha-index-', dir=ctx.config.temp_dir) as temp:
         work = Path(temp)
         recovery_state = {k: v for k, v in state.items() if k != 'index_pending'}
         atomic_json(work / 'state.json', recovery_state)

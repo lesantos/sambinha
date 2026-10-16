@@ -18,7 +18,7 @@ def frozen_rules(config, *, on_job_error=None):
     if not any(job.exclude_files for job in config.jobs):
         yield config
         return
-    with tempfile.TemporaryDirectory(prefix="sambinha-rules-") as directory:
+    with tempfile.TemporaryDirectory(prefix="sambinha-rules-", dir=config.temp_dir) as directory:
         jobs = []
         for index, job in enumerate(config.jobs):
             if not job.exclude_files:
@@ -141,7 +141,7 @@ class Selection:
         # Zero-byte local names let rclone classify paths no longer present in
         # the source, using identical glob semantics and no remote downloads.
         for group in path_groups(paths):
-            with tempfile.TemporaryDirectory(prefix="sambinha-filter-") as directory:
+            with tempfile.TemporaryDirectory(prefix="sambinha-filter-", dir=self.config.temp_dir) as directory:
                 root = Path(directory)
                 for name in group:
                     target = root / name
@@ -156,7 +156,7 @@ class Selection:
         paths = {safe_relative(path) for path in paths}
         if not self.exclude_file or not paths:
             return paths
-        with tempfile.TemporaryDirectory(prefix="sambinha-filter-dirs-") as directory:
+        with tempfile.TemporaryDirectory(prefix="sambinha-filter-dirs-", dir=self.config.temp_dir) as directory:
             root = Path(directory)
             for name in paths:
                 (root / name).mkdir(parents=True, exist_ok=True)

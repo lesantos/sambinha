@@ -60,6 +60,20 @@ class DiskTests(Sandbox):
             check_disks(job, temporary_path=output)
         self.assertEqual(check.call_args_list[-1].args, (output, 'temporários', None))
 
+    def test_configured_global_temporary_path_is_used_for_batch_jobs(self):
+        job = replace(self.config.jobs[0], logic='batch')
+        config = replace(self.config, jobs=(job,), temp_dir=self.root / 'fast-tmp')
+        config.temp_dir.mkdir()
+        with patch('sambinha.disks.check_disk') as check:
+            check_disks(job, config=config)
+        self.assertEqual(check.call_args_list[-1].args, (config.temp_dir, 'temporários', None))
+
+    def test_configured_global_temporary_path_must_exist_and_be_writable(self):
+        job = replace(self.config.jobs[0], logic='batch')
+        config = replace(self.config, jobs=(job,), temp_dir=self.root / 'missing-tmp')
+        with self.assertRaisesRegex(BackupError, 'Diretório temporário configurado'):
+            check_disks(job, config=config)
+
     def test_unknown_capacity_and_os_errors_include_source_path(self):
         for failure in (Usage(0, 0, 0), PermissionError('sem permissão')):
             with self.subTest(failure=failure):

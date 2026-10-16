@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.14.5 — 2026-10-16
+
+Move `temp_dir` from individual jobs to the shared `[backup]` configuration, alongside the other configured directories. All jobs in one backup configuration now use the same existing writable temporary directory; relative paths resolve from the TOML file. Update validation, examples and documentation to reflect the shared setting.
+
 ## 0.14.4 — 2026-10-16
 
 Build batch archives directly from source files, removing the temporary copy of originals and reducing staging to approximately one archive per worker. Validate the source before and after compression and stop upload if files differ from the inventory. Process batches exceeding `max_megabytes` one at a time. Add per-job `temp_dir` to select an existing temporary directory on another disk, with relative paths resolved from the TOML file, and update diagnostics, examples and documentation.

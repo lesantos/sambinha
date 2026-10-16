@@ -25,7 +25,7 @@ class SimpleStorageMixin:
             filters.append("--dry-run")
         if self.job.type == "local":
             check_mounts(self.job, self.runner)
-            check_disks(self.job)
+            check_disks(self.job, config=self.config)
             with directory(root), directory(self.job.destination, create=not dry_run, missing_ok=dry_run):
                 pass
             # Rclone can follow destination directory links when creating

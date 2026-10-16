@@ -30,6 +30,8 @@ def validate_output(config, output, *, check_space=True, workspace=None):
     protected = [config.state_dir, config.log_dir, *(j.source for j in config.jobs)]
     if config.metadata_dir:
         protected.append(config.metadata_dir)
+    if config.temp_dir:
+        protected.append(config.temp_dir)
     protected += [Path(j.destination).resolve() for j in config.jobs if j.type == "local"]
     if any(overlap(output, p) for p in protected):
         raise BackupError("Restauração deve usar uma pasta separada da origem, backup, estado e logs")

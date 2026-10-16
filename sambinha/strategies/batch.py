@@ -33,8 +33,8 @@ def upload_batch(ctx, item):
     worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
     show_progress(worker.runner, worker.progress)
     worker.storage = Storage(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
-    with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.job.temp_dir) as temp:
-        check_disks(ctx.job, check_source=not ctx.rebalancing)
+    with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.config.temp_dir) as temp:
+        check_disks(ctx.job, config=ctx.config, check_source=not ctx.rebalancing)
         archive = compress(worker, item, Path(temp))
         compressed = fingerprint(Path(temp), archive.name)
         control = item.control()
@@ -114,7 +114,7 @@ def _available(ctx, item, control, entries=None):
     if not has_control:
         ctx.event('would_repair_control' if ctx.job.dry_run else 'repair_control', path=item.key + '.json')
         if not ctx.job.dry_run:
-            with tempfile.TemporaryDirectory(prefix='sambinha-control-') as temp:
+            with tempfile.TemporaryDirectory(prefix='sambinha-control-', dir=ctx.config.temp_dir) as temp:
                 path = Path(temp) / 'control.json'
                 atomic_json(path, control)
                 ctx.storage.put(path, item.key + '.json', standard="control")
@@ -159,7 +159,7 @@ def _upload_pending(ctx, pending, active):
                          key=lambda entry: entry[0], reverse=True)[:workers]
         required = sum(size for size, _ in largest)
         try:
-            check_disk(get_temporary_path(ctx.job), "temporários", ctx.event, required_bytes=required)
+            check_disk(get_temporary_path(ctx.config), "temporários", ctx.event, required_bytes=required)
         except BackupError as exc:
             if "Espaço insuficiente" not in str(exc):
                 raise

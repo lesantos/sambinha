@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.14.5 — 2026-10-16
+
+Mover `temp_dir` dos jobs para a configuração compartilhada `[backup]`, junto dos outros diretórios configurados. Todos os jobs de uma configuração de backup passam a usar o mesmo diretório temporário existente e gravável; caminhos relativos são resolvidos a partir do arquivo TOML. Atualizar validação, exemplos e documentação para refletir a opção compartilhada.
+
 ## 0.14.4 — 2026-10-16
 
 Criar lotes diretamente dos arquivos na origem, eliminando a cópia temporária dos originais e reduzindo o espaço de staging para aproximadamente um arquivo compactado por worker. Validar a origem antes e depois da compactação e interromper o envio se os arquivos divergirem do inventário. Processar lotes que excedem `max_megabytes` um por vez. Adicionar `temp_dir` por job para escolher um diretório temporário existente em outro disco, com caminho relativo ao TOML, além de atualizar diagnósticos, exemplos e documentação.

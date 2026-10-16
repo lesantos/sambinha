@@ -22,7 +22,7 @@ def execute(config, job, runner, log, progress, forecast, now, *, on_context=Non
         raise BackupError('rebalance exige logic=batch')
     runner.require([job.compressor])
     check_mounts(job, runner, check_source=False)
-    check_disks(job, check_source=False)
+    check_disks(job, config=config, check_source=False)
     state = backup_state(config, job, runner, allow_new=False, log=log)
     files = [File(**f) for c in state['active'].values() for f in c['files']]
     effective = replace(config, jobs=(replace(job, verification_mode='simple'),))
@@ -41,7 +41,7 @@ def execute(config, job, runner, log, progress, forecast, now, *, on_context=Non
         if state.get("index_pending"):
             batch(ctx)
         return ctx
-    with tempfile.TemporaryDirectory(prefix='sambinha-rebalance-') as temp:
+    with tempfile.TemporaryDirectory(prefix='sambinha-rebalance-', dir=config.temp_dir) as temp:
         work = Path(temp)
         ctx.source = work / 'source'
         ctx.source.mkdir()

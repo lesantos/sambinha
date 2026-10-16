@@ -171,6 +171,7 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
         ctx, pending, active = self.context()
         staging = self.root / 'staging'
         staging.mkdir()
+        ctx.config = replace(ctx.config, temp_dir=staging)
         ready = threading.Event()
         release = threading.Event()
         lock = threading.Lock()
@@ -194,8 +195,7 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
                     raise AssertionError('Blocked uploads were not released')
             return True
 
-        with patch('tempfile.tempdir', str(staging)), patch.object(strategy, 'compress', record), \
-             patch.object(Storage, 'put', put):
+        with patch.object(strategy, 'compress', record), patch.object(Storage, 'put', put):
             with ThreadPoolExecutor(max_workers=1) as caller:
                 future = caller.submit(strategy._upload_pending, ctx, pending, active)
                 try:

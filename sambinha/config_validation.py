@@ -34,6 +34,8 @@ def _validate_global(config: Config):
         raise ConfigError("secrets_file deve indicar um caminho")
     if config.metadata_dir is not None and not isinstance(config.metadata_dir, Path):
         raise ConfigError("metadata_dir deve indicar um caminho")
+    if config.temp_dir is not None and not isinstance(config.temp_dir, Path):
+        raise ConfigError("temp_dir deve indicar um caminho")
 
 
 def _validate_job(job: Job, seen: set[str]):
@@ -96,8 +98,6 @@ def _validate_job(job: Job, seen: set[str]):
 
 
 def _validate_job_paths(config: Config, job: Job):
-    if job.temp_dir is not None and not isinstance(job.temp_dir, Path):
-        raise ConfigError("temp_dir deve indicar um caminho")
     if job.exclude_files is not None and not isinstance(job.exclude_files, Path):
         raise ConfigError("exclude_files deve indicar um caminho")
     for name in ("source_mount", "destination_mount"):
@@ -107,16 +107,18 @@ def _validate_job_paths(config: Config, job: Job):
         raise ConfigError("destination_mount é aplicável somente a destinos locais")
     if not isinstance(job.destination, str) or not job.destination:
         raise ConfigError("Destino vazio")
-    internal_paths = (config.state_dir, config.log_dir, *((config.metadata_dir,) if config.metadata_dir else ()))
+    internal_paths = (config.state_dir, config.log_dir,
+                      *((config.metadata_dir,) if config.metadata_dir else ()),
+                      *((config.temp_dir,) if config.temp_dir else ()))
     for internal in internal_paths:
         if overlap(job.source, internal):
-            raise ConfigError("Origem não pode sobrepor diretórios de estado ou logs")
+            raise ConfigError("Origem não pode sobrepor estado, logs, metadados ou temporários")
     if job.type == "local":
         target = Path(job.destination).resolve()
         if overlap(job.source, target):
             raise ConfigError(f"Destino local não pode sobrepor a própria origem: {job.name}")
         if any(overlap(target, p) for p in internal_paths):
-            raise ConfigError("Destino não pode sobrepor estado ou logs")
+            raise ConfigError("Destino não pode sobrepor estado, logs, metadados ou temporários")
     elif not re.fullmatch(r"[\w-]+:[^/][^\n\r]*", job.destination):
         raise ConfigError("S3: use remote:bucket/prefixo configurado no rclone")
 
@@ -140,4 +142,7 @@ def validate(config: Config) -> Config:
         raise ConfigError("Estado e logs devem ter diretórios separados")
     if config.metadata_dir and overlap(config.metadata_dir, config.log_dir):
         raise ConfigError("Metadados e logs devem ter diretórios separados")
+    if config.temp_dir and any(overlap(config.temp_dir, path) for path in
+                               (config.state_dir, config.log_dir, config.metadata_dir) if path is not None):
+        raise ConfigError("Diretório temporário deve ser separado de estado, logs e metadados")
     return config

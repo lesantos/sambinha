@@ -30,7 +30,8 @@ class Storage(SimpleStorageMixin):
         source_required = self.source_required if source_required is None else source_required
         if operation in {"copyto", "copy", "sync", "delete", "purge"}:
             check_mounts(self.job, self.runner, check_source=source_required)
-            check_disks(self.job, temporary_path=self.temporary_directory, check_source=source_required)
+            check_disks(self.job, config=self.config, temporary_path=self.temporary_directory,
+                        check_source=source_required)
         return rclone.command(self.config, self.job, self.runner, operation, *args,
                               retry=retry, standard=standard, input=input,
                               progress_directory=progress_directory, on_output=on_output)
@@ -59,7 +60,8 @@ class Storage(SimpleStorageMixin):
     def put(self, source, key, *, standard=False, protected_mtime_ns=None):
         if self.job.type == "local":
             check_mounts(self.job, self.runner, check_source=self.source_required)
-            check_disks(self.job, temporary_path=self.temporary_directory, check_source=self.source_required)
+            check_disks(self.job, config=self.config, temporary_path=self.temporary_directory,
+                        check_source=self.source_required)
             prepare_write(self.job.destination, key)
         protection = ["--update"] if protected_mtime_ns is not None else []
         comparison = self.comparison_flags() if protected_mtime_ns is not None else ["--checksum"]

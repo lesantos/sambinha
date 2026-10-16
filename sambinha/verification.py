@@ -70,7 +70,7 @@ def verify_destination_metadata_job(config, job, runner, log, state=None, *, pro
     if job.logic != 'batch':
         raise BackupError('verify-destination-metadata exige logic=batch')
     storage = Storage(job, config, runner)
-    with tempfile.TemporaryDirectory(prefix='sambinha-metadata-') as temp:
+    with tempfile.TemporaryDirectory(prefix='sambinha-metadata-', dir=config.temp_dir) as temp:
         work = Path(temp)
         storage.temporary_directory = work
         state = _reference(config, job, storage, work, state)
@@ -107,7 +107,7 @@ def verify_destination_integrity_job(config, job, runner, log, state=None, *, pr
     if job.logic != 'batch':
         raise BackupError('verify-destination-integrity exige logic=batch')
     storage = Storage(job, config, runner)
-    with tempfile.TemporaryDirectory(prefix='sambinha-integrity-') as temp:
+    with tempfile.TemporaryDirectory(prefix='sambinha-integrity-', dir=config.temp_dir) as temp:
         work = Path(temp)
         storage.temporary_directory = work
         state = _reference(config, job, storage, work, state)

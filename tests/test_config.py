@@ -23,26 +23,30 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(config.jobs[0].compression_level, 3)
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
+        self.assertIsNone(config.temp_dir)
         self.assertEqual(config.jobs[0].log_retention_days, 14)
         self.assertTrue(config.jobs[0].continue_on_job_error)
         self.assertTrue(config.jobs[0].check_source_disk)
         self.assertTrue(config.jobs[0].check_destination_disk)
-        self.assertIsNone(config.jobs[0].temp_dir)
 
-    def test_temp_dir_is_job_scoped_and_relative_to_config(self):
-        jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'
-                'temp_dir="/mnt/fast/tmp"\n'
-                '[[jobs]]\nname="second"\nsource="source"\ndestination="second"\n')
-        config = load(self.toml(jobs=jobs))
-        self.assertEqual(config.jobs[0].temp_dir, Path('/mnt/fast/tmp'))
-        self.assertIsNone(config.jobs[1].temp_dir)
-        config = load(self.toml(jobs=jobs.replace('/mnt/fast/tmp', './fast-tmp')))
-        self.assertEqual(config.jobs[0].temp_dir, self.root / 'fast-tmp')
+    def test_temp_dir_is_global_and_relative_to_config(self):
+        config = load(self.toml('temp_dir="/mnt/fast/tmp"'))
+        self.assertEqual(config.temp_dir, Path('/mnt/fast/tmp'))
+        config = load(self.toml('temp_dir="./fast-tmp"'))
+        self.assertEqual(config.temp_dir, self.root / 'fast-tmp')
+        self.assertIsNone(load(self.toml('temp_dir=""')).temp_dir)
 
-    def test_temp_dir_rejects_non_path_values(self):
+    def test_temp_dir_must_be_separate_from_other_configured_directories(self):
+        with self.assertRaisesRegex(ConfigError, 'Diretório temporário'):
+            validate(replace(self.config, temp_dir=self.config.log_dir))
+
+    def test_temp_dir_rejects_job_scope_and_non_path_values(self):
+        with self.assertRaisesRegex(ConfigError, "Parâmetros desconhecidos em \\[\\[jobs\\]\\]"):
+            load(self.toml(jobs=('[[jobs]]\nname="test"\nsource="source"\n'
+                                 'destination="destination"\ntemp_dir="/mnt/fast/tmp"\n')))
         for value in (False, 0, []):
             with self.subTest(value=value), self.assertRaisesRegex(ConfigError, 'temp_dir'):
-                validate(replace(self.config, jobs=(replace(self.config.jobs[0], temp_dir=value),)))
+                validate(replace(self.config, temp_dir=value))
 
     def test_disk_checks_and_failure_policy_load_from_toml(self):
         jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'

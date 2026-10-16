@@ -6,6 +6,8 @@ state_dir = "./state"
 log_dir = "./logs"
 # Gerações de metadados confirmadas; dados seguem retenção.
 metadata_dir = "./metadata" # JSONs locais dos lotes, ao lado de state e logs.
+# Diretório temporário compartilhado entre os jobs; deve existir e permitir gravação.
+# temp_dir = "/mnt/ssd/sambinha-tmp"
 # Manter logs escritos nos últimos 14 dias; 0 desativa a limpeza automática.
 # Logs antigos inativos do Sambinha são removidos em execuções sem simulação.
 # Níveis independentes: error, summary (padrão) ou detailed.
@@ -75,8 +77,6 @@ check_destination_disk = true
 # Se ESTE job falhar, true continua os próximos; false interrompe a execução.
 continue_on_job_error = true
 # Configurações de lotes, se esta tarefa mudar para logic = "batch"
-# Diretório temporário opcional em outro disco; deve existir e permitir gravação.
-# temp_dir = "/mnt/ssd/sambinha-tmp"
 # max_megabytes = 1024
 # compressor = "7z"
 # archive_format = "7z"
@@ -115,8 +115,6 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
-# Diretório temporário opcional em outro disco; deve existir e permitir gravação.
-# temp_dir = "/mnt/ssd/sambinha-tmp"
 compression_level = 3
 compression_threads = 2
 # Individual a partir deste % do max_megabytes; mantém o lote normal aberto.

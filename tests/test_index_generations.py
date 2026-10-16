@@ -117,7 +117,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
         from sambinha.index_generations import publish
         job=replace(self.config.jobs[0],logic='batch')
         state={'schema':1,'identity':identity(job),'active':{},'retired':[]}
-        ctx=Mock(directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
+        ctx=Mock(config=self.config,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
         with patch('sambinha.index_generations.MAX_METADATA',64), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()
@@ -132,7 +132,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
         atomic_json(controls/(key+'.json'),control)
         state={'schema':1,'identity':identity(job),'active':{},'retired':[
             {'key':key,'expires':1000,'control':key+'.json','files':[f['path'] for f in control['files']]}]}
-        ctx=Mock(directory=self.root/'transaction',identity=identity(job),controls_directory=controls)
+        ctx=Mock(config=self.config,directory=self.root/'transaction',identity=identity(job),controls_directory=controls)
         with patch('sambinha.index_generations.MAX_METADATA',1800), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()
@@ -142,7 +142,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
         job=replace(self.config.jobs[0],logic='batch')
         control=plan([File('a',1,'a'*64,'b'*32,100,0o640)],100)[0].control()
         state={'schema':1,'identity':identity(job),'active':{control['archive']:control},'retired':[]}
-        ctx=Mock(directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
+        ctx=Mock(config=self.config,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
         with patch('sambinha.index_generations.MAX_CONTROLS_METADATA',100), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()

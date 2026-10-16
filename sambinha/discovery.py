@@ -28,7 +28,8 @@ class Discovery:
         self.authorization = None
 
     def __enter__(self):
-        self.directory = tempfile.TemporaryDirectory(prefix="sambinha-discovery-")
+        self.directory = tempfile.TemporaryDirectory(prefix="sambinha-discovery-",
+                                                     dir=self.config.temp_dir)
         try:
             self.log_path = Path(self.directory.name) / "rclone.log"
             self.log = self.log_path.open("wb")

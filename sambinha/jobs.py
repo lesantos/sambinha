@@ -57,10 +57,10 @@ class JobExecution:
         ctx.state["fingerprints"] = cached_inventory
         ctx.state["last_full_scan"] = inventory.last_full_scan
         ctx.forecast_deletions()
-        check_disks(ctx.job, ctx.event)
+        check_disks(ctx.job, ctx.event, config=ctx.config)
         ctx.protect_deletions(self.allow_mass_deletion)
         self.strategies[ctx.job.logic](ctx)
-        check_disks(ctx.job, ctx.event)
+        check_disks(ctx.job, ctx.event, config=ctx.config)
         self._verify_if_due(effective)
 
     def _verify_if_due(self, effective):
