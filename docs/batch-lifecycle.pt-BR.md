@@ -33,6 +33,8 @@ Em cada diretório, ordene juntos arquivos e subpastas pela data de modificaçã
 
 Um arquivo com `size * 100 >= int(max_megabytes * 1048576) * individual_batch_percent` recebe um lote exclusivo. O percentual deve ser finito, maior que 0 e no máximo 100; a igualdade já qualifica. O desvio mantém o lote normal aberto: com limite de 100 bytes e arquivos de 40, 200 e 60 bytes, forma-se um lote normal de 100 e um individual de 200 bytes. Arquivos não são divididos. Um lote normal novo só fecha quando o próximo arquivo normal ultrapassaria o limite. Categoria e quantidade de membros não geram fronteiras.
 
+Se esse arquivo individual já tiver uma extensão de formato compactado reconhecido (por exemplo, ZIP, 7z, RAR, TAR.GZ, GZIP, BZIP2, XZ ou Zstandard), o Sambinha envia o arquivo original sem compactá-lo novamente. A restauração e a verificação de integridade conferem esse arquivo diretamente.
+
 Não se reabrem lotes confirmados apenas para inserir arquivos novos: esses arquivos formam novos grupos pelo mesmo algoritmo, evitando reenvios de conteúdo intacto. A formação inicial respeita fronteiras sequenciais nesse percurso; não procura um empacotamento global que reordene os membros.
 
 ## Associação persistente e histórico

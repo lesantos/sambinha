@@ -16,6 +16,7 @@ class Batch:
     archive_md5: str | None = None
     individual: bool | None = None
     batch_id: str | None = None
+    passthrough: bool = False
 
     def control(self):
         control = {"schema": 1, "archive": self.key,
@@ -26,6 +27,8 @@ class Batch:
             control['individual'] = self.individual
         if self.batch_id is not None:
             control['batch_id'] = self.batch_id
+        if self.passthrough:
+            control['passthrough'] = True
         return control
 
 
@@ -44,12 +47,17 @@ def _make(members, extension, dedicated=False, batch_id=None):
     digest = _digest({'files': [f.metadata() for f in members],
                       'individual': dedicated, 'batch_id': batch_id})
     parent = posixpath.commonpath([str(PurePosixPath(f.path).parent) for f in members])
+    passthrough = dedicated and len(members) == 1 and PurePosixPath(members[0].path).suffix.lower() in {
+        '.zip', '.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz', '.tbz2', '.xz', '.txz',
+        '.zst', '.tzst', '.lz', '.lzma', '.lz4', '.br', '.cab', '.arj', '.ace', '.z',
+    }
     if dedicated or len(members) == 1:
-        name = PurePosixPath(members[0].path).with_suffix('.' + extension).name
+        name = (PurePosixPath(members[0].path).name if passthrough else
+                PurePosixPath(members[0].path).with_suffix('.' + extension).name)
         key = str(PurePosixPath(parent) / '.versions' / digest / name)
     else:
         key = str(PurePosixPath(parent) / f'batch-{digest}.{extension}')
-    return Batch(key, members, individual=dedicated, batch_id=batch_id)
+    return Batch(key, members, individual=dedicated, batch_id=batch_id, passthrough=passthrough)
 
 
 def pack(files, max_bytes, extension='7z', individual_percent=100):
@@ -88,9 +96,10 @@ def plan(files: list[File], max_bytes: int, max_files=None, extension='7z',
         if rebalance and not dedicated and len(members) > 1 and sum(f.size for f in members) > max_bytes:
             moved.extend(members)
             continue
-        if (rebalance or key.endswith('.' + extension)) and [f.metadata() for f in members] == control['files']:
+        if (rebalance or key.endswith('.' + extension) or control.get('passthrough')) and [
+                f.metadata() for f in members] == control['files']:
             result.append(Batch(key, members, control.get('archive_size'), control.get('archive_md5'),
-                                control.get('individual'), control.get('batch_id')))
+                                control.get('individual'), control.get('batch_id'), control.get('passthrough', False)))
         else:
             result.append(_make(members, extension, dedicated,
                                 control.get('batch_id') or _digest(key)))

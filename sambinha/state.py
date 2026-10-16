@@ -61,6 +61,10 @@ def validate_controls(controls, batch):
             if 'individual' in control and (type(control['individual']) is not bool or
                                             control['individual'] and len(members) != 1):
                 raise ValueError('lote individual inválido')
+            if 'passthrough' in control and (type(control['passthrough']) is not bool or
+                                             control['passthrough'] and
+                                             (len(members) != 1 or not control.get('individual', True))):
+                raise ValueError('arquivo compactado individual inválido')
             if 'batch_id' in control and (not isinstance(control['batch_id'], str) or
                                           not re.fullmatch('[0-9a-f]{24}', control['batch_id'])):
                 raise ValueError('identidade de lote inválida')

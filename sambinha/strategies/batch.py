@@ -36,7 +36,8 @@ def upload_batch(ctx, item):
     with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.config.temp_dir) as temp:
         check_disks(ctx.job, config=ctx.config, check_source=not ctx.rebalancing)
         archive = compress(worker, item, Path(temp))
-        compressed = fingerprint(Path(temp), archive.name)
+        compressed = (fingerprint(ctx.source, item.files[0].path) if item.passthrough
+                      else fingerprint(Path(temp), archive.name))
         control = item.control()
         control.update(archive_size=compressed.size, archive_md5=compressed.md5)
         control_path = Path(temp) / "control.json"

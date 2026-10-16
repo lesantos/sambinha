@@ -39,6 +39,18 @@ class BatchPlannerTests(unittest.TestCase):
         self.assertEqual(len(batches), 2)
         self.assertTrue(next(b for b in batches if b.individual).key.endswith('/big.7z'))
 
+    def test_oversized_compressed_file_is_planned_for_passthrough(self):
+        batch = plan([file('dir/backup.ZIP', 200)], 100)[0]
+        self.assertTrue(batch.individual)
+        self.assertTrue(batch.passthrough)
+        self.assertTrue(batch.key.endswith('/backup.ZIP'))
+        self.assertTrue(batch.control()['passthrough'])
+
+    def test_compressed_file_below_individual_threshold_is_still_batched(self):
+        batch = plan([file('dir/backup.zip', 40)], 100)[0]
+        self.assertFalse(batch.passthrough)
+        self.assertTrue(batch.key.endswith('.7z'))
+
     def test_individual_threshold_is_inclusive_and_configurable(self):
         batches = plan([file('a', 49), file('b', 50), file('c', 51)], 100, individual_percent=50)
         self.assertEqual([b.individual for b in batches], [False, True, True])

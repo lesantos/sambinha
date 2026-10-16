@@ -7,12 +7,14 @@ from pathlib import Path
 import shutil
 import tarfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from sambinha.errors import BackupError
-from sambinha.config import load
+from sambinha.config import load, validate
 from sambinha.engine import DAY
 from sambinha.process import Runner
+from sambinha.recovery import recover
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 
@@ -194,6 +196,21 @@ class LocalIntegrationTests(Sandbox):
         self.assert_complete()
         self.assertEqual(len(self.state()['active']), 2)
         self.assertTrue(all(k.endswith('big.7z') for k in self.state()['active']))
+
+    def test_oversized_zip_is_uploaded_unchanged_and_restores(self):
+        original = self.source / 'backup.zip'
+        with zipfile.ZipFile(original, 'w', compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr('inside.txt', 'conteúdo já compactado ' * 300)
+        original_bytes = original.read_bytes()
+        self.use_batch()
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_megabytes=1 / 1024),))
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        key = next(iter(self.state()['active']))
+        self.assertTrue(key.endswith('/backup.zip'))
+        self.assertEqual((self.destination / key).read_bytes(), original_bytes)
+        restored = self.root / 'restored'
+        self.assertEqual(recover(validate(self.config), 'restore', output=restored), 0)
+        self.assertEqual(contents(restored), contents(self.source))
 
     def test_zip_compression_roundtrip(self):
         self.fixture()

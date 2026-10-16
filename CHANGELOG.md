@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.14.6 — 2026-10-16
+
+For oversized individual batch files with recognized compressed-format extensions, upload the original file directly and restore/verify it without recompressing. Add planner and local round-trip regressions.
+
 ## 0.14.5 — 2026-10-16
 
 Move `temp_dir` from individual jobs to the shared `[backup]` configuration, alongside the other configured directories. All jobs in one backup configuration now use the same existing writable temporary directory; relative paths resolve from the TOML file. Update validation, examples and documentation to reflect the shared setting.

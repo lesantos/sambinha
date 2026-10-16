@@ -33,6 +33,8 @@ Inside each source directory, sort files and subdirectories together by nanoseco
 
 A file with `size * 100 >= int(max_megabytes * 1048576) * individual_batch_percent` gets a dedicated archive. The percentage must be finite, greater than 0 and at most 100; equality qualifies. Diverting an individual file leaves the normal batch open. For example, with a 100-byte limit, files of 40, 200 and 60 bytes produce one normal 100-byte batch and one individual 200-byte batch. A file is never split. Normal new batches close only when adding the next normal file would exceed the byte limit. File type and member count do not create boundaries.
 
+If that individual file already has a recognized compressed format extension (such as ZIP, 7z, RAR, TAR.GZ, GZIP, BZIP2, XZ or Zstandard), Sambinha uploads the original file without compressing it again. Restore and integrity checks validate that file directly.
+
 Confirmed batches are not reopened just to add new files: new files form new batches using the same algorithm. This avoids reuploading unchanged data. The initial packing minimizes sequential boundaries under this traversal, but does not solve arbitrary bin packing by reordering members.
 
 ## Stable membership and history

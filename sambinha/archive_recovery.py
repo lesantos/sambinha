@@ -1,6 +1,7 @@
 """Validate and unpack archive members into private staging directories."""
 from datetime import datetime, timezone
 import re
+import shutil
 
 from .disks import check_disk
 from .errors import BackupError
@@ -61,6 +62,15 @@ def archive_date_matches(fields, metadata, archive_format):
 def check_archive(storage, runner, key, control, *, archive=None):
     """Verify paths, sizes, dates and 7-Zip integrity without disk extraction or hashes."""
     archive = storage.path(key) if archive is None else archive
+    if control.get('passthrough'):
+        actual = fingerprint(archive.parent, archive.name)
+        item = control['files'][0]
+        if (len(control['files']) != 1 or actual.size != item['size']
+                or item.get('md5') and actual.md5 != item['md5']
+                or 'archive_md5' in control and
+                (actual.size != control['archive_size'] or actual.md5 != control['archive_md5'])):
+            raise BackupError(f"Arquivo compactado individual divergente: {key}")
+        return
     members = archive_members(storage, runner, archive)
     if {name: int(fields["Size"]) for name, fields in members.items()} != {
             item["path"]: item["size"] for item in control["files"]}:
@@ -78,6 +88,17 @@ def unpack(storage, runner, key, control, work):
         actual = fingerprint(work, "archive")
         if actual.size != control["archive_size"] or actual.md5 != control["archive_md5"]:
             raise BackupError(f"Checksum do lote divergente: {key}")
+    if control.get('passthrough'):
+        if len(control['files']) != 1:
+            raise BackupError("Lote individual inválido")
+        metadata = control['files'][0]
+        extracted = work / 'files'
+        extracted.mkdir(mode=0o700)
+        target = extracted / metadata['path']
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.copyfile(archive, target)
+        check_content(extracted, metadata, mode='hash' if metadata.get('sha256') else 'simple')
+        return extracted
     members = archive_members(storage, runner, archive)
     if {name: int(fields["Size"]) for name, fields in members.items()} != {
             f["path"]: f["size"] for f in control["files"]}:

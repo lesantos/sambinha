@@ -13,10 +13,20 @@ def temporary_bytes(batch):
     """Estimate one incompressible archive plus staging overhead."""
     metadata = len(json.dumps(batch.control(), ensure_ascii=False).encode("utf-8"))
     overhead = max(1024 ** 2, 16384 * len(batch.files) + 2 * metadata)
+    if batch.passthrough:
+        return overhead
     return sum(item.size for item in batch.files) + overhead
 
 
 def compress(ctx, batch, work: Path):
+    if batch.passthrough:
+        item = batch.files[0]
+        verify(ctx.source, [item], mode=ctx.job.verification_mode,
+               progress=ctx.progress.scope(0, 0.5) if ctx.progress else None)
+        source = ctx.source / item.path
+        verify(ctx.source, [item], mode=ctx.job.verification_mode,
+               progress=ctx.progress.scope(0.5, 1) if ctx.progress else None)
+        return source
     check_disk(work, "temporários", required_bytes=temporary_bytes(batch))
     # Validate both sides of the read: the inventory must still match before
     # 7-Zip opens source paths and after it has finished reading them.
