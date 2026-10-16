@@ -1,11 +1,14 @@
 """Stable source inventories with strong fingerprints and race detection."""
 from dataclasses import asdict, dataclass
+from contextlib import contextmanager
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import stat
 
 from .errors import BackupError
+from .filesystems import volatile_inode_devices
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,38 @@ def safe_relative(value: str) -> str:
     return value
 
 
-def _source_info(root, relative, dir_fd, before):
+def _observation(info):
+    return {"dev": info.st_dev, "ino": info.st_ino, "type": stat.S_IFMT(info.st_mode),
+            "size": info.st_size, "mtime_ns": info.st_mtime_ns,
+            "ctime_ns": info.st_ctime_ns, "mode": stat.S_IMODE(info.st_mode)}
+
+
+def _identity(info):
+    return info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
+
+
+def _same_observation(before, after, *, historical=False):
+    old, new = _observation(before), _observation(after)
+    if old == new:
+        return True
+    if not historical or old["ino"] == new["ino"]:
+        return False
+    # Never relax device, type, size, timestamps or mode; persistent hash-cache
+    # signatures also remain strict. Only unpinned historical inode IDs vary.
+    old.pop("ino")
+    new.pop("ino")
+    return old == new and before.st_dev in volatile_inode_devices()
+
+
+def _changed(kind, relative, stage, before, after):
+    details = json.dumps({"stage": stage, "before": _observation(before),
+                          "after": _observation(after)}, sort_keys=True)
+    raise BackupError(f"{kind} mudou durante leitura: {relative}; {details}")
+
+
+@contextmanager
+def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=False):
+    """Pin a no-follow file until descriptor and pathname validation finish."""
     safe_relative(relative)
     if dir_fd is None and path_has_symlink(root, relative):
         raise BackupError(f"Origem mudou para link simbólico: {relative}")
@@ -38,32 +72,49 @@ def _source_info(root, relative, dir_fd, before):
     before = before if before is not None else os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode):
         raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
-    return path, before
+    flags = os.O_PATH if metadata_only else os.O_RDONLY | os.O_NONBLOCK
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    try:
+        opened = os.fstat(fd)
+        if not _same_observation(before, opened, historical=True):
+            _changed("Arquivo", relative, "open", before, opened)
+        yield fd, opened
+        after = os.fstat(fd)
+        if not _same_observation(opened, after):
+            _changed("Arquivo", relative, "descriptor", opened, after)
+        current = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+        if not _same_observation(after, current):
+            _changed("Arquivo", relative, "path", after, current)
+    finally:
+        os.close(fd)
 
 
-def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None) -> File:
-    path, before = _source_info(root, relative, dir_fd, before)
+def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None, file_fd=None) -> File:
+    if file_fd is None:
+        with _source_file(root, relative, dir_fd, before) as (fd, opened):
+            return _fingerprint(relative, fd, opened, progress)
+    return _fingerprint(relative, file_fd, before, progress)
+
+
+def _fingerprint(relative, file_fd, before, progress):
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
-    # O_NOFOLLOW stops a symlink replacement between lstat and open.
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
-    with os.fdopen(fd, "rb") as stream:
-        opened = os.fstat(stream.fileno())
-        if (before.st_ino, before.st_dev) != (opened.st_ino, opened.st_dev):
-            raise BackupError(f"Arquivo mudou durante leitura: {relative}")
-        while chunk := stream.read(64 * 1024):
-            sha.update(chunk)
-            md5.update(chunk)
-            if progress:
-                progress(len(chunk))
-        after = os.fstat(stream.fileno())
-    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-        raise BackupError(f"Arquivo mudou durante leitura: {relative}")
+    while chunk := os.read(file_fd, 64 * 1024):
+        sha.update(chunk)
+        md5.update(chunk)
+        if progress:
+            progress(len(chunk))
     return File(relative, before.st_size, sha.hexdigest(), md5.hexdigest(),
                 before.st_mtime_ns, stat.S_IMODE(before.st_mode))
 
 
-def metadata(root: Path, relative: str, *, dir_fd=None, before=None) -> File:
-    _, info = _source_info(root, relative, dir_fd, before)
+def metadata(root: Path, relative: str, *, dir_fd=None, before=None, file_fd=None) -> File:
+    if file_fd is None:
+        with _source_file(root, relative, dir_fd, before, metadata_only=True) as (fd, opened):
+            return _metadata(relative, opened)
+    return _metadata(relative, before)
+
+
+def _metadata(relative, info):
     return File(relative, info.st_size, "", "", info.st_mtime_ns, stat.S_IMODE(info.st_mode))
 
 
@@ -116,27 +167,25 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
 
     def inspect(fd, relative, before):
         report(stage, directory)
-        if mode == "simple":
-            item = metadata(root, relative, dir_fd=fd, before=before)
-        else:
-            cached = (cache or {}).get(relative)
-            if (cached and cached["signature"] == signature(before)
-                    and cached["file"].get("sha256") and cached["file"].get("md5")):
-                item = File(**cached["file"])
+        with _source_file(root, relative, fd, before, metadata_only=mode == "simple") as (file_fd, opened):
+            if mode == "simple":
+                item = metadata(root, relative, dir_fd=fd, before=opened, file_fd=file_fd)
             else:
-                read = 0
-                def advance(size):
-                    nonlocal read
-                    read += size
-                    report(stage, directory, read=read, size=before.st_size)
-                item = fingerprint(root, relative, dir_fd=fd, before=before,
-                                   progress=advance if progress and progress.enabled else None)
-        after = os.stat(relative.rsplit("/", 1)[-1], dir_fd=fd, follow_symlinks=False)
-        if signature(before) != signature(after):
-            raise BackupError(f"Arquivo mudou durante leitura: {relative}")
+                cached = (cache or {}).get(relative)
+                if (cached and cached["signature"] == signature(opened)
+                        and cached["file"].get("sha256") and cached["file"].get("md5")):
+                    item = File(**cached["file"])
+                else:
+                    read = 0
+                    def advance(size):
+                        nonlocal read
+                        read += size
+                        report(stage, directory, read=read, size=opened.st_size)
+                    item = fingerprint(root, relative, dir_fd=fd, before=opened, file_fd=file_fd,
+                                       progress=advance if progress and progress.enabled else None)
         result.append(item)
         if cache_out is not None:
-            cache_out[relative] = {"signature": signature(after), "file": item.metadata()}
+            cache_out[relative] = {"signature": signature(opened), "file": item.metadata()}
         report(stage, directory)
 
     def walk(fd, prefix):
@@ -171,13 +220,13 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
                 child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
                 try:
                     opened = os.fstat(child)
-                    if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
-                        raise BackupError(f"Diretório mudou durante leitura: {relative}")
+                    if _identity(before) != _identity(opened) and not _same_observation(
+                            before, opened, historical=True):
+                        _changed("Diretório", relative, "open", before, opened)
                     walk(child, relative)
                     after = os.stat(name, dir_fd=fd, follow_symlinks=False)
-                    if (before.st_dev, before.st_ino, stat.S_IFMT(before.st_mode)) != (
-                            after.st_dev, after.st_ino, stat.S_IFMT(after.st_mode)):
-                        raise BackupError(f"Diretório mudou durante leitura: {relative}")
+                    if _identity(opened) != _identity(after):
+                        _changed("Diretório", relative, "path", opened, after)
                 finally:
                     os.close(child)
             else:

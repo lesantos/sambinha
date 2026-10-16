@@ -120,6 +120,14 @@ Rclone normally skips symlinks. Sambinha passes `--skip-links` to suppress warni
 Destination roots, metadata/state/lock paths and restore output remain protected against link redirection. Link replacement is limited to data paths below the job root; directory components are opened without following links during preparation. Unsafe archive members and detected concurrent path changes still cause an explicit error.
 
 
+## exFAT/FAT source identities
+
+Native exFAT/FAT can assign a new inode number when an object leaves the kernel cache and is looked up again. From 0.14.3, a source directory or file is not declared changed solely because its inode differs from an older, unpinned discovery observation on a known native `exfat`, `vfat` or `msdos` device. Device, type, size, modification/change timestamps and mode must still match. Detection uses `/proc/self/mountinfo` device numbers, so a nested mount uses its own filesystem policy; unknown, ambiguous or unavailable information retains strict validation.
+
+Once a directory is opened, its descriptor supplies the reference identity until the pathname is rechecked. Files stay pinned until metadata/hash inspection and final descriptor/path validation complete. Simple mode uses `O_PATH` without reading file contents; hash mode holds a read descriptor, and valid cached hashes still avoid content reads. Links remain ignored and no source data is modified. Identity changes while descriptors are held, metadata changes or replacements by links are rejected. An inode change between runs invalidates cached fingerprints and causes hashing rather than trusting size/time alone. The existing simple-mode size/time comparison still cannot detect a hidden content edit that preserves both.
+
+Source-change diagnostics include `stage` (`open`, `descriptor` or `path`) and `before`/`after` values for device, inode, type, size, mtime, ctime and mode. These distinguish an old discovery observation from a change detected while an object was open. The summary log level records these errors without enabling detailed per-file logs. No TOML option or backup migration is required.
+
 ## Batches and recovery in 0.13.0
 
 See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.

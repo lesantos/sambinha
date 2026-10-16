@@ -1,6 +1,8 @@
 """Single-pass inventories, stable ordering and descriptor-anchored race guards."""
 from dataclasses import replace
 import os
+from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -93,9 +95,179 @@ class InventoryTests(Sandbox):
         for i in range(25):
             self.file(f'a/b/c/{i}')
         with patch('sambinha.inventory.path_has_symlink', side_effect=AssertionError('ancestor rescan')), \
+             patch('sambinha.inventory.os.read', side_effect=AssertionError('content read')), \
              patch('sambinha.inventory.os.open', wraps=os.open) as opened:
             self.assertEqual(len(scan(self.source, mode='simple')), 25)
-        self.assertTrue(all(call.args[1] & os.O_DIRECTORY for call in opened.call_args_list))
+        self.assertTrue(all(call.args[1] & (os.O_DIRECTORY | os.O_PATH) for call in opened.call_args_list))
+
+
+def altered(info, **changes):
+    fields = ('st_dev', 'st_ino', 'st_mode', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+    return SimpleNamespace(**{**{field: getattr(info, field) for field in fields}, **changes})
+
+
+class VolatileInodeTests(Sandbox):
+    def listing(self, prefix):
+        with os.scandir(self.source / prefix) as entries:
+            return [{'Path': (prefix + '/' if prefix else '') + entry.name,
+                     'IsDir': entry.is_dir(follow_symlinks=False)} for entry in entries]
+
+    def stale_listing_inodes(self):
+        original = os.stat
+        seen = set()
+        def observe(path, *args, **kwargs):
+            info = original(path, *args, **kwargs)
+            parent = kwargs.get('dir_fd')
+            key = (parent, str(path))
+            if parent is not None and key not in seen:
+                seen.add(key)
+                return altered(info, st_ino=info.st_ino + 10000000)
+            return info
+        return observe
+
+    def test_historical_directory_and_file_inodes_can_change_on_fat_without_content_changes(self):
+        self.file('lu/first', b'one')
+        self.file('lu/second', b'two')
+        for mode in ('simple', 'hash'):
+            with self.subTest(mode=mode):
+                expected = scan(self.source, mode=mode)
+                cache = {}
+                with patch('sambinha.inventory.volatile_inode_devices', return_value={self.source.stat().st_dev}), \
+                     patch('sambinha.inventory.os.stat', side_effect=self.stale_listing_inodes()):
+                    actual = scan(self.source, listing=self.listing, mode=mode, cache_out=cache)
+                self.assertEqual(actual, expected)
+                for item in actual:
+                    self.assertEqual(cache[item.path]['signature'][1], (self.source / item.path).stat().st_ino)
+
+    def test_historical_inode_changes_still_fail_on_other_or_unknown_filesystems(self):
+        self.file('dir/file')
+        for path in ('dir', 'file'):
+            with self.subTest(path=path), \
+                 patch('sambinha.inventory.volatile_inode_devices', return_value=frozenset()), \
+                 patch('sambinha.inventory.os.stat', side_effect=self.stale_listing_inodes()), \
+                 self.assertRaisesRegex(BackupError, '"stage": "open"'):
+                if path == 'dir':
+                    scan(self.source, listing=self.listing)
+                else:
+                    info = (self.source / 'dir/file').stat()
+                    metadata(self.source / 'dir', 'file', before=altered(info, st_ino=info.st_ino + 1))
+
+    def test_standalone_metadata_and_hash_use_the_opened_file_as_baseline(self):
+        path = self.file('file', b'content')
+        original = os.stat
+        for inspect in (metadata, fingerprint):
+            with self.subTest(inspect=inspect.__name__):
+                calls = [0]
+                def observe(name, *args, **kwargs):
+                    info = original(name, *args, **kwargs)
+                    if Path(name) == path and 'dir_fd' in kwargs:
+                        calls[0] += 1
+                        if calls[0] == 1:
+                            return altered(info, st_ino=info.st_ino + 10000000)
+                    return info
+                expected = inspect(self.source, 'file')
+                with patch('sambinha.inventory.volatile_inode_devices', return_value={path.stat().st_dev}), \
+                     patch('sambinha.inventory.os.stat', side_effect=observe):
+                    self.assertEqual(inspect(self.source, 'file'), expected)
+
+    def test_fat_policy_never_ignores_other_metadata_changes(self):
+        path = self.file('file')
+        before = path.stat()
+        from sambinha.inventory import _same_observation
+        changes = ({'st_dev': before.st_dev + 1}, {'st_size': before.st_size + 1},
+                   {'st_mode': before.st_mode ^ 0o100}, {'st_mtime_ns': before.st_mtime_ns + 1},
+                   {'st_ctime_ns': before.st_ctime_ns + 1}, {'st_mode': 0o120777})
+        with patch('sambinha.inventory.volatile_inode_devices', return_value={before.st_dev}):
+            for change in changes:
+                with self.subTest(change=change):
+                    after = altered(before, st_ino=before.st_ino + 1, **change)
+                    self.assertFalse(_same_observation(before, after, historical=True))
+
+    def test_replaced_open_directory_is_rejected_even_on_fat(self):
+        self.file('dir/file', b'original')
+        def replaced(root, relative, **kwargs):
+            (self.source / 'dir').rename(self.root / 'old-dir')
+            (self.source / 'dir').mkdir()
+            return metadata(root, relative, **kwargs)
+        with patch('sambinha.inventory.volatile_inode_devices', return_value={self.source.stat().st_dev}), \
+             patch('sambinha.inventory.metadata', side_effect=replaced), \
+             self.assertRaisesRegex(BackupError, 'Diretório mudou.*"stage": "path"'):
+            scan(self.source, mode='simple')
+
+    def test_replaced_open_file_is_rejected_even_with_same_size_and_mtime(self):
+        path = self.file('file', b'old')
+        original = path.stat()
+        def replaced(root, relative, **kwargs):
+            path.rename(self.root / 'old-file')
+            path.write_bytes(b'new')
+            path.chmod(original.st_mode & 0o777)
+            os.utime(path, ns=(original.st_mtime_ns, original.st_mtime_ns))
+            return metadata(root, relative, **kwargs)
+        with patch('sambinha.inventory.volatile_inode_devices', return_value={original.st_dev}), \
+             patch('sambinha.inventory.metadata', side_effect=replaced), \
+             self.assertRaisesRegex(BackupError, 'Arquivo mudou.*"stage": "(descriptor|path)"'):
+            scan(self.source, mode='simple')
+
+    def test_inode_change_while_file_is_pinned_is_never_ignored(self):
+        path = self.file('file')
+        original = os.stat
+        calls = [0]
+        def observe(name, *args, **kwargs):
+            info = original(name, *args, **kwargs)
+            if Path(name) == path and 'dir_fd' in kwargs:
+                calls[0] += 1
+                if calls[0] == 2:
+                    return altered(info, st_ino=info.st_ino + 1)
+            return info
+        with patch('sambinha.inventory.volatile_inode_devices', return_value={path.stat().st_dev}), \
+             patch('sambinha.inventory.os.stat', side_effect=observe), \
+             self.assertRaisesRegex(BackupError, '"stage": "path"'):
+            metadata(self.source, 'file')
+
+    def test_files_and_directories_are_closed_when_inspection_fails(self):
+        self.file('dir/file')
+        original = os.open
+        descriptors = set()
+        def opened(*args, **kwargs):
+            fd = original(*args, **kwargs)
+            descriptors.add(fd)
+            return fd
+        with patch('sambinha.inventory.os.open', side_effect=opened), \
+             patch('sambinha.inventory.metadata', side_effect=BackupError('injected')), \
+             self.assertRaises(BackupError):
+            scan(self.source, mode='simple')
+        for fd in descriptors:
+            with self.assertRaises(OSError):
+                os.fstat(fd)
+
+    def test_metadata_edit_during_read_is_rejected_with_before_and_after_values(self):
+        path = self.file('file', b'old')
+        def modified(root, relative, **kwargs):
+            item = metadata(root, relative, **kwargs)
+            path.write_bytes(b'changed size')
+            return item
+        with patch('sambinha.inventory.metadata', side_effect=modified), \
+             self.assertRaisesRegex(BackupError, '"after".*"before".*"stage": "descriptor"'):
+            scan(self.source, mode='simple')
+
+    def test_hash_cache_does_not_reuse_fingerprints_after_inode_renumbering(self):
+        self.file('file', b'original')
+        cache, new_cache = {}, {}
+        expected = scan(self.source, cache_out=cache)
+        original_stat, original_fstat = os.stat, os.fstat
+        def renamed_stat(*args, **kwargs):
+            info = original_stat(*args, **kwargs)
+            return altered(info, st_ino=info.st_ino + 10000000)
+        def renamed_fstat(*args, **kwargs):
+            info = original_fstat(*args, **kwargs)
+            return altered(info, st_ino=info.st_ino + 10000000)
+        with patch('sambinha.inventory.os.stat', side_effect=renamed_stat), \
+             patch('sambinha.inventory.os.fstat', side_effect=renamed_fstat), \
+             patch('sambinha.inventory.fingerprint', wraps=fingerprint) as hashing:
+            actual = scan(self.source, listing=self.listing, cache=cache, cache_out=new_cache)
+        hashing.assert_called_once()
+        self.assertEqual(actual, expected)
+        self.assertNotEqual(new_cache['file']['signature'], cache['file']['signature'])
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')

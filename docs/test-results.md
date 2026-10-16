@@ -1,6 +1,12 @@
-# Sambinha 0.14.2 test results
+# Sambinha 0.14.3 test results
 
 [Português do Brasil](test-results.pt-BR.md)
+
+## 0.14.3 validation
+
+All 41 focused inventory/filesystem/metadata/state tests passed. New regressions exercise historical directory and file inode renumbering, standalone metadata/hash checks, invalidation of cached fingerprints after renumbering, changes detected while files/directories remain open, same-size/time replacements, unchanged no-follow behavior, diagnostic before/after values, descriptor cleanup on failures and conservative device policies for unknown, ambiguous and nested mounts.
+
+A controlled test against the real read-only exFAT source mount supplied an older inode value for `lu` while preserving its actual metadata: the 0.14.2 wheel rejected it with the reported directory-change error, and 0.14.3 accepted it using the opened descriptor baseline. A real source file also passed hashing after a simulated historical inode-only change. This validates the scenario without modifying source data or claiming the original execution's unrecorded inode values were recovered. Full-suite, coverage, package and CI results are recorded in the release notes.
 
 ## 0.14.2 validation
 

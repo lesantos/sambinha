@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
-from sambinha.filesystems import supports_posix_metadata, needs_destination_link_scan
+from sambinha.filesystems import supports_posix_metadata, needs_destination_link_scan, volatile_inode_devices
 from sambinha.errors import BackupError
 from sambinha.process import Runner
 from sambinha.recovery import recover
@@ -22,6 +22,24 @@ def mount_table(*mounts):
 
 
 class FilesystemDetectionTests(unittest.TestCase):
+    def test_volatile_inode_policy_uses_each_device_including_nested_mounts(self):
+        table = mount_table(('/', 'ext4'), ('/mnt/source', 'exfat'),
+                            ('/mnt/source/nested', 'ext4'), ('/mnt/fat', 'vfat'), ('/mnt/dos', 'msdos'))
+        with patch('sambinha.filesystems._MOUNTINFO') as info:
+            info.read_text.return_value = table
+            self.assertEqual(volatile_inode_devices(), {os.makedev(0, i) for i in (2, 4, 5)})
+
+    def test_unknown_ambiguous_or_unavailable_inode_policy_retains_strict_validation(self):
+        with patch('sambinha.filesystems._MOUNTINFO') as info:
+            for table in ('invalid', '1 0 0:1 / / rw -', '1 0 bad / / rw - exfat device rw',
+                          mount_table(('/', 'fuse.exfat')), mount_table(('/', 'ext4')) + '\n' +
+                          mount_table(('/mnt/other', 'exfat'))):
+                with self.subTest(table=table):
+                    info.read_text.return_value = table
+                    self.assertEqual(volatile_inode_devices(), frozenset())
+            info.read_text.side_effect = OSError('unavailable')
+            self.assertEqual(volatile_inode_devices(), frozenset())
+
     def test_native_fat_skips_link_scan_unless_a_submount_can_contain_links(self):
         for filesystem in ('exfat', 'vfat', 'msdos'):
             table = mount_table(("/", "ext4"), ("/mnt/backup", filesystem))

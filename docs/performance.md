@@ -53,6 +53,10 @@ A comparison on 2026-10-15 against commit `b9402f7` (Python 3.12.3, rclone v1.60
 
 In the synthetic measured runs, HTTP calls fell from 922–932 to 421; in the exFAT sample, from 546–556 to 199. The same ordered paths, full metadata, selected-directory sets and fingerprint-cache signatures were checked. Other tests overlapped the synthetic measurement; the exFAT measurement ran separately. These are warmed-cache samples under ambient host load, not a cold-disk or full-source benchmark. [Raw timings and results](benchmarks/inventory-2026-10-15.json).
 
+## exFAT/FAT identity correction (0.14.3)
+
+The combined sequential traversal remains in place. Native FAT/exFAT may renumber an inode after the object leaves the kernel cache, so an older discovery inode is not a persistent identity. Known native devices allow only that inode field to differ before opening if every other observed metadata field agrees. Directories use their open descriptors as the baseline for final pathname checks. Files remain open through inspection and final checks; metadata-only scans use `O_PATH` and never read file contents. Hash mode can reuse cached fingerprints only with an exact signature match to the opened file; renumbered inodes cause rehashing. Mount information is consulted only for otherwise identical observations with differing historical inodes; nested mounts use their own device policy. No concurrency or additional recursive source pass is introduced. The performance numbers above are historical 0.14.2 measurements, not a new timing claim for 0.14.3. See [source identity checks and diagnostics](usage.md#exfatfat-source-identities).
+
 ## Uniform compression defaults
 
 Every file uses `compression_level = 3` and `compression_threads = 2`, configurable per job. Levels range from 0–9 and threads from 1–64; actual parallelism depends on the 7-Zip format/algorithm. Extensions do not choose compression or batch boundaries. Replace obsolete category settings; intact groups retain their archive revisions.

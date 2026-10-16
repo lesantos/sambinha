@@ -1,5 +1,11 @@
 # Sambinha changes
 
+## 0.14.3 — 2026-10-15
+
+Fix false source-change errors when native exFAT/FAT reassigns an unpinned inode number between discovery and opening a file or directory. Detect affected devices from the current mount namespace, including nested mounts; accept only an inode-only difference with matching device, type, size, mtime, ctime and mode. Unknown or ambiguous filesystem information keeps strict validation.
+
+Use the opened descriptor as the directory baseline until its pathname is rechecked. Pin files through metadata/hash inspection and final descriptor/path checks; simple mode uses `O_PATH` and never reads contents. Keep strict identity checks while objects are open and conservative inode-based fingerprint-cache reuse. Error messages now include the comparison stage and complete before/after observations. Source symlinks remain ignored, and discovery stays sequential. Add inode-renumbering, replacement, diagnostics, descriptor-cleanup and device-detection regressions; validate a controlled historical-inode change on a real read-only exFAT mount.
+
 ## 0.14.2 — 2026-10-15
 
 Combine native filtered discovery and batch inventory in one sequential mtime/name DFS walk, inspecting files as each directory is discovered. Use open directory descriptors and no-follow relative operations instead of repeating ancestor-link checks for every file. Source symlinks, including directory links, broken links and cycles, remain ignored; their targets are never inventoried or copied through the link. Preserve hash-cache signatures, race detection, native exclusions and complete-inventory publication guards.

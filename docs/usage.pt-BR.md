@@ -196,6 +196,14 @@ O rclone normalmente ignora links. O Sambinha usa `--skip-links` para suprimir a
 Raízes do destino, caminhos de metadados/estado/trava e a saída da restauração continuam protegidos contra redirecionamento por links. A substituição fica limitada aos dados abaixo da raiz do job; os componentes dos diretórios são abertos sem seguir links durante a preparação. Membros inseguros em lotes e alterações concorrentes detectadas nos caminhos continuam causando erro explícito.
 
 
+## Identidade da origem em exFAT/FAT
+
+O exFAT/FAT nativo pode atribuir outro número de inode quando um objeto sai do cache do kernel e é consultado novamente. Desde a 0.14.3, um diretório ou arquivo da origem não é considerado alterado apenas porque seu inode difere de uma observação antiga da descoberta, quando o dispositivo é reconhecido como `exfat`, `vfat` ou `msdos` nativo. Dispositivo, tipo, tamanho, datas de modificação/alteração e permissões ainda precisam coincidir. A detecção usa os dispositivos de `/proc/self/mountinfo`; uma montagem interna tem sua própria política de filesystem. Informações desconhecidas, ambíguas ou indisponíveis mantêm a validação estrita.
+
+Depois da abertura, o descritor fornece a identidade de referência do diretório até conferir novamente seu caminho. Arquivos permanecem mantidos abertos até concluir metadados/hashes e a validação final do descritor/caminho. O modo simples usa `O_PATH` sem ler conteúdo; o modo hash mantém um descritor de leitura, e hashes válidos no cache continuam dispensando leituras de conteúdo. Links continuam ignorados e nenhum dado da origem é alterado. Mudanças de identidade enquanto os descritores estão abertos, alterações de metadados e substituições por links são rejeitadas. Uma mudança de inode entre execuções invalida os fingerprints correspondentes e provoca cálculo de hashes, sem confiar apenas em tamanho/data. A comparação simples por tamanho/data continua sem detectar uma alteração de conteúdo que preserve ambos.
+
+Os diagnósticos de alteração da origem incluem `stage` (`open`, `descriptor` ou `path`) e valores `before`/`after` de dispositivo, inode, tipo, tamanho, mtime, ctime e permissões. Isso distingue uma observação antiga da descoberta de uma mudança detectada com o objeto aberto. O nível de log `summary` registra esses erros sem exigir logs detalhados por arquivo. Não é necessária opção no TOML nem migração do backup.
+
 ## Lotes e recuperação na versão 0.13.0
 
 Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.

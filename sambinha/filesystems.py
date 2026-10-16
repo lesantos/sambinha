@@ -1,4 +1,5 @@
-"""Read-only detection of destinations with native POSIX file attributes."""
+"""Read-only filesystem capabilities from the current mount namespace."""
+import os
 from pathlib import Path
 import re
 
@@ -13,6 +14,33 @@ _POSIX_FILESYSTEMS = frozenset({
 })
 _MOUNTINFO = Path("/proc/self/mountinfo")
 _NO_SYMLINK_FILESYSTEMS = frozenset({"exfat", "vfat", "msdos"})
+
+
+def volatile_inode_devices():
+    """Native FAT/exFAT synthesize inode numbers that can change after eviction.
+
+    Identify devices rather than source roots so nested mounts keep their own
+    policy. Missing, unknown or ambiguous information retains strict checks.
+    This is consulted only when an old observation differs solely by inode.
+    """
+    try:
+        table = _MOUNTINFO.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return frozenset()
+    devices = {}
+    for line in table.splitlines():
+        fields = line.split()
+        try:
+            separator = fields.index("-")
+            if separator < 6:
+                continue
+            major, minor = map(int, fields[2].split(":"))
+            device = os.makedev(major, minor)
+            kind = fields[separator + 1]
+            devices.setdefault(device, set()).add(kind)
+        except (ValueError, IndexError, OverflowError):
+            continue
+    return frozenset(device for device, kinds in devices.items() if kinds <= _NO_SYMLINK_FILESYSTEMS)
 
 
 def supports_posix_metadata(destination):

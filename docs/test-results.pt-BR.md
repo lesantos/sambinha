@@ -1,6 +1,12 @@
-# Resultados dos testes do Sambinha 0.14.2
+# Resultados dos testes do Sambinha 0.14.3
 
 [English](test-results.md)
+
+## Validação da versão 0.14.3
+
+Os 41 testes focados de inventário/filesystem/metadados/estado passaram. As novas regressões exercitam mudança histórica de inode em diretórios/arquivos, consultas avulsas de metadados/hashes, invalidação de fingerprints após mudança de inode, alterações detectadas com arquivos/diretórios mantidos abertos, substituições com tamanho/data iguais, manutenção das operações sem seguir links, valores antes/depois no diagnóstico, fechamento de descritores em falhas e políticas conservadoras por dispositivo em montagens desconhecidas, ambíguas e internas.
+
+Um teste controlado na montagem exFAT real somente leitura forneceu um inode antigo diferente para `lu`, preservando seus metadados reais: o wheel da 0.14.2 rejeitou o caso com o erro de alteração de diretório relatado, e a 0.14.3 o aceitou usando o descritor aberto como referência. Um arquivo real da origem também passou pelo cálculo de hash após simulação de uma mudança apenas no inode histórico. Isso valida o cenário sem alterar dados da origem nem afirmar que os valores não registrados da execução original foram recuperados. Os resultados da suíte completa, cobertura, pacotes e CI ficam nas notas do release.
 
 ## Validação da versão 0.14.2
 

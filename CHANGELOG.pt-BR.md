@@ -1,5 +1,11 @@
 # Novidades do Sambinha
 
+## 0.14.3 — 2026-10-15
+
+Corrigir falsos erros de alteração da origem quando exFAT/FAT nativo atribui outro inode entre a descoberta e a abertura de um arquivo ou diretório ainda não mantido aberto. Identificar os dispositivos afetados pela tabela de montagens atual, incluindo montagens internas; aceitar somente diferença no inode quando dispositivo, tipo, tamanho, mtime, ctime e permissões coincidem. Informações de filesystem desconhecidas ou ambíguas mantêm a validação estrita.
+
+Usar o descritor aberto como referência do diretório até conferir novamente seu caminho. Manter arquivos abertos durante a análise de metadados/hashes e as checagens finais do descritor/caminho; o modo simples usa `O_PATH` e nunca lê conteúdo. Preservar comparação estrita de identidade enquanto os objetos estão abertos e reaproveitamento conservador de fingerprints por inode. Mensagens de erro passam a incluir a etapa da comparação e os valores completos antes/depois. Links da origem continuam ignorados, e a descoberta continua sequencial. Adicionar regressões de mudança de inode, substituições, diagnóstico, fechamento de descritores e detecção por dispositivo; validar uma mudança controlada de inode histórico em uma montagem exFAT real somente leitura.
+
 ## 0.14.2 — 2026-10-15
 
 Unificar descoberta com filtros nativos e inventário batch em um percurso sequencial DFS por data/nome, analisando os arquivos conforme cada diretório é descoberto. Usar descritores de diretórios abertos e operações relativas sem seguir links, em vez de repetir verificações dos ancestrais para cada arquivo. Links simbólicos na origem, incluindo diretórios ligados, links quebrados e ciclos, continuam ignorados; seus alvos nunca são inventariados ou copiados através do link. Preservar assinaturas do cache de hashes, detecção de alterações concorrentes, exclusões nativas e confirmação somente após inventário completo.
