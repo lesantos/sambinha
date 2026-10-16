@@ -75,6 +75,8 @@ check_destination_disk = true
 # When THIS job fails, true continues the next jobs; false stops the invocation.
 continue_on_job_error = true
 # Batch settings, if this job is changed to logic = "batch"
+# Optional temporary directory on another disk; it must exist and be writable.
+# temp_dir = "/mnt/ssd/sambinha-tmp"
 # max_megabytes = 1024
 # compressor = "7z"
 # archive_format = "7z"
@@ -113,6 +115,8 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
+# Optional temporary directory on another disk; it must exist and be writable.
+# temp_dir = "/mnt/ssd/sambinha-tmp"
 compression_level = 3
 compression_threads = 2
 # Dedicated archive at this % of max_megabytes; keep normal batch open.

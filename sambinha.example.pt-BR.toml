@@ -75,6 +75,8 @@ check_destination_disk = true
 # Se ESTE job falhar, true continua os próximos; false interrompe a execução.
 continue_on_job_error = true
 # Configurações de lotes, se esta tarefa mudar para logic = "batch"
+# Diretório temporário opcional em outro disco; deve existir e permitir gravação.
+# temp_dir = "/mnt/ssd/sambinha-tmp"
 # max_megabytes = 1024
 # compressor = "7z"
 # archive_format = "7z"
@@ -113,6 +115,8 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
+# Diretório temporário opcional em outro disco; deve existir e permitir gravação.
+# temp_dir = "/mnt/ssd/sambinha-tmp"
 compression_level = 3
 compression_threads = 2
 # Individual a partir deste % do max_megabytes; mantém o lote normal aberto.

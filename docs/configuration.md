@@ -22,7 +22,7 @@ Each simple job has an absolute `max_delete` limit (default 100), passed to rclo
 
 By default, source and local destination disks are checked before the backup and before transfers/deletions. Occupancy **above 95%** produces an error; exactly 95% is accepted. Batch temporary storage is also checked. S3 buckets do not expose a local disk occupancy percentage.
 
-Batch creation also checks available temporary bytes for the largest simultaneous actual batches before starting workers, then rechecks each batch before staging originals. Validated snapshots are removed before upload, and a batch failure stops pending work. See [temporary space and concurrency](performance.md).
+Batch creation checks estimated temporary space before starting workers and again before creating each archive. The compressor reads directly from the source and validates configured metadata/content before and after the read. Batches exceeding `max_megabytes` run one at a time. Set the per-job `temp_dir` to use another disk; the directory must already exist and be writable. Without it, Python's default temporary directory is used. See [temporary space and concurrency](performance.md).
 
 Metadata and logs use private permissions. Relative paths and indexes are validated before retention or recovery. Known secrets are redacted from errors, logs and telemetry. Retries are bounded: one attempt and up to three retries, two seconds apart.
 
@@ -216,6 +216,7 @@ fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
+temp_dir = "/mnt/ssd/sambinha-tmp" # Optional; existing writable directory for this job.
 
 compression_level = 3
 compression_threads = 2

@@ -96,6 +96,8 @@ def _validate_job(job: Job, seen: set[str]):
 
 
 def _validate_job_paths(config: Config, job: Job):
+    if job.temp_dir is not None and not isinstance(job.temp_dir, Path):
+        raise ConfigError("temp_dir deve indicar um caminho")
     if job.exclude_files is not None and not isinstance(job.exclude_files, Path):
         raise ConfigError("exclude_files deve indicar um caminho")
     for name in ("source_mount", "destination_mount"):

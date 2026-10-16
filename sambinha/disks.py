@@ -1,9 +1,19 @@
 """Reject local filesystems above 95 percent occupancy before writes."""
 from pathlib import Path
+import os
 import shutil
 import tempfile
 
 from .errors import BackupError
+
+
+def get_temporary_path(job):
+    if job.temp_dir is None:
+        return tempfile.gettempdir()
+    directory = Path(job.temp_dir)
+    if not directory.is_dir() or not os.access(directory, os.W_OK | os.X_OK):
+        raise BackupError(f"Diretório temporário configurado não existe ou não permite gravação: {directory}")
+    return directory
 
 
 def check_disk(path, label, event=None, *, required_bytes=0):
@@ -35,4 +45,5 @@ def check_disks(job, event=None, *, temporary_path=None, check_temporary=True, c
     if job.type == "local" and job.check_destination_disk:
         check_disk(job.destination, "destino", event)
     if job.logic == "batch" and check_temporary:
-        check_disk(tempfile.gettempdir() if temporary_path is None else temporary_path, "temporários", event)
+        path = temporary_path if temporary_path is not None else get_temporary_path(job)
+        check_disk(path, "temporários", event)

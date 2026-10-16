@@ -346,7 +346,7 @@ Cada job simples configura `max_delete` (padrão 100), limite absoluto passado a
 
 Por padrão, discos da origem e do destino local geram erro com ocupação **acima de 95%**; exatamente 95% é aceito. Espaço indisponível à conta também entra na ocupação. Os discos temporários dos lotes e a saída de restauração são verificados. Um bucket S3 não oferece porcentagem de ocupação de disco local. Há verificações antes do backup e antes de transferências/exclusões, e eventos `disk_usage` registram espaço livre e ocupação.
 
-A criação de lotes também confere os bytes temporários disponíveis para os maiores lotes reais simultâneos antes de iniciar os workers e novamente antes de copiar cada lote. Cópias dos originais validadas são removidas antes do envio, e falhas interrompem os lotes pendentes. Veja [espaço temporário e concorrência](performance.pt-BR.md).
+A criação de lotes também confere o espaço estimado para os maiores lotes simultâneos antes de iniciar os workers e novamente antes de criar cada arquivo compactado. O compressor lê diretamente da origem e valida os metadados/conteúdo configurados antes e depois da leitura. Lotes acima de `max_megabytes` são processados um por vez. Configure `temp_dir` no job para usar outro disco; o caminho deve existir e permitir gravação. Sem essa opção, usa-se o diretório temporário padrão do Python. Veja [espaço temporário e concorrência](performance.pt-BR.md).
 
 Cada tarefa emite `summary`: arquivos novos, modificados, removidos e intactos, lotes reutilizados/recriados, bytes originais previstos, bytes de conteúdo realmente transferidos, histórico pendente e sucesso. Compactação pode mudar a quantidade de bytes enviados; controles e índice não entram nessa medida de conteúdo.
 
@@ -364,6 +364,7 @@ fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
+temp_dir = "/mnt/ssd/sambinha-tmp" # Opcional; diretório existente para temporários deste job.
 
 compression_level = 3
 compression_threads = 2

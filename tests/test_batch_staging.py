@@ -26,13 +26,15 @@ class BatchContext:
         for index in range(count):
             self.file(f'{index}.bin', b'contents')
         job = replace(self.config.jobs[0], type='s3', logic='batch',
-                      destination='aws:fake-bucket/', max_megabytes=1 / MIB,
+                      destination='aws:fake-bucket/', max_megabytes=1,
                       check_source_disk=False, check_destination_disk=False)
         config = replace(self.config, jobs=(replace(job, batch_workers=workers),))
         job = config.jobs[0]
         files = scan(self.source)
         ctx = Context(config, job, Runner(), Mock(), files, 1000)
-        pending = plan(files, job.max_bytes)
+        # Keep one tiny file per test batch while the configured size limit is
+        # large enough that these batches are not treated as oversized.
+        pending = plan(files, 1)
         active = {item.key: item.control() for item in pending}
         return ctx, pending, active
 
@@ -111,8 +113,12 @@ class BatchStagingTests(BatchContext, Sandbox):
         # Each batch fits alone; two do not, despite occupancy below 95%.
         with patch('shutil.disk_usage', return_value=Usage(20 * MIB, 18.5 * MIB, 1.5 * MIB)), \
              patch.object(strategy, 'upload_batch') as upload:
-            with self.assertRaisesRegex(BackupError, 'Espaço insuficiente.*necessários.*disponíveis'):
+            with self.assertRaisesRegex(BackupError, 'Espaço insuficiente.*necessários.*disponíveis') as error:
                 strategy._upload_pending(ctx, pending, active)
+        self.assertIn('lotes que definem a estimativa', str(error.exception))
+        self.assertIn('maiores arquivos:', str(error.exception))
+        self.assertIn('0.bin (8 bytes)', str(error.exception))
+        self.assertIn('1.bin (8 bytes)', str(error.exception))
         upload.assert_not_called()
         self.assertFalse(ctx.state_path.exists())
 
@@ -129,7 +135,7 @@ class BatchStagingTests(BatchContext, Sandbox):
              patch.object(strategy, 'upload_batch', side_effect=lambda c, item: (item.control(), [])):
             strategy._upload_pending(ctx, pending, active)
 
-    def test_space_is_rechecked_before_copying_originals(self):
+    def test_space_is_rechecked_before_creating_archive(self):
         ctx, pending, active = self.context(workers=1)
         staging = self.root / 'staging'
         staging.mkdir()
@@ -141,12 +147,22 @@ class BatchStagingTests(BatchContext, Sandbox):
             return Usage(100 * MIB, 10 * MIB, 90 * MIB) if calls == 1 else Usage(10 * MIB, 9.4 * MIB, 0.6 * MIB)
 
         with patch('tempfile.tempdir', str(staging)), patch('shutil.disk_usage', side_effect=usage), \
-             patch('sambinha.archives.shutil.copy2') as copy, patch.object(Storage, 'put') as put:
+             patch.object(Storage, 'put') as put:
             with self.assertRaisesRegex(BackupError, 'Espaço insuficiente'):
                 strategy._upload_pending(ctx, pending, active)
-        copy.assert_not_called()
         put.assert_not_called()
         self.assertEqual(list(staging.iterdir()), [])
+
+    def test_oversized_batches_run_one_at_a_time(self):
+        ctx, pending, active = self.context(workers=3, count=4)
+        ctx.job = replace(ctx.job, max_megabytes=1 / MIB)
+        pending = [replace(item, files=(replace(item.files[0], size=2 * MIB),)) for item in pending]
+        active = {item.key: item.control() for item in pending}
+        with patch.object(strategy, 'check_disk'), patch.object(strategy, 'upload_batch',
+                side_effect=lambda c, item: (item.control(), [])) as upload:
+            strategy._upload_pending(ctx, pending, active)
+        self.assertEqual(upload.call_count, len(pending))
+        self.assertEqual(upload.call_args_list[0].args[1], pending[0])
 
 
 @skipUnless(REAL_TOOLS, 'rclone and 7z required')
@@ -208,7 +224,7 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
         self.assertEqual(len(list(self.source.iterdir())), 9)
         self.assertFalse(ctx.state_path.exists())
 
-    def test_snapshot_is_not_released_before_archive_members_pass_validation(self):
+    def test_direct_source_archive_is_rejected_if_member_listing_is_invalid(self):
         ctx, pending, active = self.context(count=1)
         work = self.root / 'work'
         work.mkdir()
@@ -222,5 +238,5 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
         with patch.object(ctx.runner, 'run', run):
             with self.assertRaisesRegex(BackupError, 'Lote incompleto'):
                 compress(ctx, pending[0], work)
-        self.assertTrue((work / 'snapshot' / pending[0].files[0].path).is_file())
+        self.assertFalse((work / 'snapshot').exists())
         self.assertTrue((work / 'archive.7z').is_file())

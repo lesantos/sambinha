@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.14.4 — 2026-10-16
+
+Build batch archives directly from source files, removing the temporary copy of originals and reducing staging to approximately one archive per worker. Validate the source before and after compression and stop upload if files differ from the inventory. Process batches exceeding `max_megabytes` one at a time. Add per-job `temp_dir` to select an existing temporary directory on another disk, with relative paths resolved from the TOML file, and update diagnostics, examples and documentation.
+
 ## 0.14.3 — 2026-10-15
 
 Fix false source-change errors when native exFAT/FAT reassigns an unpinned inode number between discovery and opening a file or directory. Detect affected devices from the current mount namespace, including nested mounts; accept only an inode-only difference with matching device, type, size, mtime, ctime and mode. Unknown or ambiguous filesystem information keeps strict validation.

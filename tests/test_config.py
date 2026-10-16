@@ -27,6 +27,22 @@ class ConfigurationTests(Sandbox):
         self.assertTrue(config.jobs[0].continue_on_job_error)
         self.assertTrue(config.jobs[0].check_source_disk)
         self.assertTrue(config.jobs[0].check_destination_disk)
+        self.assertIsNone(config.jobs[0].temp_dir)
+
+    def test_temp_dir_is_job_scoped_and_relative_to_config(self):
+        jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'
+                'temp_dir="/mnt/fast/tmp"\n'
+                '[[jobs]]\nname="second"\nsource="source"\ndestination="second"\n')
+        config = load(self.toml(jobs=jobs))
+        self.assertEqual(config.jobs[0].temp_dir, Path('/mnt/fast/tmp'))
+        self.assertIsNone(config.jobs[1].temp_dir)
+        config = load(self.toml(jobs=jobs.replace('/mnt/fast/tmp', './fast-tmp')))
+        self.assertEqual(config.jobs[0].temp_dir, self.root / 'fast-tmp')
+
+    def test_temp_dir_rejects_non_path_values(self):
+        for value in (False, 0, []):
+            with self.subTest(value=value), self.assertRaisesRegex(ConfigError, 'temp_dir'):
+                validate(replace(self.config, jobs=(replace(self.config.jobs[0], temp_dir=value),)))
 
     def test_disk_checks_and_failure_policy_load_from_toml(self):
         jobs = ('[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\n'

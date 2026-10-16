@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.14.4 — 2026-10-16
+
+Criar lotes diretamente dos arquivos na origem, eliminando a cópia temporária dos originais e reduzindo o espaço de staging para aproximadamente um arquivo compactado por worker. Validar a origem antes e depois da compactação e interromper o envio se os arquivos divergirem do inventário. Processar lotes que excedem `max_megabytes` um por vez. Adicionar `temp_dir` por job para escolher um diretório temporário existente em outro disco, com caminho relativo ao TOML, além de atualizar diagnósticos, exemplos e documentação.
+
 ## 0.14.3 — 2026-10-15
 
 Corrigir falsos erros de alteração da origem quando exFAT/FAT nativo atribui outro inode entre a descoberta e a abertura de um arquivo ou diretório ainda não mantido aberto. Identificar os dispositivos afetados pela tabela de montagens atual, incluindo montagens internas; aceitar somente diferença no inode quando dispositivo, tipo, tamanho, mtime, ctime e permissões coincidem. Informações de filesystem desconhecidas ou ambíguas mantêm a validação estrita.

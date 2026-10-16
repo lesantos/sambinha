@@ -1,7 +1,6 @@
-"""Snapshot, compress and validate a batch before any upload."""
+"""Compress and validate a batch directly from its source before upload."""
 from pathlib import Path
 import json
-import shutil
 
 from .errors import BackupError
 from .disks import check_disk
@@ -11,38 +10,31 @@ from .profiles import settings
 
 
 def temporary_bytes(batch):
-    """Estimate originals plus an incompressible archive and staging overhead."""
+    """Estimate one incompressible archive plus staging overhead."""
     metadata = len(json.dumps(batch.control(), ensure_ascii=False).encode("utf-8"))
     overhead = max(1024 ** 2, 16384 * len(batch.files) + 2 * metadata)
-    return 2 * sum(item.size for item in batch.files) + overhead
+    return sum(item.size for item in batch.files) + overhead
 
 
 def compress(ctx, batch, work: Path):
     check_disk(work, "temporários", required_bytes=temporary_bytes(batch))
-    snapshot = work / "snapshot"
-    snapshot.mkdir()
-    preparing = ctx.progress.scope(0, 0.2) if ctx.progress else None
-    for index, item in enumerate(batch.files):
-        if preparing:
-            preparing.update("Preparando lote", (ctx.job.source / item.path).parent, index, len(batch.files))
-        source, target = ctx.source / item.path, snapshot / item.path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target, follow_symlinks=False)
-    verify(snapshot, list(batch.files), mode=ctx.job.verification_mode,
-           progress=ctx.progress.scope(0.2, 0.25) if ctx.progress else None)
+    # Validate both sides of the read: the inventory must still match before
+    # 7-Zip opens source paths and after it has finished reading them.
     verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
-           progress=ctx.progress.scope(0.25, 0.3) if ctx.progress else None)
+           progress=ctx.progress.scope(0, 0.1) if ctx.progress else None)
     archive = work / ("archive." + ctx.job.archive_format)
     listing = work / "files.txt"
     listing.write_text("".join(f"./{f.path}\n" for f in batch.files), encoding="utf-8")
     # @listfile and -spd prevent option/wildcard interpretation of filenames.
     kind, level, threads = settings(ctx.job, batch.files)
     directory = (ctx.job.source / batch.files[0].path).parent
-    show_progress(ctx.runner, ctx.progress.scope(0.3, 0.6) if ctx.progress else None)
+    show_progress(ctx.runner, ctx.progress.scope(0.1, 0.7) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,
                     "-scsUTF-8", "-spd", "-spf", f"-mx={level}", f"-mmt={threads}",
-                    str(archive), "@" + str(listing)], cwd=snapshot, progress_directory=directory)
-    show_progress(ctx.runner, ctx.progress.scope(0.6, 0.7) if ctx.progress else None)
+                    str(archive), "@" + str(listing)], cwd=ctx.source, progress_directory=directory)
+    verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
+           progress=ctx.progress.scope(0.7, 0.8) if ctx.progress else None)
+    show_progress(ctx.runner, ctx.progress.scope(0.8, 0.9) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "t", str(archive)])
     listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])
     members = {}
@@ -55,6 +47,5 @@ def compress(ctx, batch, work: Path):
             members[name] = int(fields["Size"])
     if members != {f.path: f.size for f in batch.files}:
         raise BackupError("Lote incompleto ou caminhos incorretos; envio interrompido")
-    # Uploads need only the validated immutable archive, not the source copy.
-    shutil.rmtree(snapshot)
+    # Upload only after the source still matches the inventoried batch.
     return archive

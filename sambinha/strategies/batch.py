@@ -9,7 +9,7 @@ import threading
 from ..archives import compress, temporary_bytes
 from ..batches import plan
 from ..context import Context
-from ..disks import check_disk, check_disks
+from ..disks import check_disk, check_disks, get_temporary_path
 from ..errors import BackupError
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
@@ -33,7 +33,7 @@ def upload_batch(ctx, item):
     worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
     show_progress(worker.runner, worker.progress)
     worker.storage = Storage(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
-    with tempfile.TemporaryDirectory(prefix="sambinha-batch-") as temp:
+    with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.job.temp_dir) as temp:
         check_disks(ctx.job, check_source=not ctx.rebalancing)
         archive = compress(worker, item, Path(temp))
         compressed = fingerprint(Path(temp), archive.name)
@@ -149,11 +149,30 @@ def _pending_uploads(ctx, batches, old, active):
 
 def _upload_pending(ctx, pending, active):
     if pending:
-        workers = min(ctx.job.batch_workers, len(pending))
+        # A dedicated oversized batch can consume a whole alternate disk by
+        # itself. Do not overlap it with any other staging/archive file.
+        oversized = any(sum(file.size for file in item.files) > ctx.job.max_bytes for item in pending)
+        workers = 1 if oversized else min(ctx.job.batch_workers, len(pending))
         # Check the largest possible simultaneous staging demand, including
         # dedicated files and existing groups exceeding the configured limit.
-        required = sum(sorted((temporary_bytes(item) for item in pending), reverse=True)[:workers])
-        check_disk(tempfile.gettempdir(), "temporários", ctx.event, required_bytes=required)
+        largest = sorted(((temporary_bytes(item), item) for item in pending),
+                         key=lambda entry: entry[0], reverse=True)[:workers]
+        required = sum(size for size, _ in largest)
+        try:
+            check_disk(get_temporary_path(ctx.job), "temporários", ctx.event, required_bytes=required)
+        except BackupError as exc:
+            if "Espaço insuficiente" not in str(exc):
+                raise
+            details = []
+            for staging_bytes, item in largest:
+                files = sorted(item.files, key=lambda file: file.size, reverse=True)
+                largest_files = ", ".join(f"{file.path} ({file.size} bytes)" for file in files[:3])
+                if len(files) > 3:
+                    largest_files += f", +{len(files) - 3} arquivos"
+                details.append(f"{item.key}: staging estimado {staging_bytes} bytes; "
+                               f"originais {sum(file.size for file in item.files)} bytes; "
+                               f"maiores arquivos: {largest_files}")
+            raise BackupError(f"{exc}; lotes que definem a estimativa: " + " | ".join(details)) from exc
         scopes = (ctx.progress.scope(0.1, 0.85).parallel(
             [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
         ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes)}

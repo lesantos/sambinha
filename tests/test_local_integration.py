@@ -298,16 +298,17 @@ class LocalIntegrationTests(Sandbox):
         self.assertEqual(self.execute(), 0)
         self.assert_complete()
 
-    def test_source_changed_while_snapshotting_aborts_before_upload(self):
+    def test_source_changed_during_direct_compression_aborts_before_upload(self):
         self.file('a', b'old')
         self.file('b', b'old')
         self.use_batch()
-        original = shutil.copy2
-        def changed(source, target, **kwargs):
-            result = original(source, target, **kwargs)
-            Path(source).write_bytes(b'changed')
+        original = Runner.run
+        def changed(runner, arguments, **kwargs):
+            result = original(runner, arguments, **kwargs)
+            if len(arguments) > 1 and arguments[1] == 'a':
+                (self.source / 'a').write_bytes(b'changed')
             return result
-        with patch('sambinha.archives.shutil.copy2', changed):
+        with patch.object(Runner, 'run', changed):
             self.assertEqual(self.execute(), 1)
         self.assertFalse(self.destination.exists())
 

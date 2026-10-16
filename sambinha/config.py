@@ -32,6 +32,7 @@ class Job:
     batch_size_alert_percent: float = 200
     compressor: str = "7z"
     archive_format: str = "7z"
+    temp_dir: Path | None = None
     exclude_files: Path | None = None
     source_mount: Path | None = None
     destination_mount: Path | None = None
@@ -172,6 +173,9 @@ def load(path: Path, overrides: dict | None = None) -> Config:
                 continue
             raw.update({k: v for k, v in overrides.items() if k in job_keys})
             raw["source"] = local_path(raw["source"], base, environment)
+            temporary_directory = raw.get("temp_dir")
+            raw["temp_dir"] = (local_path(temporary_directory, base, environment)
+                               if temporary_directory is not None and temporary_directory != "" else None)
             exclude_file = raw.get("exclude_files")
             raw["exclude_files"] = local_path(exclude_file, base, environment) if exclude_file is not None and exclude_file != "" else None
             for name in ("source_mount", "destination_mount"):
