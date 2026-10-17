@@ -14,7 +14,8 @@ from .secrets import expand, read_environment
 JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "version_days", "log_retention_days",
                                 "log_file_level", "log_terminal_level", "deletion_alert_threshold",
                                 "verify_interval_days", "verification_mode", "fingerprint_cache",
-                                "fingerprint_full_scan_days", "transfer_workers", "batch_workers", "dry_run"})
+                                "fingerprint_full_scan_days", "verify_source_changes",
+                                "transfer_workers", "batch_workers", "dry_run"})
 JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
 
 
@@ -54,6 +55,7 @@ class Job:
     verification_mode: str = "simple"
     fingerprint_cache: bool = True
     fingerprint_full_scan_days: int = 7
+    verify_source_changes: bool = True
     transfer_workers: int = 4
     batch_workers: int = 2
     dry_run: bool = False
@@ -88,6 +90,7 @@ class Config:
     fingerprint_cache: bool | None = field(default=None, repr=False, compare=False)
     verification_mode: str | None = field(default=None, repr=False, compare=False)
     fingerprint_full_scan_days: int | None = field(default=None, repr=False, compare=False)
+    verify_source_changes: bool | None = field(default=None, repr=False, compare=False)
     transfer_workers: int | None = field(default=None, repr=False, compare=False)
     batch_workers: int | None = field(default=None, repr=False, compare=False)
     log_file_level: str | None = field(default=None, repr=False, compare=False)

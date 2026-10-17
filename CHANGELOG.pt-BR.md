@@ -1,5 +1,13 @@
 # Novidades do Sambinha
 
+## 0.14.7 — 2026-10-16
+
+Adicionar `verify_source_changes` por job para controlar checagens de consistência durante a leitura/cópia dos arquivos de origem. Quando ativada, retentar alterações concorrentes até três vezes após a tentativa inicial e falhar o backup se persistirem. Manter a opção ativada por padrão na configuração do aplicativo e nos exemplos; desativá-la na configuração local do Sambinha. Documentar a diferença e cobrir retentativas e desativação.
+
+## 0.14.6 — 2026-10-16
+
+Para arquivos individuais grandes com extensões de formatos compactados reconhecidos, enviar o arquivo original diretamente e restaurá-lo/verificá-lo sem compactá-lo novamente. Adicionar regressões do planejador e de restauração local completa.
+
 ## 0.14.5 — 2026-10-16
 
 Mover `temp_dir` dos jobs para a configuração compartilhada `[backup]`, junto dos outros diretórios configurados. Todos os jobs de uma configuração de backup passam a usar o mesmo diretório temporário existente e gravável; caminhos relativos são resolvidos a partir do arquivo TOML. Atualizar validação, exemplos e documentação para refletir a opção compartilhada.

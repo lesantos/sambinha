@@ -22,16 +22,19 @@ def compress(ctx, batch, work: Path):
     if batch.passthrough:
         item = batch.files[0]
         verify(ctx.source, [item], mode=ctx.job.verification_mode,
-               progress=ctx.progress.scope(0, 0.5) if ctx.progress else None)
+               progress=ctx.progress.scope(0, 0.5) if ctx.progress else None,
+               verify_source_changes=ctx.job.verify_source_changes)
         source = ctx.source / item.path
         verify(ctx.source, [item], mode=ctx.job.verification_mode,
-               progress=ctx.progress.scope(0.5, 1) if ctx.progress else None)
+               progress=ctx.progress.scope(0.5, 1) if ctx.progress else None,
+               verify_source_changes=ctx.job.verify_source_changes)
         return source
     check_disk(work, "temporários", required_bytes=temporary_bytes(batch))
     # Validate both sides of the read: the inventory must still match before
     # 7-Zip opens source paths and after it has finished reading them.
     verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
-           progress=ctx.progress.scope(0, 0.1) if ctx.progress else None)
+           progress=ctx.progress.scope(0, 0.1) if ctx.progress else None,
+           verify_source_changes=ctx.job.verify_source_changes)
     archive = work / ("archive." + ctx.job.archive_format)
     listing = work / "files.txt"
     listing.write_text("".join(f"./{f.path}\n" for f in batch.files), encoding="utf-8")
@@ -43,7 +46,8 @@ def compress(ctx, batch, work: Path):
                     "-scsUTF-8", "-spd", "-spf", f"-mx={level}", f"-mmt={threads}",
                     str(archive), "@" + str(listing)], cwd=ctx.source, progress_directory=directory)
     verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
-           progress=ctx.progress.scope(0.7, 0.8) if ctx.progress else None)
+           progress=ctx.progress.scope(0.7, 0.8) if ctx.progress else None,
+           verify_source_changes=ctx.job.verify_source_changes)
     show_progress(ctx.runner, ctx.progress.scope(0.8, 0.9) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "t", str(archive)])
     listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])

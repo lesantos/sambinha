@@ -250,6 +250,30 @@ class VolatileInodeTests(Sandbox):
              self.assertRaisesRegex(BackupError, '"after".*"before".*"stage": "descriptor"'):
             scan(self.source, mode='simple')
 
+    def test_metadata_edit_during_read_retries_and_accepts_stable_latest_version(self):
+        path = self.file('file', b'old')
+        calls = 0
+        def modified(root, relative, **kwargs):
+            nonlocal calls
+            item = metadata(root, relative, **kwargs)
+            if calls == 0:
+                path.write_bytes(b'latest')
+            calls += 1
+            return item
+        with patch('sambinha.inventory.metadata', side_effect=modified):
+            result = scan(self.source, mode='simple')
+        self.assertEqual((result[0].size, path.stat().st_size, calls), (6, 6, 2))
+
+    def test_disabled_source_change_check_skips_race_validation(self):
+        path = self.file('file', b'old')
+        def modified(root, relative, **kwargs):
+            item = metadata(root, relative, **kwargs)
+            path.write_bytes(b'changed size')
+            return item
+        with patch('sambinha.inventory.metadata', side_effect=modified):
+            result = scan(self.source, mode='simple', verify_source_changes=False)
+        self.assertEqual(result[0].size, 3)
+
     def test_hash_cache_does_not_reuse_fingerprints_after_inode_renumbering(self):
         self.file('file', b'original')
         cache, new_cache = {}, {}

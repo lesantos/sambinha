@@ -181,6 +181,7 @@ class ConfigurationTests(Sandbox):
 
     def test_invalid_new_global_values_and_cli_actions(self):
         for values in ({'verify_interval_days': -1}, {'fingerprint_cache': 'yes'},
+                       {'verify_source_changes': 'yes'},
                        {'fingerprint_full_scan_days': 0},
                        {'transfer_workers': True}, {'batch_workers': 0}):
             with self.subTest(values=values), self.assertRaises(ConfigError):

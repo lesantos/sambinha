@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.14.5** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
+Sambinha **0.14.7** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone and 7-Zip.
 
 Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
@@ -35,6 +35,7 @@ type = "local"
 logic = "simple"
 log_retention_days = 14
 verification_mode = "simple"
+verify_source_changes = true # Retry source races up to 3 times; then fail.
 max_delete = 100 # Absolute per-job limit passed to rclone sync.
 check_source_disk = true
 check_destination_disk = true

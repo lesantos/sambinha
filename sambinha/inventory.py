@@ -7,7 +7,7 @@ import os
 from pathlib import Path, PurePosixPath
 import stat
 
-from .errors import BackupError
+from .errors import BackupError, SourceChangedError
 from .filesystems import volatile_inode_devices
 
 
@@ -59,11 +59,11 @@ def _same_observation(before, after, *, historical=False):
 def _changed(kind, relative, stage, before, after):
     details = json.dumps({"stage": stage, "before": _observation(before),
                           "after": _observation(after)}, sort_keys=True)
-    raise BackupError(f"{kind} mudou durante leitura: {relative}; {details}")
+    raise SourceChangedError(f"{kind} mudou durante leitura: {relative}; {details}")
 
 
 @contextmanager
-def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=False):
+def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=False, check_changes=True):
     """Pin a no-follow file until descriptor and pathname validation finish."""
     safe_relative(relative)
     if dir_fd is None and path_has_symlink(root, relative):
@@ -76,14 +76,14 @@ def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=Fals
     fd = os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
     try:
         opened = os.fstat(fd)
-        if not _same_observation(before, opened, historical=True):
+        if check_changes and not _same_observation(before, opened, historical=True):
             _changed("Arquivo", relative, "open", before, opened)
         yield fd, opened
         after = os.fstat(fd)
-        if not _same_observation(opened, after):
+        if check_changes and not _same_observation(opened, after):
             _changed("Arquivo", relative, "descriptor", opened, after)
         current = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
-        if not _same_observation(after, current):
+        if check_changes and not _same_observation(after, current):
             _changed("Arquivo", relative, "path", after, current)
     finally:
         os.close(fd)
@@ -141,7 +141,8 @@ def path_has_symlink(root, relative, cache=None):
 
 
 def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cache_out=None,
-         mode="hash", progress=None, listing=None, selected_dirs_out=None) -> list[File]:
+         mode="hash", progress=None, listing=None, selected_dirs_out=None,
+         verify_source_changes=True) -> list[File]:
     """Discover and inspect each directory once, in mtime/name DFS order.
 
     A filtered listing supplies only direct child names from rclone. Metadata
@@ -167,22 +168,34 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
 
     def inspect(fd, relative, before):
         report(stage, directory)
-        with _source_file(root, relative, fd, before, metadata_only=mode == "simple") as (file_fd, opened):
-            if mode == "simple":
-                item = metadata(root, relative, dir_fd=fd, before=opened, file_fd=file_fd)
-            else:
-                cached = (cache or {}).get(relative)
-                if (cached and cached["signature"] == signature(opened)
-                        and cached["file"].get("sha256") and cached["file"].get("md5")):
-                    item = File(**cached["file"])
-                else:
-                    read = 0
-                    def advance(size):
-                        nonlocal read
-                        read += size
-                        report(stage, directory, read=read, size=opened.st_size)
-                    item = fingerprint(root, relative, dir_fd=fd, before=opened, file_fd=file_fd,
-                                       progress=advance if progress and progress.enabled else None)
+        attempts = 4 if verify_source_changes else 1
+        for attempt in range(attempts):
+            try:
+                if verify_source_changes:
+                    before = os.stat(relative.rsplit("/", 1)[-1], dir_fd=fd, follow_symlinks=False)
+                    if not stat.S_ISREG(before.st_mode):
+                        raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+                with _source_file(root, relative, fd, before, metadata_only=mode == "simple",
+                                  check_changes=verify_source_changes) as (file_fd, opened):
+                    if mode == "simple":
+                        item = metadata(root, relative, dir_fd=fd, before=opened, file_fd=file_fd)
+                    else:
+                        cached = (cache or {}).get(relative)
+                        if (cached and cached["signature"] == signature(opened)
+                                and cached["file"].get("sha256") and cached["file"].get("md5")):
+                            item = File(**cached["file"])
+                        else:
+                            read = 0
+                            def advance(size):
+                                nonlocal read
+                                read += size
+                                report(stage, directory, read=read, size=opened.st_size)
+                            item = fingerprint(root, relative, dir_fd=fd, before=opened, file_fd=file_fd,
+                                               progress=advance if progress and progress.enabled else None)
+                break
+            except SourceChangedError:
+                if not verify_source_changes or attempt + 1 == attempts:
+                    raise
         result.append(item)
         if cache_out is not None:
             cache_out[relative] = {"signature": signature(opened), "file": item.metadata()}
@@ -247,12 +260,20 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
     return result
 
 
-def verify(root: Path, files: list[File], *, mode="hash", progress=None):
+def verify(root: Path, files: list[File], *, mode="hash", progress=None, verify_source_changes=True):
+    if not verify_source_changes:
+        return
     for index, item in enumerate(files):
         if progress:
             progress.update("Conferindo origem", (root / item.path).parent, index, len(files))
-        actual = metadata(root, item.path) if mode == "simple" else fingerprint(root, item.path)
-        if (not same_metadata(actual, item) if mode == "simple" else actual != item):
-            raise BackupError(f"Origem alterada durante backup: {item.path}; execute novamente")
+        for attempt in range(4):
+            try:
+                actual = metadata(root, item.path) if mode == "simple" else fingerprint(root, item.path)
+                if (not same_metadata(actual, item) if mode == "simple" else actual != item):
+                    raise SourceChangedError(f"Origem alterada durante backup: {item.path}; execute novamente")
+                break
+            except SourceChangedError:
+                if attempt == 3:
+                    raise
     if progress:
         progress.update("Conferindo origem", (root / files[-1].path).parent if files else root, 1, 1)

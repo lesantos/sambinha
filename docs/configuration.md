@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.5**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.7**.
 
 ## How it protects your files
 
@@ -169,6 +169,8 @@ Or select a mode for one invocation:
 ```
 
 For batch inventories, simple mode cannot detect a content edit that preserves size and modification time. Hash mode reads contents on the first inventory and periodically thereafter. Switching batch modes can rebuild archives because their indexed metadata changes. `logic = "simple"`/`"batch"` selects the storage strategy independently of `verification_mode`. Archives and recovery controls retain checksums in both modes.
+
+Batch jobs check that source files remain stable while they are inspected and compressed. Set `verify_source_changes = false` inside a job to skip these consistency checks and let later backups pick up subsequent changes. With the default `true`, a changing file is retried up to three times after its first read; persistent changes fail the backup. This setting does not change how simple jobs use `rclone sync`.
 
 During interactive execution, stderr displays one percentage for the entire backup at the start of the line, followed by the current stage and working subdirectory. The estimate assigns equal ranges to the jobs and reserves 5% for finalization. Each job uses 20% of its range for preflight/inventory, 70% for transfers/retention and 10% for verification/completion. File/byte counters and directory queues advance within those ranges. Bulk rclone copies use the transfer percentage reported by rclone; other opaque subprocess operations use bounded elapsed-time estimates. Concurrent batches contribute by their byte weights. The percentage never decreases or restarts when changing directory, stage or job, and reaches 100% only after successful completion. Bulk copies are grouped by directory so progress names the directory being copied. Per-file events appear in JSONL or stdout only when their respective log level is `detailed`; run summaries and errors remain visible by default. Progress never enters JSON logs or stdout and is disabled when stderr is not a terminal.
 

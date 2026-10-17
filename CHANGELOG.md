@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.14.7 — 2026-10-16
+
+Add per-job `verify_source_changes` to control consistency checks while reading/copying source files. When enabled, retry source-change races up to three times after the initial attempt, then fail the backup. Keep the default enabled in application configuration and examples; disable it in the local Sambinha configuration. Document the tradeoff and cover retries and opt-out behavior.
+
 ## 0.14.6 — 2026-10-16
 
 For oversized individual batch files with recognized compressed-format extensions, upload the original file directly and restore/verify it without recompressing. Add planner and local round-trip regressions.

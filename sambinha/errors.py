@@ -6,6 +6,10 @@ class BackupError(Exception):
     """An operation could not be completed safely."""
 
 
+class SourceChangedError(BackupError):
+    """A source file or directory changed while being inspected or copied."""
+
+
 class ConfigError(BackupError):
     """Configuration violates a required constraint."""
 

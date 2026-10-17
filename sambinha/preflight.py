@@ -59,7 +59,8 @@ def _read_inventory(config, job, runner, now, reading):
     with selection.source_listing(job.source) as listing:
         files = scan(job.source, listing=listing, selected_dirs_out=selected_dirs,
                      cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
-                     mode=job.verification_mode, progress=reading)
+                     mode=job.verification_mode, progress=reading,
+                     verify_source_changes=job.verify_source_changes)
     return JobInventory(files, selected_dirs, fingerprints,
                         now if force else previous["last_full_scan"], previous)
 

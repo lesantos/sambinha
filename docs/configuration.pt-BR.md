@@ -51,7 +51,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.14.5**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.14.7**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -285,6 +285,8 @@ Isso vale para backup e verificação manual. O preflight pertence a cada job. U
 
 `verification_mode` e o cache de fingerprints aplicam-se aos inventários batch. Jobs `logic = "simple"` delegam as decisões de sincronização ao rclone: `simple` usa comparação tamanho/data; `hash` passa `--checksum`. A verificação manual usa `rclone check`.
 
+Jobs batch conferem se os arquivos de origem permanecem estáveis durante a leitura e a compactação. Defina `verify_source_changes = false` dentro do job para ignorar essas checagens e deixar as próximas alterações para backups futuros. Com o padrão `true`, um arquivo alterado é retentado até três vezes após a primeira leitura; se continuar mudando, o backup falha. Essa opção não altera o funcionamento de `rclone sync` nos jobs simples.
+
 Para comparar o conteúdo por SHA-256 e MD5, configure:
 
 ```toml
@@ -308,7 +310,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.14.5**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.14.7**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

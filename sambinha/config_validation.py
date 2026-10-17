@@ -44,7 +44,8 @@ def _validate_job(job: Job, seen: set[str]):
     if job.name in seen:
         raise ConfigError(f"Job duplicado: {job.name}")
     seen.add(job.name)
-    for name in ("check_source_disk", "check_destination_disk", "continue_on_job_error", "dry_run", "fingerprint_cache"):
+    for name in ("check_source_disk", "check_destination_disk", "continue_on_job_error", "dry_run",
+                 "fingerprint_cache", "verify_source_changes"):
         if type(getattr(job, name)) is not bool:
             raise ConfigError(f"{name} deve ser booleano: {job.name}")
     for name in ("deleted_days", "version_days", "log_retention_days", "deletion_alert_threshold", "verify_interval_days"):
