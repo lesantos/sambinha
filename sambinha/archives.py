@@ -50,14 +50,14 @@ def compress(ctx, batch, work: Path):
         # that it still matches the inventory is all compression can offer.
         verify(ctx.source, [item], mode=ctx.job.verification_mode,
                progress=ctx.progress.scope(0, 1) if ctx.progress else None,
-               verify_source_changes=ctx.job.verify_source_changes)
+               verify_source_changes=ctx.job.verify_source_changes, signatures=ctx.signatures)
         return ctx.source / item.path
     check_disk(work, "temporários", required_bytes=temporary_bytes(batch))
     # Validate both sides of the read: the inventory must still match before
     # 7-Zip opens source paths and after it has finished reading them.
     verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
            progress=ctx.progress.scope(0, 0.1) if ctx.progress else None,
-           verify_source_changes=ctx.job.verify_source_changes)
+           verify_source_changes=ctx.job.verify_source_changes, signatures=ctx.signatures)
     archive = work / ("archive." + ctx.job.archive_format)
     members = member_arguments(batch.files, work / "files.txt")
     # -spd prevents wildcard interpretation of filenames; "--" ends switch
@@ -70,7 +70,7 @@ def compress(ctx, batch, work: Path):
                     str(archive), *members], cwd=ctx.source, progress_directory=directory)
     verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
            progress=ctx.progress.scope(0.7, 0.8) if ctx.progress else None,
-           verify_source_changes=ctx.job.verify_source_changes)
+           verify_source_changes=ctx.job.verify_source_changes, signatures=ctx.signatures)
     show_progress(ctx.runner, ctx.progress.scope(0.8, 0.9) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "t", str(archive)])
     listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])

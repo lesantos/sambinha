@@ -1,0 +1,53 @@
+{
+  "after_4.1": {
+    "files": 6005,
+    "hash_large_files_s": 3.4633,
+    "hash_large_mib_per_s": 73.9,
+    "large_files": 4,
+    "large_mib_each": 64,
+    "repeats": 3,
+    "scan_hash_cold_s": 4.5187,
+    "verify_hash_full_s": 3.6941,
+    "verify_hash_full_syscalls": {
+      "fstat": 12461,
+      "open": 6464,
+      "read": 16102,
+      "stat": 12912
+    },
+    "verify_hash_with_signatures_s": 0.5688,
+    "verify_hash_with_signatures_syscalls": {
+      "fstat": 451,
+      "open": 459,
+      "stat": 6907
+    },
+    "verify_simple_s": 0.913,
+    "verify_simple_syscalls": {
+      "fstat": 12461,
+      "open": 6464,
+      "stat": 12912
+    }
+  },
+  "before": {
+    "files": 6005,
+    "hash_large_files_s": 3.5318,
+    "hash_large_mib_per_s": 72.5,
+    "large_files": 4,
+    "large_mib_each": 64,
+    "repeats": 3,
+    "scan_hash_cold_s": 3.1979,
+    "verify_hash_full_s": 5.513,
+    "verify_hash_full_syscalls": {
+      "fstat": 12010,
+      "open": 6005,
+      "read": 16102,
+      "stat": 42024
+    },
+    "verify_hash_with_signatures_s": 8.1099,
+    "verify_simple_s": 4.2181,
+    "verify_simple_syscalls": {
+      "fstat": 12010,
+      "open": 6005,
+      "stat": 42024
+    }
+  }
+}

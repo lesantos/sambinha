@@ -382,3 +382,109 @@ class FilteredInventoryTests(Sandbox):
             self.assertEqual(self.execute(), 1)
         self.assertFalse((self.config.state_dir / 'test/state.json').exists())
         self.assertFalse(self.destination.exists())
+
+
+class VerifyWalkTests(Sandbox):
+    """verify() walks real directories by descriptor and reuses scan signatures."""
+
+    def inventory(self, mode='hash'):
+        cache = {}
+        return scan(self.source, mode=mode, cache_out=cache), cache
+
+    def test_matching_signatures_read_no_contents_in_hash_mode(self):
+        for i in range(5):
+            self.file(f'a/b/f{i}', b'x' * (i + 1))
+        files, cache = self.inventory()
+        with patch('sambinha.inventory._fingerprint', side_effect=AssertionError('read')), \
+             patch('sambinha.inventory.os.read', side_effect=AssertionError('read')):
+            inventory.verify(self.source, files, mode='hash', signatures=cache)
+
+    def test_without_signatures_hash_mode_rereads_everything(self):
+        self.file('a/f', b'abc')
+        files, _ = self.inventory()
+        with patch('sambinha.inventory._fingerprint', wraps=inventory._fingerprint) as read:
+            inventory.verify(self.source, files, mode='hash')
+        self.assertEqual(read.call_count, 1)
+
+    def test_content_change_with_same_size_and_mtime_is_detected_via_ctime(self):
+        path = self.file('a/f', b'old')
+        files, cache = self.inventory()
+        before = path.stat()
+        tick()
+        path.write_bytes(b'new')
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with self.assertRaisesRegex(BackupError, 'alterada durante backup'):
+            inventory.verify(self.source, files, mode='hash', signatures=cache)
+
+    def test_file_replaced_with_same_size_and_mtime_is_detected(self):
+        path = self.file('a/f', b'old')
+        files, cache = self.inventory()
+        before = path.stat()
+        path.rename(self.root / 'moved')
+        path.write_bytes(b'new')
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        for signatures in (cache, None):
+            with self.assertRaises(BackupError):
+                inventory.verify(self.source, files, mode='hash', signatures=signatures)
+
+    def test_simple_mode_detects_size_and_mtime_changes(self):
+        path = self.file('a/f', b'old')
+        files, _ = self.inventory('simple')
+        inventory.verify(self.source, files, mode='simple')
+        tick()
+        path.write_bytes(b'longer')
+        with self.assertRaisesRegex(BackupError, 'alterada durante backup'):
+            inventory.verify(self.source, files, mode='simple')
+
+    def test_directory_replaced_by_symlink_is_never_followed(self):
+        self.file('a/b/f', b'data')
+        files, cache = self.inventory()
+        outside = self.root / 'outside'
+        (outside / 'b').mkdir(parents=True)
+        (outside / 'b/f').write_bytes(b'data')
+        (self.source / 'a').rename(self.root / 'moved')
+        (self.source / 'a').symlink_to(outside)
+        for mode, signatures in (('hash', cache), ('hash', None), ('simple', None)):
+            with self.assertRaisesRegex(BackupError, 'link simbólico'):
+                inventory.verify(self.source, files, mode=mode, signatures=signatures)
+
+    def test_nested_directory_replaced_by_another_directory_is_detected(self):
+        self.file('a/b/f', b'data')
+        files, cache = self.inventory()
+        (self.source / 'a/b').rename(self.root / 'moved')
+        self.file('a/b/f', b'data')
+        with self.assertRaises(BackupError):
+            inventory.verify(self.source, files, mode='hash', signatures=cache)
+
+    def test_directory_swapped_while_it_is_being_verified_is_detected(self):
+        self.file('a/b/f', b'data')
+        files, _cache = self.inventory()
+        calls = []
+        original = os.stat
+        def swapping(path, *args, **kwargs):
+            if path == 'f' and not calls:
+                calls.append(path)
+                (self.source / 'a/b').rename(self.root / 'moved')
+                (self.source / 'a/b').mkdir()
+            return original(path, *args, **kwargs)
+        with patch('sambinha.inventory.os.stat', side_effect=swapping), \
+             self.assertRaisesRegex(BackupError, 'Diretório mudou.*"stage": "path"'):
+            inventory.verify(self.source, files, mode='simple')
+
+    def test_no_per_file_ancestor_chain_remains(self):
+        for i in range(30):
+            self.file(f'a/b/c/{i}', b'x')
+        files, cache = self.inventory()
+        for mode, signatures in (('hash', cache), ('hash', None), ('simple', None)):
+            items = files if mode == 'hash' else scan(self.source, mode='simple')
+            with patch('sambinha.inventory.path_has_symlink', side_effect=AssertionError('ancestor chain')), \
+                 patch('sambinha.inventory.os.lstat', side_effect=AssertionError('lstat')), \
+                 patch('sambinha.inventory.os.stat', wraps=os.stat) as stats:
+                inventory.verify(self.source, items, mode=mode, signatures=signatures)
+            self.assertLessEqual(stats.call_count, 4 * len(items) + 10)
+
+    def test_disabled_source_change_check_skips_verification(self):
+        self.file('a/f')
+        files, _ = self.inventory()
+        (self.source / 'a/f').unlink()
+        inventory.verify(self.source, files, verify_source_changes=False)

@@ -41,6 +41,8 @@ class Context:
         self.before_files = indexed_files(self.state, job.logic)
         self.removed = []
         self.inventory_changed = False
+        # Scan-time stat signatures for verify (hash mode, fingerprint cache, no full scan due).
+        self.signatures = None
         self.max_delete = -1
         self.batch_progress = {}
         # Upload journal (see journal.py): entries still believed valid, shared by worker threads.

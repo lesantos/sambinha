@@ -1,4 +1,5 @@
 """Stable source inventories with strong fingerprints and race detection."""
+import errno
 import hashlib
 import json
 import os
@@ -274,20 +275,93 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
     return result
 
 
-def verify(root: Path, files: list[File], *, mode="hash", progress=None, verify_source_changes=True):
+def _source_tree(files):
+    """Group inventory items by directory: node = (items, {child name: node})."""
+    tree = ([], {})
+    for item in files:
+        node = tree
+        *parents, _name = PurePosixPath(safe_relative(item.path)).parts
+        for part in parents:
+            node = node[1].setdefault(part, ([], {}))
+        node[0].append(item)
+    return tree
+
+
+def _unchanged(item, info, signatures):
+    """True when the scan's recorded stat signature still describes this exact item."""
+    entry = signatures.get(item.path) if signatures else None
+    return (entry is not None and stat.S_ISREG(info.st_mode) and entry["signature"] == signature(info)
+            and entry["file"] == item.metadata())
+
+
+def verify(root: Path, files: list[File], *, mode="hash", progress=None, verify_source_changes=True,
+           signatures=None):
+    """Re-check the inventory, walking real directories once through descriptors.
+
+    Every directory is opened with O_NOFOLLOW relative to its parent, so no
+    per-file ancestor lstat chain remains and a directory swapped for a symlink
+    or another directory is still caught. ``signatures`` is the scan's
+    ``cache_out`` (hash mode only): items whose stat signature is unchanged are
+    not re-read; callers pass it only when the fingerprint cache is enabled and
+    no full scan is due. Without it hash mode re-hashes every file.
+    """
     if not verify_source_changes:
         return
-    for index, item in enumerate(files):
+    from .local_paths import DIRECTORY_FLAGS
+    from .local_paths import directory as open_directory
+
+    done = 0
+    last = root
+
+    def check(fd, item):
+        nonlocal done, last
+        last = (root / item.path).parent
         if progress:
-            progress.update("Conferindo origem", (root / item.path).parent, index, len(files))
+            progress.update("Conferindo origem", last, done, len(files))
+        done += 1
+        name = item.path.rsplit("/", 1)[-1]
         for attempt in range(4):
             try:
-                actual = metadata(root, item.path) if mode == "simple" else fingerprint(root, item.path)
+                if mode == "hash" and signatures and _unchanged(
+                        item, os.stat(name, dir_fd=fd, follow_symlinks=False), signatures):
+                    return
+                actual = (metadata(root, item.path, dir_fd=fd) if mode == "simple"
+                          else fingerprint(root, item.path, dir_fd=fd))
                 if (not same_metadata(actual, item) if mode == "simple" else actual != item):
                     raise SourceChangedError(f"Origem alterada durante backup: {item.path}; execute novamente")
-                break
+                return
             except SourceChangedError:
                 if attempt == 3:
                     raise
+
+    def visit(fd, node, prefix):
+        for item in node[0]:
+            check(fd, item)
+        for name, child_node in node[1].items():
+            relative = prefix + "/" + name if prefix else name
+            before = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISLNK(before.st_mode):
+                raise BackupError(f"Origem mudou para link simbólico: {relative}")
+            try:
+                child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
+            except NotADirectoryError:
+                raise BackupError(f"Origem deixou de ser diretório: {relative}") from None
+            except OSError as exc:
+                if exc.errno != errno.ELOOP:
+                    raise
+                raise BackupError(f"Origem mudou para link simbólico: {relative}") from None
+            try:
+                opened = os.fstat(child)
+                if _identity(before) != _identity(opened) and not _same_observation(before, opened, historical=True):
+                    _changed("Diretório", relative, "open", before, opened)
+                visit(child, child_node, relative)
+                after = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if _identity(opened) != _identity(after):
+                    _changed("Diretório", relative, "path", opened, after)
+            finally:
+                os.close(child)
+
+    with open_directory(root) as root_fd:
+        visit(root_fd, _source_tree(files), "")
     if progress:
-        progress.update("Conferindo origem", (root / files[-1].path).parent if files else root, 1, 1)
+        progress.update("Conferindo origem", last, 1, 1)

@@ -126,3 +126,28 @@ class PerformanceIntegrationTests(Sandbox):
         self.assertEqual(summary['reused_batches'], 2)
         self.assertEqual(summary['rebuilt_batches'], 1)
         self.assertEqual(len(set(before) & set(self.state()['active'])), 2)
+
+    def test_verify_rereads_only_changed_files_with_cache_and_everything_without(self):
+        for i in range(6):
+            self.file(f'dir/{i}.txt', str(i).encode())
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
+        self.assertEqual(self.execute(), 0)
+        (self.source / 'dir/0.txt').write_bytes(b'updated')
+
+        def source_reads(config, now):
+            from sambinha import inventory
+            reads, original = [], inventory._fingerprint
+            def spy(relative, *args):
+                reads.append(relative)
+                return original(relative, *args)
+            with patch('sambinha.inventory._fingerprint', side_effect=spy):
+                self.assertEqual(self.execute(config, now=now), 0)
+            return [r for r in reads if r.startswith('dir/')]
+
+        cached = source_reads(self.config, 2000)
+        # Only the scan hashes the changed file; no verify pass reads any content.
+        self.assertEqual(cached, ['dir/0.txt'])
+        (self.source / 'dir/1.txt').write_bytes(b'again')
+        full = source_reads(replace(self.config, fingerprint_cache=False), 3000)
+        # Without the cache the scan hashes all six and each verify pass re-reads them again.
+        self.assertGreater(len(full), 6 + 6)

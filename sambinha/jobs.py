@@ -57,6 +57,9 @@ class JobExecution:
         ctx.inventory_changed = (ctx.state.get("fingerprints") != cached_inventory or
                                  ctx.state.get("last_full_scan") != inventory.last_full_scan)
         ctx.state["fingerprints"] = cached_inventory
+        # Scan-time signatures let verify skip re-reading unchanged files; never on a full-scan run.
+        if self.job.fingerprint_cache and not inventory.full_scan:
+            ctx.signatures = cached_inventory
         ctx.state["last_full_scan"] = inventory.last_full_scan
         ctx.forecast_deletions()
         check_disks(ctx.job, ctx.event, config=ctx.config)

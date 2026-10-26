@@ -274,7 +274,8 @@ def batch(ctx: Context):
     verifying = [f for item in pending for f in item.files] if ctx.rebalancing else ctx.files
     verify(ctx.source, verifying, mode=ctx.job.verification_mode,
            progress=ctx.progress.scope(0.85, 0.9) if ctx.progress else None,
-           verify_source_changes=ctx.job.verify_source_changes)
+           verify_source_changes=ctx.job.verify_source_changes,
+           signatures=ctx.signatures)
     show_progress(ctx.runner, ctx.progress.scope(0.9, 1) if ctx.progress else None)
     # Publish the recovery index before the local commit. If upload fails, the
     # previous local state stays authoritative; uploads can safely be repeated.
