@@ -10,6 +10,7 @@ import re
 
 from .errors import BackupError
 from .inventory import safe_relative
+from .local_paths import reject_symlinks
 from .names import NAMESPACE
 
 
@@ -27,8 +28,7 @@ def indexed_files(state, logic):
 
 def private_directory(path: Path, *, preserve_permissions=True):
     # Metadata roots are private, and must not redirect writes through links.
-    if any(p.is_symlink() for p in (path, *path.parents)):
-        raise BackupError("Diretório de metadados contém link simbólico")
+    reject_symlinks(path, label="Diretório de metadados")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     if preserve_permissions:
         path.chmod(0o700)
@@ -107,8 +107,7 @@ def atomic_json(path: Path, data, *, preserve_permissions=True):
 
 
 def load_state(path: Path, identity: dict):
-    if path.is_symlink():
-        raise BackupError("Estado contém link simbólico")
+    reject_symlinks(path, label="Estado", include_parents=False)
     if not path.exists():
         return {"schema": 1, "identity": identity, "active": {}, "retired": []}
     try:

@@ -11,6 +11,12 @@ from .names import NAMESPACE
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
+def reject_symlinks(path: Path, *, label: str, include_parents: bool = True, show_path: bool = False) -> None:
+    """Refuse metadata paths that would redirect reads or writes through a link."""
+    if any(p.is_symlink() for p in ((path, *path.parents) if include_parents else (path,))):
+        raise BackupError(f"{label} contém link simbólico" + (f": {path}" if show_path else ""))
+
+
 def child_directory(parent, name, *, create=False):
     try:
         return os.open(name, DIRECTORY_FLAGS, dir_fd=parent)

@@ -1,13 +1,13 @@
 """Read a validated local index or a bounded remote recovery member."""
 from .errors import BackupError
+from .local_paths import reject_symlinks
 from .names import STATE_FILE
 from .state import identity, load_state
 
 
 def read_index(config, job, storage, work, *, metadata_only=False):
     path = config.state_dir / job.name / STATE_FILE
-    if path.is_symlink():
-        raise BackupError("Estado contém link simbólico")
+    reject_symlinks(path, label="Estado", include_parents=False)
     if path.exists() and not (path.parent / 'publication.json').exists():
         try:
             return load_state(path, identity(job))

@@ -11,6 +11,7 @@ import uuid
 from .errors import BackupError
 from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
+from .local_paths import reject_symlinks
 from .metadata import read_control, write_control
 from .names import CONTROL, INDEXES, STATE_FILE
 from .state import atomic_json, identity, load_state, validate_controls
@@ -126,8 +127,8 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
     path = config.state_dir / job.name / STATE_FILE
     journal = path.parent / 'publication.json'
     initialized = path.parent / 'initialization.json'
-    if path.is_symlink() or journal.is_symlink() or initialized.is_symlink():
-        raise BackupError('Estado contém link simbólico')
+    for candidate in (path, journal, initialized):
+        reject_symlinks(candidate, label='Estado', include_parents=False)
     previous = None
     invalid = False
     if path.exists():
