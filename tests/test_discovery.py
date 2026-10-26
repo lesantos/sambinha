@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sambinha.discovery import Discovery
+from sambinha.discovery import Discovery, _ListParser
 from sambinha.errors import BackupError
 from sambinha.filtering import Selection
 from sambinha.process import Runner, Terminated
@@ -50,6 +50,119 @@ class DiscoveryTests(Sandbox):
         self.assertEqual(start.call_count, 1)
         self.assertEqual(start.call_args.args[0][1], 'rcd')
         self.assertNotIn('--recursive', start.call_args.args[0])
+
+    def tree(self):
+        for name in ['top.txt', 'a/x/y/deep.txt', 'a/x/skip.tmp', 'a/b.txt', 'b/ação/ü ñ.txt',
+                     'b/[lit]*?/f', 'cache/private', 'c/one']:
+            self.file(name)
+        (self.source / 'empty').mkdir()
+        (self.source / 'a' / 'emptychild').mkdir()
+        (self.source / 'link').symlink_to(self.root, target_is_directory=True)
+        (self.source / 'a' / 'flink').symlink_to(self.source / 'top.txt')
+
+    def walk(self, **options):
+        """Selection.source-style traversal returning (calls, files, dirs)."""
+        calls = []
+        original = Discovery._call
+        def call(server, operation, values, deadline, **kwargs):
+            calls.append((values['remote'], values['opt']['recurse']))
+            return original(server, operation, values, deadline, **kwargs)
+        with patch.object(Discovery, '_call', call):
+            files, dirs = Selection(self.rules(), self.config, Runner()).source(self.source)
+        return calls, files, dirs
+
+    def test_one_recursive_call_per_first_level_subtree_and_flat_root(self):
+        self.tree()
+        calls, files, dirs = self.walk()
+        self.assertEqual(sorted(calls), [('', False), ('a', True), ('b', True), ('c', True), ('empty', True)])
+        self.assertEqual(files, {'top.txt', 'a/x/y/deep.txt', 'a/b.txt', 'b/ação/ü ñ.txt',
+                                 'b/[lit]*?/f', 'c/one'})
+        self.assertEqual(dirs, {'a', 'a/x', 'a/x/y', 'b', 'b/ação', 'b/[lit]*?', 'c'})
+
+    def test_recursive_index_matches_per_directory_listing(self):
+        self.tree()
+        _, files, dirs = self.walk()
+        with patch.object(Discovery, '_load_subtree', lambda server, top: server.oversized.add(top)):
+            calls, flat_files, flat_dirs = self.walk()
+        self.assertGreater(len(calls), 5)
+        self.assertTrue(all(not recurse for _, recurse in calls))
+        self.assertEqual((files, dirs), (flat_files, flat_dirs))
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            indexed = {d: sorted(r['Path'] for r in server.listing(d)) for d in ['', 'a', 'a/x', 'b']}
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            server.max_entries = 0
+            flat = {d: sorted(r['Path'] for r in server.listing(d)) for d in ['', 'a', 'a/x', 'b']}
+        self.assertEqual(indexed, flat)
+
+    def test_oversized_subtree_falls_back_to_flat_calls_and_keeps_connection_usable(self):
+        for i in range(5):
+            self.file(f'big/d{i}/f')
+        self.file('small/f')
+        calls = []
+        original = Discovery._call
+        def call(server, operation, values, deadline, **kwargs):
+            calls.append((values['remote'], values['opt']['recurse']))
+            return original(server, operation, values, deadline, **kwargs)
+        with patch.object(Discovery, '_call', call), \
+             Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            server.max_entries = 6
+            self.assertEqual(sorted(r['Path'] for r in server.listing('')), ['big', 'small'])
+            self.assertEqual(len(server.listing('big')), 5)
+            self.assertEqual([r['Path'] for r in server.listing('big/d1')], ['big/d1/f'])
+            self.assertEqual([r['Path'] for r in server.listing('small')], ['small/f'])
+        self.assertEqual(calls, [('', False), ('big', True), ('big', False), ('big/d1', False),
+                                 ('small', True)])
+
+    def test_subtree_failure_stops_discovery_and_reaps_server(self):
+        self.file('a/f')
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            with patch.object(server, '_call', side_effect=ConnectionResetError()):
+                with self.assertRaisesRegex(BackupError, 'Inventário filtrado inválido'):
+                    server.listing('a')
+            self.assertIsNotNone(server.process.poll())
+
+    def test_subtree_results_outside_the_subtree_stop_discovery(self):
+        for records in [[('other/x', False)], [('a/x', 1)], [('../a/x', False)]]:
+            with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+                with patch.object(server, '_call', return_value={'list': records}):
+                    with self.assertRaises(BackupError):
+                        server.listing('a')
+                self.assertIsNotNone(server.process.poll())
+
+    def test_subtree_deadline_is_per_request_not_per_walk(self):
+        self.file('a/f')
+        self.file('b/f')
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            server.timeout = 1
+            now = [100.0]
+            deadlines = []
+            def call(operation, values, deadline, **kwargs):
+                deadlines.append(deadline)
+                now[0] += 0.75
+                server._remaining(deadline)
+                return {'list': []}
+            with patch('sambinha.discovery.time.monotonic', side_effect=lambda: now[0]), \
+                 patch.object(server, '_call', side_effect=call):
+                server.listing('a')
+                server.listing('b')
+            self.assertEqual(len(deadlines), 2)
+            self.assertNotEqual(deadlines[0], deadlines[1])
+
+    def test_incremental_parser_handles_arbitrary_chunk_boundaries(self):
+        body = json.dumps({'list': [{'Path': 'a/ação ü', 'IsDir': True, 'Size': -1},
+                                    {'Path': 'a/b"c', 'IsDir': False}]}, ensure_ascii=False).encode()
+        for size in (1, 2, 3, 7, len(body)):
+            parser, entries = _ListParser(10), []
+            for i in range(0, len(body), size):
+                self.assertFalse(parser.feed(body[i:i + size], entries))
+            parser.finish()
+            self.assertEqual(entries, [('a/ação ü', True), ('a/b"c', False)])
+        parser = _ListParser(1)
+        self.assertTrue(parser.feed(body, []))
+        with self.assertRaises(ValueError):
+            truncated = _ListParser(10)
+            truncated.feed(body[:-5], [])
+            truncated.finish()
 
     def test_regex_rules_still_match_without_unsafe_manual_directory_pruning(self):
         self.file('a/skip.tmp')

@@ -27,14 +27,17 @@ def worker(payload):
     rules = Path(payload['rules']) if payload['rules'] else None
     calls = {}
     original = Discovery._call
-    def call(self, operation, values, deadline):
-        calls[operation] = calls.get(operation, 0) + 1
-        return original(self, operation, values, deadline)
+    def call(self, operation, values, *args, **kwargs):
+        key = operation
+        if operation == 'operations/list':
+            key += ' (recursive)' if values['opt']['recurse'] else ' (flat)'
+        calls[key] = calls.get(key, 0) + 1
+        return original(self, operation, values, *args, **kwargs)
     Discovery._call = call
     selection = Selection(rules, Config(jobs=()), Runner(timeout=30))
     fingerprints = {}
     started = time.perf_counter()
-    if payload['legacy']:
+    if payload['legacy'] and not payload['same_flow']:
         selected, directories = selection.source(source)
         files = scan(source, selected, directories, mode=payload['mode'], cache_out=fingerprints)
     else:
@@ -58,6 +61,8 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--exclude-file', type=Path)
     parser.add_argument('--mode', choices=('simple', 'hash'), default='simple')
+    parser.add_argument('--same-flow', action='store_true',
+                        help='run the baseline through source_listing() too (isolates discovery changes)')
     parser.add_argument('--repetitions', type=int, default=3)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -73,7 +78,8 @@ def main():
             payload = {'module_root': str(args.baseline_root.resolve() if variant == 'before' else current_root),
                        'source': str(args.source.resolve()),
                        'rules': str(args.exclude_file.resolve()) if args.exclude_file else None,
-                       'legacy': variant == 'before', 'mode': args.mode}
+                       'legacy': variant == 'before', 'mode': args.mode,
+                       'same_flow': args.same_flow}
             completed = subprocess.run([sys.executable, str(Path(__file__).resolve()), '--worker'],
                                        input=json.dumps(payload), text=True, capture_output=True,
                                        check=True, timeout=300)
@@ -86,10 +92,11 @@ def main():
                 samples[variant].append(sample)
             print(f"{variant} {iteration if iteration else 'warmup'}: "
                   f"{sample['seconds']:.3f}s, {sample['files']} files", flush=True)
+    calls = {v: samples[v][0]['calls'] for v in samples}
     medians = {variant: statistics.median(s['seconds'] for s in values)
                for variant, values in samples.items()}
     result = {'source': str(args.source.resolve()), 'mode': args.mode, 'repetitions': args.repetitions,
-              'warmups_per_version': 1, 'identical_inventories': True, 'samples': samples,
+              'warmups_per_version': 1, 'same_flow': args.same_flow, 'identical_inventories': True, 'calls': calls, 'samples': samples,
               'median_seconds': medians, 'speedup': medians['before'] / medians['after'],
               'time_reduction_percent': 100 * (1 - medians['after'] / medians['before'])}
     args.output.write_text(json.dumps(result, indent=2) + '\n')

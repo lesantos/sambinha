@@ -102,3 +102,12 @@ Referências: [detecção de mudanças do restic](https://restic.readthedocs.io/
 ## Lotes e recuperação na versão 0.13.0
 
 Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.
+
+
+## Descoberta recursiva por subárvore (0.17.0)
+
+Com `exclude_files`, a descoberta fazia um `operations/list` não recursivo por diretório. Agora faz uma chamada não recursiva para a raiz da origem e uma chamada com `recurse: true` por subárvore de primeiro nível, indexando o resultado pelo diretório pai. O percurso não muda: nomes vêm só da listagem, todo `stat`/`open` usa `dir_fd` com `O_NOFOLLOW`, `IsDir` é validado contra o tipo local, a ordem é por data/nome e o rclone aplica as exclusões nativamente. O prazo (`timeout`) vale por chamada, ou seja, por subárvore. Qualquer falha interrompe toda a descoberta e o servidor `rcd` é encerrado.
+
+Custo de memória: o JSON de cada subárvore é lido de forma incremental e só `(caminho, IsDir)` é guardado por entrada (cerca de 150-250 bytes no CPython); 500 mil entradas custam da ordem de 100 MiB até o fim da descoberta. Se uma subárvore passar de 500.000 entradas, ela volta a uma chamada plana por diretório (sem configuração).
+
+Medido com `scripts/benchmark-inventory.py --same-flow` em árvore gerada (441 diretórios, 10.420 arquivos, `*.tmp` e uma subárvore excluídos), rclone local, 5 repetições, inventários idênticos ([dados](benchmarks/discovery-2026-10-26.json)): chamadas `operations/list` 419 -> 20 (1 plana + 19 recursivas); mediana de descoberta + inventário 4,21 s -> 3,70 s (-12%). No loopback local cada chamada custa só ~9 ms; o ganho cresce com a latência por chamada (p. ex. ~30 ms em discos lentos ou montagens de rede) e com o número de diretórios.

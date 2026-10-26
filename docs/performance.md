@@ -102,3 +102,12 @@ References: [restic change detection](https://restic.readthedocs.io/en/stable/04
 ## Batches and recovery in 0.13.0
 
 See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.
+
+
+## Recursive discovery per subtree (0.17.0)
+
+With `exclude_files`, discovery used to issue one non-recursive `operations/list` per directory. It now issues one non-recursive call for the source root plus one `recurse: true` call per first-level subtree, and indexes the answer by parent directory. The walk is unchanged: names still come only from the listing, every `stat`/`open` goes through `dir_fd` with `O_NOFOLLOW`, `IsDir` is validated against the local type, ordering is by mtime/name, and rclone applies the exclusion rules natively. The deadline (`timeout`) applies per request, i.e. per subtree. Any failure stops the whole discovery and the `rcd` server is reaped.
+
+Memory trade-off: the JSON of a subtree is parsed incrementally and only `(path, IsDir)` is kept per entry (roughly 150-250 bytes each in CPython), so 500k entries cost on the order of 100 MiB until discovery ends. If a subtree exceeds 500,000 entries, that subtree falls back to one flat request per directory (no configuration needed).
+
+Measured with `scripts/benchmark-inventory.py --same-flow` on a generated tree (441 directories, 10,420 files, `*.tmp` and one subtree excluded), local rclone, 5 repetitions, identical inventories ([data](benchmarks/discovery-2026-10-26.json)): `operations/list` calls 419 -> 20 (1 flat + 19 recursive); median discovery + inventory 4.21 s -> 3.70 s (-12%). On this local loopback each call costs only ~9 ms; the gain grows with per-call latency (e.g. ~30 ms/call on slower disks or network mounts) and with directory count.
