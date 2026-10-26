@@ -1,6 +1,7 @@
 """rclone storage adapter shared by local paths and configured Amazon S3 remotes."""
 import json
 from pathlib import Path
+from typing import Any, Protocol
 
 from . import rclone
 from .config import Config, Job
@@ -11,15 +12,79 @@ from .local_paths import prepare_write
 from .mounts import check_mounts
 from .names import NAMESPACE, NAMESPACE_EXCLUDE
 from .protection import timestamp_ns
-from .simple_storage import SimpleStorageMixin
+from .simple_storage import SimpleOperations
 
 
-class Storage(SimpleStorageMixin):
+class StorageBackend(Protocol):
+    """What strategies, recovery, verification, restore, rebalance and orphans call on a destination.
+
+    ``Storage`` (rclone: local paths and S3 remotes) is the reference implementation; an alternate
+    backend only needs these members. Keys are destination-relative, ``/``-separated strings.
+    """
+
+    job: Job
+    config: Config
+    runner: Any
+    #: Staging directory counted by the disk-space guard; callers set it while they hold one.
+    temporary_directory: Path | None
+
+    def path(self, key: str) -> str:
+        """Full destination address (rclone-style string) of ``key``; rejects unsafe keys."""
+        ...
+
+    def command(self, operation: str, *args: Any, retry: bool = False, standard: bool | str = False,
+                input: str | None = None, progress_directory: str | None = None,
+                on_output: Any = None, source_required: bool | None = None) -> str:
+        """Run a raw rclone-style operation (listings, marker/index reads) and return its output."""
+        ...
+
+    def inventory(self) -> dict[str, dict[str, Any]]:
+        """Recursive listing: safe relative path -> rclone metadata (Size, Hashes...)."""
+        ...
+
+    def put(self, source: Any, key: str, *, standard: bool | str = False,
+            protected_mtime_ns: int | None = None) -> bool:
+        """Upload one object; True when bytes were actually transferred, False when identical."""
+        ...
+
+    def get(self, key: str, target: Any) -> None:
+        """Download an exact object into an application-owned staging path."""
+        ...
+
+    def stat(self, key: str, *, hashes: bool = True) -> dict[str, Any]:
+        """Metadata of one object (``Size`` and optional ``Hashes``); never downloads the body."""
+        ...
+
+    def delete(self, key: str) -> None:
+        """Idempotently delete one exact object."""
+        ...
+
+    # Simple-job operations (strategies/simple.py, verification, restore).
+    def sync_simple(self, root: Any, backup_dir: str, *, max_delete: int, dry_run: bool = False) -> list[str]: ...
+
+    def expire_simple_history(self, now: float, retention_days: int, *, dry_run: bool = False) -> list[str]: ...
+
+    def check_simple(self) -> None: ...
+
+    def restore_simple(self, output: Any, selectors: Any = (), *, dry_run: bool = False) -> None: ...
+
+
+class StorageFactory(Protocol):
+    """Callable that builds a backend for one job; ``Storage`` itself is the default."""
+
+    def __call__(self, job: Job, config: Config, runner: Any, log: Any = None, *,
+                 temporary_directory: Path | None = None, source_required: bool = True) -> StorageBackend: ...
+
+
+class Storage:
+    """rclone-backed StorageBackend; simple-job operations are delegated to SimpleOperations."""
+
     def __init__(self, job: Job, config: Config, runner, log=None, *, temporary_directory=None, source_required=True):
         self.job, self.config, self.runner = job, config, runner
         self.log = log
         self.temporary_directory = temporary_directory
         self.source_required = source_required
+        self._simple = SimpleOperations(self)
 
     def path(self, key):
         if self.job.type == "local" and path_has_symlink(self.job.destination, key):
@@ -123,3 +188,15 @@ class Storage(SimpleStorageMixin):
         self.path(key)
         self.command("delete", self.job.destination, "--files-from-raw", "-",
                      retry=True, input=safe_relative(key) + "\n")
+
+    def sync_simple(self, root, backup_dir, *, max_delete, dry_run=False):
+        return self._simple.sync_simple(root, backup_dir, max_delete=max_delete, dry_run=dry_run)
+
+    def expire_simple_history(self, now, retention_days, *, dry_run=False):
+        return self._simple.expire_simple_history(now, retention_days, dry_run=dry_run)
+
+    def check_simple(self):
+        return self._simple.check_simple()
+
+    def restore_simple(self, output, selectors=(), *, dry_run=False):
+        return self._simple.restore_simple(output, selectors, dry_run=dry_run)
