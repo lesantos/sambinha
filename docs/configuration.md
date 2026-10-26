@@ -309,6 +309,12 @@ Tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They
 
 English is the default documentation language. Every maintained Markdown guide and public commented configuration example has a `.pt-BR` counterpart. Code, configuration keys, dependency lists, backup data fixtures and license identifiers retain their stable names. See the [usage guide](usage.md), [architecture](architecture.md), [security notes](../SECURITY.md), [changelog](../CHANGELOG.md), and [configuration example](../sambinha.example.toml).
 
+## Same backup from several machines
+
+The job **name** is the backup's identity, together with its type and logic (and the S3 destination for S3 jobs). Source and local destination paths are recorded per machine as informational origins, so the same job can run from Linux (`/mnt/disk/Docs`) and from macOS (`/Volumes/disk/Docs`) against one destination, alternating, without losing history. Keep the same `[[jobs]]` name on every machine and give each machine its own `state_dir`; the first run on a new machine adopts the confirmed index from the destination, rehashes the source once (fingerprint caches are per device) and continues from there. Restores work from any machine with the configuration and credentials.
+
+Per-machine mount points can be expressed with `source_mount`/`destination_mount` set to that machine's volume, or with `${VARS}` in `source`/`destination` resolved from the environment of each machine. Renaming a job, or pointing a job at a destination that belongs to another job name, is refused (`Destino pertence ao job X`); run `sambinha --config ... backup --adopt-identity` once to take over the existing backup, after which the new name is written to the destination marker and no flag is needed. A pre-0.16 state on the same machine migrates by itself; one whose paths differ also needs `--adopt-identity`. Type, logic and S3 destination differences are never adopted.
+
 ## Sequential jobs and overlapping paths
 
 From 0.9.0, jobs run to completion in TOML order. Each job freezes its own exclusion file, checks mounts/disks, builds a fresh inventory using only its own persistent fingerprint cache, transfers and applies retention, commits its index, performs any due verification and writes its summary before the next job starts. A later preflight failure cannot prevent an earlier job from completing. `continue_on_job_error` still belongs to the failing job; there is no automatic dependency ordering or rollback.

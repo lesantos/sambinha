@@ -161,6 +161,8 @@ Em batch, `verify-local-metadata` compara caminhos/tamanho/data da origem com JS
 
 ## Limites de remoção e ocupação dos discos
 
+`--adopt-identity` (só backup) é a chave equivalente, válida por execução, para a identidade do backup: permite que um job renomeado, ou um estado anterior a 0.16 com caminhos diferentes, assuma um backup existente em vez de falhar com `Destino pertence ao job X`. Veja [o mesmo backup em várias máquinas](configuration.pt-BR.md#o-mesmo-backup-em-várias-máquinas).
+
 Cada job simples define `max_delete` como limite absoluto de arquivos removidos pelo `rclone sync` (padrão 100). O rclone falha e interrompe a sincronização se a execução ultrapassar esse limite. A operação não é repetida inteira após erro, evitando reaplicar o limite em várias tentativas; transferências parciais podem permanecer. Jobs batch mantêm `max_delete_percent` e `deletion_min_files`, calculados pelo índice anterior. `--allow-mass-deletion` ignora a proteção aplicável apenas naquela execução.
 
 Discos da origem, destino local e temporários de lotes causam erro acima de 95% de ocupação, contando espaço indisponível ao usuário. Exatamente 95% é permitido. Destinos inexistentes usam o ancestral existente mais próximo para a medição. Checks ocorrem antes do backup e antes de operações de alteração; `disk_usage` registra porcentagem e bytes livres. S3 não expõe ocupação local. A restauração verifica também o disco de saída.
