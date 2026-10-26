@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 from sambinha.discovery import Discovery
 from sambinha.errors import BackupError
 from sambinha.filtering import Selection
-from sambinha.process import Runner
+from sambinha.process import Runner, Terminated
 from tests.helpers import REAL_TOOLS, Sandbox
 
 
@@ -145,6 +145,16 @@ class DiscoveryTests(Sandbox):
                 with self.assertRaises(KeyboardInterrupt):
                     server.listing('')
             self.assertIsNotNone(server.process.poll())
+
+    def test_sigterm_during_a_listing_terminates_the_server(self):
+        # Terminated (SIGTERM in the main thread) unwinds through __exit__
+        # exactly like Ctrl+C, so the rcd server never outlives the run.
+        with self.assertRaises(Terminated):
+            with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+                with patch.object(server.connection, 'getresponse', side_effect=Terminated):
+                    server.listing('')
+        self.assertIsNotNone(server.process.poll())
+        self.assertFalse(Path(server.directory.name).exists())
 
     def test_missing_directory_reports_failure_instead_of_an_empty_listing(self):
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:

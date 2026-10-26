@@ -118,6 +118,30 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertEqual(seen, [('hello', 1)])
         self.assertEqual(runner.cancellation.processes, set())
 
+    def test_interruption_during_the_grace_period_still_kills_survivors(self):
+        runner = Runner()
+        # A child ignoring SIGTERM only dies through the SIGKILL fallback.
+        thread = threading.Thread(target=lambda: self.assertRaises(
+            Interrupted, runner.run, ['sh', '-c', 'trap "" TERM; sleep 30']))
+        thread.start()
+        self.assertTrue(wait_until(lambda: runner.cancellation.processes))
+        child = next(iter(runner.cancellation.processes))
+        real_wait = child.wait
+
+        def interrupted_wait(*args, **kwargs):
+            # Only the cancelling (main) thread is interrupted; the worker's
+            # communicate() must still reap the child normally.
+            if threading.current_thread() is threading.main_thread():
+                raise KeyboardInterrupt()
+            return real_wait(*args, **kwargs)
+
+        with patch.object(child, 'wait', side_effect=interrupted_wait):
+            with self.assertRaises(KeyboardInterrupt):
+                runner.cancellation.cancel(grace=5)
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(wait_until(lambda: not alive(child.pid)), 'child survived the interrupted cancel')
+
 
 class TerminationHandlerTests(unittest.TestCase):
     def test_sigterm_in_the_main_thread_raises_terminated_and_restores_the_handler(self):
@@ -129,6 +153,13 @@ class TerminationHandlerTests(unittest.TestCase):
                 time.sleep(1)
                 self.fail('SIGTERM did not interrupt the main thread')
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+    def test_handler_installed_outside_python_is_left_alone_on_exit(self):
+        with patch('sambinha.process.signal.signal', return_value=None) as install:
+            with handle_termination():
+                pass
+        self.assertEqual(install.call_count, 1)
+        self.assertIs(install.call_args.args[0], signal.SIGTERM)
 
     def test_handler_is_not_installed_from_worker_threads(self):
         previous = signal.getsignal(signal.SIGTERM)

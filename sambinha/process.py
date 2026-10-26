@@ -51,7 +51,9 @@ def handle_termination():
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        # None means a handler installed outside Python; it cannot be reinstalled.
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
 
 class Cancellation:
@@ -86,19 +88,29 @@ class Cancellation:
             self.processes.discard(process)
 
     def cancel(self, grace=1.0):
-        """Terminate every registered child, then kill whatever survived."""
+        """Terminate every registered child, then kill whatever survived.
+
+        Idempotent: a second call finds the children already gone. A signal
+        arriving during the grace period still leaves no child behind: the
+        survivors are killed before the interruption propagates.
+        """
         with self.lock:
             self.event.set()
             processes = list(self.processes)
         for process in processes:
             _signal_group(process, signal.SIGTERM)
         deadline = time.monotonic() + grace
-        for process in processes:
-            try:
-                process.wait(timeout=max(0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
+        try:
+            for process in processes:
+                try:
+                    process.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    _signal_group(process, signal.SIGKILL)
+                    process.wait()
+        except BaseException:
+            for process in processes:
                 _signal_group(process, signal.SIGKILL)
-                process.wait()
+            raise
 
 
 def _signal_group(process, signum):
@@ -170,6 +182,16 @@ def child_environment(base=None, extra=None):
 
 
 class Runner:
+    """Run rclone/7-Zip without a shell, with bounded retries and redaction.
+
+    Cancellation flows signal -> engine -> this runner -> worker copies ->
+    children: handle_termination raises Terminated in the main thread, the
+    batch strategy calls cancel(), and every child registered in the shared
+    Cancellation token (including those of copy.copy() worker runners) is
+    terminated then killed by process group. A run whose child died that way
+    raises Interrupted instead of retrying.
+    """
+
     def __init__(self, timeout=3600, sleep=time.sleep, env=None, secrets=()):
         self.timeout = timeout
         self.sleep = sleep
