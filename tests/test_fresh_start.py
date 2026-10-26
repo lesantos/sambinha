@@ -63,7 +63,7 @@ class FreshStartTests(Sandbox):
         return code, caches
 
     def check_fresh(self, config=None, **kwargs):
-        self.assertEqual(self.before['fingerprints'] and True, True)
+        self.assertTrue(json.loads((self.directory / 'fingerprints.json').read_text()))
         code, caches = self.fresh_run(config, **kwargs)
         self.assertEqual(code, 0, self.output.getvalue())
         self.assertEqual(caches, [None])  # cache discarded: complete rescan and rehash
@@ -75,7 +75,8 @@ class FreshStartTests(Sandbox):
         after = self.state()
         self.assertEqual(after['active'], self.before['active'])  # nothing re-uploaded
         self.assertEqual(after['last_full_scan'], 2000)
-        self.assertTrue(after['fingerprints'])
+        self.assertNotIn('fingerprints', after)
+        self.assertTrue(json.loads((self.directory / 'fingerprints.json').read_text()))  # rebuilt
 
     def test_flag_discards_caches_and_journals_but_keeps_active(self):
         self.check_fresh(fresh_start=True)

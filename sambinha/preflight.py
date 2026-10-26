@@ -14,6 +14,7 @@ from .inventory import File, scan
 from .mounts import check_mounts, uses_mountpoint_command
 from .process import credential_values, show_progress
 from .retention import DAY
+from .state import load_fingerprints
 from .versions import check_compressor_version
 
 
@@ -24,6 +25,8 @@ class JobInventory(NamedTuple):
     last_full_scan: float
     previous: dict
     full_scan: bool = True
+    cached: dict | None = None  # hash cache as loaded (file, or legacy embedded); None = none
+    legacy_cache: bool = False  # previous state still embeds ``fingerprints`` (migrated on save)
 
 
 def _check_destination(config, job, runner, checking):
@@ -57,7 +60,7 @@ def _read_inventory(config, job, runner, now, reading, log=None):
     discarded = discard_journals(config, job) if fresh else []
     previous = backup_state(config, job, runner, log=log)
     if fresh:
-        discarded += drop_caches(previous)
+        discarded += drop_caches(previous, config, job)
         if log is not None:
             log.event("fresh_start", job=job.name, discarded=discarded, dry_run=job.dry_run)
     force = (not job.fingerprint_cache or "last_full_scan" not in previous or
@@ -65,14 +68,20 @@ def _read_inventory(config, job, runner, now, reading, log=None):
              now - previous["last_full_scan"] >= job.fingerprint_full_scan_days * DAY)
     selection = Selection(job.exclude_files, config, runner)
     selected_dirs = set() if job.exclude_files else None
+    # The hash cache exists only in hash mode (simple never consults it) and lives in a private
+    # fingerprints.json, not in state.json/the published index; a legacy embedded one is used once.
+    caching = job.fingerprint_cache and job.verification_mode == "hash"
+    legacy = "fingerprints" in previous
+    embedded = previous.pop("fingerprints", None)
+    loaded = (embedded if embedded else load_fingerprints(config.state_dir / job.name)) if caching else {}
     fingerprints = {}
     with selection.source_listing(job.source) as listing:
         files = scan(job.source, listing=listing, selected_dirs_out=selected_dirs,
-                     cache=None if force else previous.get("fingerprints"), cache_out=fingerprints,
+                     cache=None if force else loaded, cache_out=fingerprints if caching else None,
                      mode=job.verification_mode, progress=reading,
                      verify_source_changes=job.verify_source_changes)
     return JobInventory(files, selected_dirs, fingerprints,
-                        now if force else previous["last_full_scan"], previous, force)
+                        now if force else previous["last_full_scan"], previous, force, loaded, legacy)
 
 
 def preflight(config, runner, now=None, *, progress=None, on_job_error=None, log=None):

@@ -255,11 +255,14 @@ class CrossMachineTests(Sandbox):
         path = a.state_dir / 'test' / 'state.json'
         state = json.loads(path.read_text())
         before = state['active']
-        for entry in state['fingerprints'].values():
+        cache_path = path.with_name('fingerprints.json')
+        cache = json.loads(cache_path.read_text())
+        for entry in cache.values():
             entry['signature'][0] += 1  # another machine's st_dev
             entry['file']['sha256'] = '0' * 64
-        path.write_text(json.dumps(state))
+        cache_path.write_text(json.dumps(cache))
         self.assertEqual(self.run_as('host-a', a, now=2000), 0, self.output.getvalue())
         after = self.state_of(a)
         self.assertEqual(after['active'], before)
-        self.assertTrue(all(e['file']['sha256'] != '0' * 64 for e in after['fingerprints'].values()))
+        cache = json.loads(path.with_name('fingerprints.json').read_text())
+        self.assertTrue(cache and all(e['file']['sha256'] != '0' * 64 for e in cache.values()))

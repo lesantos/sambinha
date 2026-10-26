@@ -234,9 +234,9 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
                 write_control(config, job, key, control)
             for key, control in {**state.get('excluded', {}), **state['active']}.items():
                 write_control(config, job, key, control)
-            if previous is not None and isinstance(previous.get('fingerprints'), dict):
-                # Fingerprints are per machine (st_dev/st_ino); keep ours, not the publisher's.
-                state['fingerprints'] = previous['fingerprints']
+            # Fingerprints are per machine (st_dev/st_ino): never adopt a publisher's (older
+            # indexes embedded them); ours live in fingerprints.json and survive recovery.
+            state.pop('fingerprints', None)
             record_origin(state, job)
             atomic_json(path, state)
             journal.unlink(missing_ok=True)
@@ -283,7 +283,7 @@ def publish(ctx, state):
                     ctx.event('retired_control_missing', path=entry['key'], control=entry.pop('control'))
                     continue
                 controls[entry['key']] = read_control(path, entry['key'])
-        recovery_state = {k: v for k, v in state.items() if k != 'index_pending'}
+        recovery_state = {k: v for k, v in state.items() if k not in ('index_pending', 'fingerprints')}
         atomic_json(work / STATE_FILE, recovery_state)
         if (work / STATE_FILE).stat().st_size > MAX_METADATA:
             raise BackupError('Índice excede limite de metadados (state.json)')

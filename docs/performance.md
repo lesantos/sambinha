@@ -137,3 +137,22 @@ Publishing a recovery generation no longer lists the whole destination to prune 
 ## rclone options for S3 (0.17.0)
 
 `fast_list`, `s3_chunk_size` and `s3_upload_concurrency` are optional per-job settings ([configuration](configuration.md#optional-rclone-tuning-for-s3-0170)). They only change the rclone command line (S3 jobs only), so no benchmark was run: the effect depends on bucket size, object sizes and bandwidth, and defaults are unchanged. Note that `verification_mode = "hash"` makes rclone MD5 the whole source on every simple sync.
+
+## Filter reclassification of indexed files (0.17.0)
+
+With `exclude_files`, every run used to rebuild a temporary tree of N empty files and run `rclone lsjson --recursive` over it to re-classify *every* indexed path (mass-deletion guard, history forecast/expiry, excluded-batch detection). Files in the current inventory were already selected by the same frozen rules during discovery, so they are now included by construction; only paths that are not in the current inventory (removed files, files a changed rule now excludes, retired members) go through the dummy tree. Semantics are unchanged: a file that left the inventory because a new rule excludes it is still classified as excluded (its batch moves to `state.excluded`), not as removed. The per-run cache is kept (keyed by the classified set). `rebalance` does not use the shortcut: its "inventory" is rebuilt from controls, not discovered.
+
+Measured with 20,000 indexed paths and a 3-rule exclude file ([data](benchmarks/state-2026-10-26.json)): unchanged run 5.15 s -> 0.03 s; 10 removed files 5.41 s -> 0.23 s.
+
+## Hash cache outside `state.json` (0.17.0)
+
+`state.json` used to embed a `fingerprints` entry for every file, even in `verification_mode = "simple"`, which never reads it. That map was also published inside the recovery index (64 MiB limit, roughly 200-250k files per job), written with `indent=2` plus `fsync` on every save (2-3 per run), validated entry by entry on load and deep-copied twice per run. Now:
+
+- Simple mode persists no fingerprints at all (a leftover `fingerprints.json` is removed).
+- Hash mode keeps the cache in `state/<job>/fingerprints.json` (compact JSON, atomic write, same 0700 directory rules). It is per machine (`st_dev`/`st_ino`), so it is never part of `state.json` or the published index. A missing, unreadable or invalid file only costs a full rehash and is rewritten; the file is rewritten only when its content changed.
+- A `state.json` from an older version that still embeds `fingerprints` loads normally: the embedded cache serves that run, `fingerprints.json` is written, and the next save drops the embedded copy (the index is republished once without it). Indexes published by older versions keep working for recovery and restore; their embedded cache belongs to another machine and is ignored. The state schema is unchanged (older versions simply see no cache and rehash once).
+- `--fresh-start` deletes `fingerprints.json` (not in dry runs).
+- "Inventory changed" (which forces a publication on an otherwise unchanged run) now means only: `last_full_scan` moved or a legacy embedded cache has to be migrated. Fingerprint churn alone (for example a `ctime` change) rewrites `fingerprints.json` but does not republish.
+- The two `copy.deepcopy(ctx.state)` calls became a snapshot that copies only what a run mutates (the `active`/`excluded` maps, `retired` entries, `origins`) and shares the immutable controls.
+
+Measured on a synthetic state with 50,000 indexed files ([data](benchmarks/state-2026-10-26.json)): `state.json` 35.4 MB -> 14.5 MB; one `state.json` save 2.93 s -> 0.99 s (done 2-3 times per run); `load_state` 4.9 s -> 2.9 s; state copy per snapshot 0.89 s -> under 1 ms. In hash mode the cache costs one 13.1 MB `fingerprints.json` read per run (about 2.0 s, mostly validation) and one write (about 1.6 s) only when it changed. The published index no longer carries those 20.9 MB, so the same job fits many more files under the 64 MiB limit.

@@ -14,7 +14,7 @@ from pathlib import Path
 from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
-from .names import NAMESPACE
+from .names import FINGERPRINTS_FILE, NAMESPACE
 
 # State-file schema: 1 (pre-0.13) and 2 (0.13, confirmed generations) carry a
 # legacy path-based identity; 3 carries the name-based identity below. Older
@@ -195,12 +195,13 @@ def validate_controls(controls, batch):
             raise ValueError("arquivo e diretório sobrepostos")
 
 
-def atomic_json(path: Path, data, *, preserve_permissions=True):
+def atomic_json(path: Path, data, *, preserve_permissions=True, compact=False):
     private_directory(path.parent, preserve_permissions=preserve_permissions)
     fd, temporary = tempfile.mkstemp(prefix=".state-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:
-            json.dump(data, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            json.dump(data, stream, ensure_ascii=False, sort_keys=True,
+                      **({"separators": (",", ":")} if compact else {"indent": 2}))
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -212,6 +213,43 @@ def atomic_json(path: Path, data, *, preserve_permissions=True):
             os.close(directory_fd)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def validate_fingerprints(cache):
+    if not isinstance(cache, dict):
+        raise ValueError("cache de inventário")
+    for key, cached in cache.items():
+        validate_file(cached["file"])
+        if (cached["file"]["path"] != key or not isinstance(cached["signature"], list)
+                or len(cached["signature"]) != 6
+                or any(type(value) is not int for value in cached["signature"])):
+            raise ValueError("cache de arquivo")
+
+
+def load_fingerprints(directory: Path):
+    """Hash cache of ``state/<job>/fingerprints.json``; a cache, so any defect means ``{}``."""
+    path = directory / FINGERPRINTS_FILE
+    try:
+        reject_symlinks(path, label="Estado", include_parents=False)
+        cache = json.loads(path.read_text())
+        validate_fingerprints(cache)
+        return cache
+    except (OSError, ValueError, KeyError, TypeError, BackupError):
+        return {}
+
+
+def save_fingerprints(directory: Path, cache):
+    """Private per-machine cache (st_dev/st_ino): never part of state.json or the published index."""
+    atomic_json(directory / FINGERPRINTS_FILE, cache, compact=True)
+
+
+def drop_fingerprints(directory: Path):
+    """Remove the cache file; returns whether it existed."""
+    path = directory / FINGERPRINTS_FILE
+    reject_symlinks(path, label="Estado", include_parents=False)
+    found = path.exists()
+    path.unlink(missing_ok=True)
+    return found
 
 
 def load_state(path: Path, identity: dict, *, adopt=False, legacy=None):
@@ -273,14 +311,8 @@ def load_state(path: Path, identity: dict, *, adopt=False, legacy=None):
         if "last_full_scan" in data and (type(data["last_full_scan"]) not in (int, float)
                                          or not math.isfinite(data["last_full_scan"])):
             raise ValueError("data de inventário")
-        if not isinstance(data.get("fingerprints", {}), dict):
-            raise ValueError("cache de inventário")
-        for key, cached in data.get("fingerprints", {}).items():
-            validate_file(cached["file"])
-            if (cached["file"]["path"] != key or not isinstance(cached["signature"], list)
-                    or len(cached["signature"]) != 6
-                    or any(type(value) is not int for value in cached["signature"])):
-                raise ValueError("cache de arquivo")
+        # Legacy (<= 0.16) states embed the hash cache; it is migrated out on the next save.
+        validate_fingerprints(data.get("fingerprints", {}))
         return data
     except (ValueError, KeyError, TypeError) as exc:
         raise BackupError("Estado inválido; recupere state.json antes de continuar") from exc

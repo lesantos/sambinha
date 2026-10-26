@@ -72,6 +72,22 @@ def upload_batch(ctx, item):
         return control, events
 
 
+def snapshot(state):
+    """Independent copy of what a run mutates: containers and per-entry dicts, sharing the immutable controls.
+
+    Retired entries are edited in place (``control`` popped when its mirror is gone), the
+    ``active``/``excluded`` maps and the ``retired``/``origins`` lists are reassigned or appended
+    to; controls themselves are never modified after creation.
+    """
+    result = dict(state)
+    for key, value in state.items():
+        if isinstance(value, dict):
+            result[key] = dict(value)
+        elif isinstance(value, list):
+            result[key] = [dict(item) if isinstance(item, dict) else item for item in value]
+    return result
+
+
 def _plan_batches(ctx):
     confirmed = {**ctx.state.get("excluded", {}), **ctx.state["active"]}
     destination_times = {}
@@ -79,9 +95,10 @@ def _plan_batches(ctx):
         for item in control["files"]:
             destination_times[item["path"]] = max(destination_times.get(item["path"], -1), item["mtime_ns"])
     protect_newer(ctx.files, destination_times, ctx.event)
-    next_state = copy.deepcopy(ctx.state)
+    next_state = snapshot(ctx.state)
     old = {}
-    selected = ctx.selection.include_paths(f["path"] for c in confirmed.values() for f in c["files"])
+    selected = ctx.selection.include_paths((f["path"] for c in confirmed.values() for f in c["files"]),
+                                           ctx.selected_paths())
     next_state["excluded"] = {} if not ctx.rebalancing else next_state.get("excluded", {})
     for key, control in (ctx.state["active"] if ctx.rebalancing else confirmed).items():
         if not ctx.rebalancing and any(f["path"] not in selected for f in control["files"]):
@@ -289,7 +306,7 @@ def batch(ctx: Context):
     journal.clear(ctx)
     from ..index_generations import finish
     finish(ctx)
-    before_cleanup = copy.deepcopy(ctx.state)
+    before_cleanup = snapshot(ctx.state)
     ctx.expire()
     if ctx.state != before_cleanup:
         ctx.state["index_pending"] = True

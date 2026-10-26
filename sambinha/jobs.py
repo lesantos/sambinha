@@ -1,5 +1,4 @@
 """One job's frozen rules, strategy execution, verification and summary."""
-import copy
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 
@@ -12,6 +11,7 @@ from .preflight import JobInventory, preflight
 from .process import Runner, show_progress
 from .progress import Progress
 from .retention import DAY, DeletionForecast
+from .state import drop_fingerprints, save_fingerprints
 from .strategies.simple import simple
 
 
@@ -53,10 +53,18 @@ class JobExecution:
                       progress=self.progress.scope(0.2, 0.9))
         self.context = ctx
         ctx.allow_mass_deletion = self.allow_mass_deletion
-        cached_inventory = inventory.fingerprints if self.job.fingerprint_cache else {}
-        ctx.inventory_changed = (ctx.state.get("fingerprints") != cached_inventory or
+        cached_inventory = inventory.fingerprints
+        # "Changed" = something state.json must persist: a new last_full_scan, or a legacy embedded
+        # cache to migrate out (which also republishes the index without it). Fingerprint churn
+        # alone never forces a publication; fingerprints.json is rewritten on its own below.
+        ctx.inventory_changed = (inventory.legacy_cache or
                                  ctx.state.get("last_full_scan") != inventory.last_full_scan)
-        ctx.state["fingerprints"] = cached_inventory
+        if not self.job.dry_run:
+            if self.job.fingerprint_cache and self.job.verification_mode == "hash":
+                if inventory.legacy_cache or cached_inventory != (inventory.cached or {}):
+                    save_fingerprints(ctx.directory, cached_inventory)
+            else:
+                drop_fingerprints(ctx.directory)
         # Scan-time signatures let verify skip re-reading unchanged files; never on a full-scan run.
         if self.job.fingerprint_cache and not inventory.full_scan:
             ctx.signatures = cached_inventory
@@ -83,9 +91,7 @@ class JobExecution:
         checking = self.progress.scope(0.9, 1)
         show_progress(self.runner, checking)
         verify_local_metadata_job(effective, ctx.job, self.runner, self.log, ctx.state, progress=checking)
-        verified = copy.deepcopy(ctx.state)
-        verified["last_verified"] = ctx.now
-        ctx.state = verified
+        ctx.state = {**ctx.state, "last_verified": ctx.now}
         ctx.save()
 
     def summary(self, success):
