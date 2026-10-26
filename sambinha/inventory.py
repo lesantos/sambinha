@@ -231,6 +231,13 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
             if stat.S_ISLNK(before.st_mode):
                 continue
             relative = prefix + "/" + name if prefix else name
+            # Names that are not valid UTF-8 arrive as surrogate escapes, which
+            # neither the JSON state nor the listfile can serialize; fail here
+            # naming the file instead of crashing deep in the job.
+            try:
+                name.encode("utf-8")
+            except UnicodeEncodeError:
+                raise BackupError(f"Nome de arquivo não é UTF-8 válido: {relative!r}") from None
             if stat.S_ISDIR(before.st_mode):
                 if included_dirs is not None and relative not in included_dirs:
                     continue

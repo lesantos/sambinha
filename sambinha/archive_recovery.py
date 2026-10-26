@@ -29,7 +29,9 @@ def archive_members(storage, runner, archive):
             continue
         name = fields["Path"].removeprefix("./")
         safe_relative(name)
-        if ("\\" in name or any(k in fields for k in ("Symbolic Link", "Hard Link"))
+        # A backslash is an ordinary character in POSIX names; 7-Zip stores
+        # and extracts it literally, so only links and special files are rejected.
+        if (any(k in fields for k in ("Symbolic Link", "Hard Link"))
                 or re.search(r"(?:^|\s)[lbcp]", fields.get("Attributes", ""))):
             raise BackupError("Lote contém link ou arquivo especial")
         if fields.get("Folder") == "+" or fields.get("Attributes", "").startswith("D"):
