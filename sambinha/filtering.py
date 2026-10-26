@@ -1,13 +1,13 @@
 """Use rclone's own exclude-from matcher for source and historical paths."""
 import json
-from pathlib import Path, PurePosixPath
 import tempfile
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path, PurePosixPath
 
-from .errors import BackupError, job_errors
 from .discovery import Discovery
-from .inventory import safe_relative, path_has_symlink
+from .errors import BackupError, job_errors
+from .inventory import path_has_symlink, safe_relative
 from .names import NAMESPACE
 
 SKIP_LINK_FLAGS = ("--skip-links", "--links=false", "--copy-links=false")

@@ -1,8 +1,9 @@
 """Ordered validators for global settings, jobs and destination boundaries."""
 from __future__ import annotations
-from pathlib import Path
+
 import math
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -71,14 +72,14 @@ def _validate_job(job: Job, seen: set[str]):
         raise ConfigError("simple exige S3 acessível sem restore; use GLACIER_IR ou batch")
     value = job.max_megabytes
     if (type(value) not in (int, float) or value <= 0
-            or isinstance(value, float) and (not math.isfinite(value)
-                                            or not math.isfinite(value * 1024 ** 2))
+            or (isinstance(value, float) and (not math.isfinite(value)
+                                            or not math.isfinite(value * 1024 ** 2)))
             or job.max_bytes < 1):
         raise ConfigError("max_megabytes deve ser um número positivo e finito equivalente a pelo menos 1 byte")
     for name, minimum, maximum in (("individual_batch_percent", 0, 100),
                                    ("batch_size_alert_percent", -1, float('inf'))):
         value = getattr(job, name)
-        if type(value) not in (int, float) or not math.isfinite(value) or not minimum < value <= maximum or name == "batch_size_alert_percent" and value < 0:
+        if type(value) not in (int, float) or not math.isfinite(value) or not minimum < value <= maximum or (name == "batch_size_alert_percent" and value < 0):
             raise ConfigError(f"{name}: percentual fora do intervalo permitido")
     if not isinstance(job.compressor, str) or not job.compressor:
         raise ConfigError("compressor deve indicar um executável compatível com 7-Zip")

@@ -1,5 +1,6 @@
 """Path overlap rules shared by configuration and restoration."""
 from __future__ import annotations
+
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,7 +17,7 @@ def destinations_overlap(first: Job, second: Job) -> bool:
         return False
     if first.type == "local":
         return overlap(Path(first.destination).resolve(), Path(second.destination).resolve())
-    def prefix(value):
+    def prefix(value: str) -> tuple[str, tuple[str, ...]]:
         remote, path = value.split(":", 1)
         parts = tuple(part for part in path.split("/") if part)
         return remote, parts

@@ -1,6 +1,6 @@
 """One job's frozen rules, strategy execution, verification and summary."""
-from collections.abc import Callable, Mapping
 import copy
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 
 from .config import Config, Job

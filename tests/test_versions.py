@@ -1,18 +1,23 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
-import os
-from pathlib import Path
 import stat
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock
 
 from sambinha.config import validate
 from sambinha.errors import BackupError
 from sambinha.recovery import recover
-from sambinha.versions import (MIN_7ZIP, MIN_RCLONE, check_compressor_version, check_rclone_version,
-                               parse_7zip_version, parse_rclone_version)
+from sambinha.versions import (
+    MIN_7ZIP,
+    MIN_RCLONE,
+    check_compressor_version,
+    check_rclone_version,
+    parse_7zip_version,
+    parse_rclone_version,
+)
 from tests.helpers import Sandbox
 
 

@@ -1,8 +1,8 @@
 """Strict dotenv input and variable expansion, without running shell code."""
 import os
-from pathlib import Path
 import re
 from collections.abc import Mapping
+from pathlib import Path
 
 from dotenv.parser import parse_stream
 
@@ -25,7 +25,7 @@ def read_environment(path: Path, inherited: Mapping[str, str] | None = None) -> 
     Values are kept literal: no shell commands or dotenv variable interpolation.
     The returned mapping belongs to this configuration, not the parent process.
     """
-    values = {}
+    values: dict[str, str] = {}
     try:
         with path.open(encoding="utf-8-sig") as stream:
             for binding in parse_stream(stream):
@@ -34,7 +34,7 @@ def read_environment(path: Path, inherited: Mapping[str, str] | None = None) -> 
                         or "\x00" in binding.value or binding.key in values)):
                     raise ConfigError(f"secrets_file inválido na linha {binding.original.line}; "
                                       "use uma atribuição NOME=valor por variável")
-                if binding.key is not None:
+                if binding.key is not None and binding.value is not None:  # value checked above; narrows for mypy
                     values[binding.key] = binding.value
     except (OSError, UnicodeError):
         raise ConfigError("Não foi possível ler secrets_file; confira o caminho, "

@@ -12,8 +12,103 @@ license = {text = "MIT"}
 authors = [{name = "Leandro Santos"}]
 dependencies = ["python-dotenv>=1.0,<2"]
 
+[project.optional-dependencies]
+# Test-only dependencies; `requirements-test.txt` is a thin shim over this list.
+test = [
+    "moto[s3,server]>=5.0,<6",
+    "coverage>=7.6,<8",
+    "pytest>=8,<9",
+    "pytest-xdist>=3.5,<4",
+    "pytest-cov>=5,<8",
+]
+dev = ["ruff", "mypy", "pytest", "pytest-xdist", "pytest-cov"]
+
 [project.scripts]
 sambinha = "sambinha.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["sambinha*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",    # line length: long user-facing (pt-BR) messages are deliberate
+    "E701",    # one-line `if x: return` is part of the repo's dense style
+    "E702",    # idem for `a; b` on one line
+    "SIM102",  # nested ifs kept where they read better than long conditions
+    "SIM105",  # explicit try/except/pass over contextlib.suppress
+    "SIM117",  # nested `with` blocks are deliberate in tests
+    "RUF005",  # tuple/list concatenation is fine; unpacking is not clearer
+    "B023",    # closures over loop variables: audited, not auto-fixed (behavior-neutral ratchet)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sambinha"]
+
+[tool.ruff.format]
+# Configured for local use only. CI enforces `ruff check`, not `ruff format`:
+# reformatting the whole code base would be a large behavior-neutral diff.
+quote-style = "double"
+
+[tool.mypy]
+# Ratchet plan: (1) keep `mypy sambinha` green in CI with these loose global
+# settings; (2) the pure modules below already run with strict-equivalent
+# checks except `disallow_untyped_defs`/`disallow_untyped_calls`, which get
+# enabled per module as their public functions gain annotations; (3) then
+# remove the per-module `disable_error_code` entries one file at a time.
+python_version = "3.12"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_unused_configs = true
+warn_redundant_casts = true
+ignore_missing_imports = true  # dotenv, moto and friends ship no/partial stubs
+# Bare `x = []`/`{}` in untyped functions: annotate as functions are typed.
+disable_error_code = ["var-annotated"]
+
+[[tool.mypy.overrides]]
+# Pure modules: strict-equivalent flags that already pass (see ratchet plan).
+module = [
+    "sambinha.names", "sambinha.errors", "sambinha.batches", "sambinha.paths",
+    "sambinha.retention", "sambinha.versions", "sambinha.protection",
+    "sambinha.secrets", "sambinha.profiles",
+]
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_subclassing_any = true
+disallow_untyped_decorators = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+warn_return_any = true
+enable_error_code = ["var-annotated"]
+
+[[tool.mypy.overrides]]
+# Mixin that relies on attributes provided by the concrete storage class.
+module = "sambinha.simple_storage"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+# Optional attributes assigned after construction; narrowed by runtime checks.
+module = ["sambinha.jobs", "sambinha.discovery"]
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+# Locals re-bound with a different type; refactor before enabling.
+module = ["sambinha.config_locations", "sambinha.process", "sambinha.archive_recovery", "sambinha.progress", "sambinha.index_generations"]
+disable_error_code = ["assignment", "attr-defined", "has-type", "no-redef", "arg-type"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["sambinha"]
+
+[tool.coverage.report]
+fail_under = 85

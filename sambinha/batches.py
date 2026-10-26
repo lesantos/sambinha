@@ -1,9 +1,10 @@
 """Stable batch membership and size-only packing in source traversal order."""
-from dataclasses import dataclass
 import hashlib
 import json
 import posixpath
+from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Any
 
 from .inventory import File
 
@@ -62,8 +63,8 @@ def _make(members, extension, dedicated=False, batch_id=None):
 
 def pack(files, max_bytes, extension='7z', individual_percent=100):
     """Keep a normal batch open while diverting individual files; no count cap."""
-    chunks = []
-    current = None
+    chunks: list[tuple[list[File], bool]] = []
+    current: list[File] | None = None
     size = 0
     for item in files:
         if item.size * 100 >= max_bytes * individual_percent:
@@ -78,16 +79,17 @@ def pack(files, max_bytes, extension='7z', individual_percent=100):
     return [_make(members, extension, dedicated) for members, dedicated in chunks]
 
 
-def plan(files: list[File], max_bytes: int, max_files=None, extension='7z',
-         previous=None, category=None, *, individual_percent=100, rebalance=False):
+def plan(files: list[File], max_bytes: int, max_files: int | None = None, extension: str = '7z',
+         previous: dict[str, dict[str, Any]] | None = None, category: str | None = None, *,
+         individual_percent: int = 100, rebalance: bool = False) -> list[Batch]:
     """Keep existing groups, even oversized; pack only new or manually moved files.
 
     Legacy Python max_files/category arguments are ignored. Source inventories
     supply DFS order; there is no reordering by current dates of known members.
     """
     remaining = {item.path: item for item in files}
-    result = []
-    moved = []
+    result: list[Batch] = []
+    moved: list[File] = []
     for key, control in (previous or {}).items():
         members = tuple(remaining.pop(f['path']) for f in control['files'] if f['path'] in remaining)
         if not members:

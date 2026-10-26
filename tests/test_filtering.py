@@ -1,16 +1,14 @@
-from dataclasses import replace
 import json
-import os
-from pathlib import Path
-import shutil
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from sambinha.config import load
 from sambinha.engine import DAY
 from sambinha.filtering import Selection, path_groups, retired_paths
 from sambinha.process import Runner
-from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
+from tests.helpers import REAL_TOOLS, Sandbox, restore_batches
 
 
 class GroupingTests(unittest.TestCase):
@@ -66,6 +64,7 @@ class FilteringTests(Sandbox):
         (self.source / 'empty').mkdir()
         self.exclude('*.tmp\n')
         from unittest.mock import patch
+
         from sambinha.inventory import fingerprint
         visited = []
         def record(root, name):
@@ -144,6 +143,7 @@ class FilteringTests(Sandbox):
 
     def test_rules_changed_mid_run_only_affect_the_next_execution(self):
         from unittest.mock import patch
+
         from sambinha.storage import Storage
         self.file('keep.txt', b'keep')
         target = self.file('skip.tmp', b'old')

@@ -1,14 +1,13 @@
-from dataclasses import replace
 import copy
 import io
 import os
-from pathlib import Path
 import unittest
+from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
 from sambinha.errors import BackupError
-from sambinha.inventory import scan, safe_relative
+from sambinha.inventory import safe_relative, scan
 from sambinha.local_paths import reject_symlinks
 from sambinha.logging import RunLog
 from sambinha.process import Runner
@@ -69,9 +68,8 @@ class SecurityTests(Sandbox):
         target = outside / 'keep'
         target.write_text('keep')
         (directory / 'run.lock').symlink_to(target)
-        with self.assertRaises(OSError):
-            with lock(directory):
-                pass
+        with self.assertRaises(OSError), lock(directory):
+            pass
         self.assertEqual(target.read_text(), 'keep')
 
     def test_corrupt_controls_and_active_retirement_are_rejected_before_cleanup(self):

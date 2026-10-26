@@ -1,26 +1,28 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from datetime import UTC
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
 from sambinha.config import validate
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_local_metadata_job, verify_destination_metadata_job
+from sambinha.recovery import recover, verify_destination_metadata_job, verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
 class RestorePublicationTests(Sandbox):
     def test_existing_file_is_never_overwritten_with_or_without_hard_links(self):
         import errno
+
         from sambinha.restore import publish_file
         source = self.file('file', b'restored')
         metadata = scan(self.source)[0].metadata()
@@ -57,14 +59,15 @@ class RestorePublicationTests(Sandbox):
 
 class ArchiveMetadataVerificationTests(Sandbox):
     def test_listing_checks_paths_sizes_and_dates_without_extraction(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from sambinha.archive_recovery import check_archive
         path = self.file('file', b'payload')
         stamp = 1700000000123456789
         os.utime(path, ns=(stamp, stamp))
         batch = plan(scan(self.source), 1000, 2)[0]
         control = batch.control()
-        modified = datetime.fromtimestamp(stamp // 10**9, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') + '.1234567'
+        modified = datetime.fromtimestamp(stamp // 10**9, UTC).strftime('%Y-%m-%d %H:%M:%S') + '.1234567'
         listing = f'Path = file\nSize = 7\nModified = {modified}\n'
         storage = Mock(job=replace(self.config.jobs[0], logic='batch'))
         storage.path.return_value = str(self.root / batch.key)
@@ -85,10 +88,11 @@ class ArchiveMetadataVerificationTests(Sandbox):
                 check_archive(storage, runner, batch.key, control)
 
     def test_legacy_zip_two_second_date_precision_is_accepted(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from sambinha.archive_recovery import archive_date_matches
         stamp = 1700000001123456789
-        date = datetime.fromtimestamp(stamp // 10**9, timezone.utc)
+        date = datetime.fromtimestamp(stamp // 10**9, UTC)
         date = date.replace(second=date.second // 2 * 2)
         fields = {'Modified': date.strftime('%Y-%m-%d %H:%M:%S')}
         self.assertTrue(archive_date_matches(fields, {'mtime_ns': stamp, 'path': 'file'}, 'zip'))
@@ -133,6 +137,7 @@ class S3MetadataVerificationTests(Sandbox):
 
     def test_missing_local_s3_index_is_recovered_from_immediately_accessible_metadata(self):
         import tarfile
+
         from sambinha.state import identity
         self.file('file')
         batch = plan(scan(self.source), 1000, 2)[0]
@@ -372,9 +377,9 @@ assert runner.env == environment == dict(os.environ)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_batch_restore_uses_output_disk_and_removes_each_lots_temporary_files(self):
-        from tests.test_disks import Usage
         from sambinha.archive_recovery import unpack
         from sambinha.storage import Storage
+        from tests.test_disks import Usage
         for i in range(3):
             self.file(f'{i}/selected.txt', b'selected')
             self.file(f'{i}/unselected.txt', b'unselected')

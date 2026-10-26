@@ -1,17 +1,16 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
-from datetime import datetime, timezone
 import io
 import os
-from pathlib import Path
 import time
-import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.engine import run
 from sambinha.logging import RunLog
 from sambinha.recovery import recover
-from tests.helpers import REAL_TOOLS, Sandbox
+from tests.helpers import Sandbox
 
 DAY = 86400
 
@@ -20,7 +19,7 @@ class LogRetentionTests(Sandbox):
     def old_log(self, age, *, name=None, now=1700000000):
         directory = self.config.log_dir
         directory.mkdir(exist_ok=True)
-        name = name or (datetime.fromtimestamp(now - age, timezone.utc).strftime('%Y%m%dT%H%M%S')
+        name = name or (datetime.fromtimestamp(now - age, UTC).strftime('%Y%m%dT%H%M%S')
                         + '-' + 'a' * 32 + '.jsonl')
         path = directory / name
         path.write_text('{"event":"start"}\n')

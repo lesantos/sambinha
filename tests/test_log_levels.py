@@ -1,11 +1,11 @@
 """Independent event detail for JSONL files and terminal output."""
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
 import os
-from unittest.mock import Mock
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from unittest.mock import Mock
 
 from sambinha.cli import parser
 from sambinha.config import load, validate

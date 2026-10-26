@@ -1,17 +1,16 @@
 """Safe dotenv parsing, isolated configuration and subprocess credentials."""
-from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import Mock, patch
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from unittest.mock import patch
 
 from sambinha.cli import main, parser
 from sambinha.config import load
-from sambinha.errors import ConfigError
-from sambinha.errors import BackupError
+from sambinha.errors import BackupError, ConfigError
 from sambinha.process import Runner
 from sambinha.secrets import expand, read_environment
 from tests.helpers import Sandbox

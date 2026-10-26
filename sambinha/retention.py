@@ -1,5 +1,6 @@
 """Durable deletion deadlines and non-blocking forecasts shared by all jobs."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from .errors import BackupError
 
 DAY = 86400
@@ -24,7 +25,7 @@ def alert_time(entry, deleted_days, version_days):
 
 def date(value):
     try:
-        return datetime.fromtimestamp(value, timezone.utc).isoformat()
+        return datetime.fromtimestamp(value, UTC).isoformat()
     except (ValueError, OverflowError, OSError):
         raise BackupError("Prazo de exclusão fora do intervalo de datas suportado") from None
 

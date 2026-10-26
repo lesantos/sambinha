@@ -1,14 +1,14 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import hashlib
 import io
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from pathlib import Path
 
 from sambinha.config import Config, Job, validate
 from sambinha.engine import run

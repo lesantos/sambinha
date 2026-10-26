@@ -299,10 +299,11 @@ Excluded files are not uploaded or considered removed. Files already in the back
 ## Tests and documentation
 
 ```bash
-.venv/bin/python -m pip install -e . -r requirements-test.txt
-SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
-.venv/bin/python -m coverage report --include='sambinha/*' --show-missing --fail-under=85
+.venv/bin/python -m pip install -e '.[test,dev]'
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m pytest -n auto --cov=sambinha --cov-branch --cov-report=term-missing --cov-fail-under=85
 ```
+
+`make test`, `make coverage`, `make lint` (ruff) and `make typecheck` (mypy) wrap the same commands; `make test-fast` skips the HTTP S3 server tests. The tests remain `unittest` cases, so `python -m unittest discover` still works, only serially. `ruff format` is configured but not enforced: CI runs `ruff check` and mypy in a lint job before the test matrix (Python 3.12 and 3.13).
 
 Tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They do not require real AWS or Cronitor credentials. HTTP integration requires loopback networking. Results are recorded in [test results](test-results.md); GitHub runs [continuous tests](https://github.com/lesantos/sambinha/actions).
 

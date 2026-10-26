@@ -1,9 +1,9 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
-from pathlib import Path
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.errors import BackupError, JobError, job_errors
@@ -17,10 +17,8 @@ from tests.test_disks import Usage
 class JobErrorTests(unittest.TestCase):
     def test_error_preserves_job_and_cause_without_duplicate_prefix(self):
         cause = PermissionError('sem acesso')
-        with self.assertRaises(JobError) as raised:
-            with job_errors('first'):
-                with job_errors('first'):
-                    raise cause
+        with self.assertRaises(JobError) as raised, job_errors('first'), job_errors('first'):
+            raise cause
         self.assertEqual(raised.exception.job, 'first')
         self.assertEqual(str(raised.exception), 'Job first: sem acesso')
         self.assertIs(raised.exception.__cause__, cause)
@@ -30,9 +28,8 @@ class JobErrorTests(unittest.TestCase):
         with job_errors('first', callback):
             raise ValueError('inválido')
         self.assertEqual(str(callback.call_args.args[0]), 'Job first: inválido')
-        with self.assertRaises(KeyboardInterrupt):
-            with job_errors('first', callback):
-                raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt), job_errors('first', callback):
+            raise KeyboardInterrupt
         callback.assert_called_once()
 
 

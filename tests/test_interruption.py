@@ -1,18 +1,18 @@
 """Ctrl+C and SIGTERM stop children promptly and unwind every cleanup block."""
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
 import os
-from pathlib import Path
 import signal
 import stat
-import tempfile
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import Mock, patch
 
@@ -86,9 +86,8 @@ class RunnerCancellationTests(unittest.TestCase):
     def test_cancelled_runner_refuses_to_spawn_new_children(self):
         runner = Runner(sleep=Mock())
         runner.cancel()
-        with patch('sambinha.process.subprocess.Popen') as popen:
-            with self.assertRaises(Interrupted):
-                runner.run(['sleep', '30'], retry=True)
+        with patch('sambinha.process.subprocess.Popen') as popen, self.assertRaises(Interrupted):
+            runner.run(['sleep', '30'], retry=True)
         popen.assert_not_called()
         runner.sleep.assert_not_called()
 
@@ -135,9 +134,8 @@ class RunnerCancellationTests(unittest.TestCase):
                 raise KeyboardInterrupt()
             return real_wait(*args, **kwargs)
 
-        with patch.object(child, 'wait', side_effect=interrupted_wait):
-            with self.assertRaises(KeyboardInterrupt):
-                runner.cancellation.cancel(grace=5)
+        with patch.object(child, 'wait', side_effect=interrupted_wait), self.assertRaises(KeyboardInterrupt):
+            runner.cancellation.cancel(grace=5)
         thread.join(10)
         self.assertFalse(thread.is_alive())
         self.assertTrue(wait_until(lambda: not alive(child.pid)), 'child survived the interrupted cancel')
@@ -146,18 +144,16 @@ class RunnerCancellationTests(unittest.TestCase):
 class TerminationHandlerTests(unittest.TestCase):
     def test_sigterm_in_the_main_thread_raises_terminated_and_restores_the_handler(self):
         previous = signal.getsignal(signal.SIGTERM)
-        with self.assertRaises(Terminated):
-            with handle_termination():
-                self.assertNotEqual(signal.getsignal(signal.SIGTERM), previous)
-                os.kill(os.getpid(), signal.SIGTERM)
-                time.sleep(1)
-                self.fail('SIGTERM did not interrupt the main thread')
+        with self.assertRaises(Terminated), handle_termination():
+            self.assertNotEqual(signal.getsignal(signal.SIGTERM), previous)
+            os.kill(os.getpid(), signal.SIGTERM)
+            time.sleep(1)
+            self.fail('SIGTERM did not interrupt the main thread')
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
     def test_handler_installed_outside_python_is_left_alone_on_exit(self):
-        with patch('sambinha.process.signal.signal', return_value=None) as install:
-            with handle_termination():
-                pass
+        with patch('sambinha.process.signal.signal', return_value=None) as install, handle_termination():
+            pass
         self.assertEqual(install.call_count, 1)
         self.assertIs(install.call_args.args[0], signal.SIGTERM)
 
@@ -249,7 +245,7 @@ class CommandLineTerminationTests(Sandbox):
             compressor = int(pid_file.read_text())
             self.assertTrue(any(p.name.startswith('sambinha-') for p in temp_dir.iterdir()))
             process.send_signal(signal.SIGTERM)
-            stdout, stderr = process.communicate(timeout=20)
+            _stdout, stderr = process.communicate(timeout=20)
         finally:
             if process.poll() is None:
                 process.kill()

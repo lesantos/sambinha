@@ -20,5 +20,5 @@ def read_index(config, job, storage, work, *, metadata_only=False):
     if job.logic != "batch":
         raise BackupError("Restauração da cópia simples não usa índice batch")
     from .index_generations import remote_index
-    state, controls = remote_index(config, job, storage, work)
+    state, _controls = remote_index(config, job, storage, work)
     return state

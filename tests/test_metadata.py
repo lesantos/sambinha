@@ -1,9 +1,9 @@
-from dataclasses import replace
 import json
 import os
-from pathlib import Path
 import shutil
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
@@ -13,7 +13,7 @@ from sambinha.metadata import control_directory, prepare_controls
 from sambinha.recovery import recover
 from sambinha.state import atomic_json, identity
 from sambinha.storage import Storage
-from sambinha.verification import verify_local_metadata_job, verify_destination_metadata_job
+from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox
 
 

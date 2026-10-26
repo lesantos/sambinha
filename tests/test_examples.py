@@ -1,11 +1,11 @@
 """Keep public examples complete and parseable as configuration evolves."""
-from dataclasses import fields
-from pathlib import Path
 import re
 import unittest
+from dataclasses import fields
+from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.config import Config, Job, JOB_SCOPED_OPTIONS, load
+from sambinha.config import JOB_SCOPED_OPTIONS, Config, Job, load
 from sambinha.secrets import read_environment
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ExampleTests(unittest.TestCase):
     def test_english_and_brazilian_portuguese_examples_have_identical_settings(self):
-        from configparser import ConfigParser
         import tomllib
+        from configparser import ConfigParser
         self.assertEqual(tomllib.loads((ROOT / 'sambinha.example.toml').read_text()),
                          tomllib.loads((ROOT / 'sambinha.example.pt-BR.toml').read_text()))
         configs = []
@@ -60,7 +60,7 @@ class ExampleTests(unittest.TestCase):
             'max_delete', 'max_delete_percent', 'deletion_min_files'}
         examples = tomllib.loads((ROOT / 'sambinha.example.toml').read_text())['jobs']
         self.assertGreaterEqual(len(job_keys), 2)
-        for index, (keys, example) in enumerate(zip(job_keys, examples)):
+        for index, (keys, example) in enumerate(zip(job_keys, examples, strict=False)):
             expected = expected_jobs | ({'max_delete'} if example['logic'] == 'simple'
                                         else {'max_delete_percent', 'deletion_min_files'})
             with self.subTest(job=index):

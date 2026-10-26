@@ -1,12 +1,13 @@
 """Validate and unpack archive members into private staging directories."""
-from datetime import datetime, timezone
-from pathlib import Path
 import re
 import shutil
+from datetime import UTC, datetime
+from pathlib import Path
 
 from .disks import check_disk
 from .errors import BackupError
-from .inventory import fingerprint, metadata as file_metadata, safe_relative, scan
+from .inventory import fingerprint, safe_relative, scan
+from .inventory import metadata as file_metadata
 
 
 def check_content(root, metadata, *, mode=None, check_mtime=False):
@@ -50,8 +51,8 @@ def archive_date_matches(fields, metadata, archive_format):
     if not match:
         raise BackupError(f"Data de modificação ausente ou inválida no lote: {metadata['path']}")
     seconds, nanoseconds = divmod(metadata["mtime_ns"], 10 ** 9)
-    expected = datetime.fromtimestamp(seconds, timezone.utc)
-    actual = datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    expected = datetime.fromtimestamp(seconds, UTC)
+    actual = datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
     fraction = int((match[2] or '').ljust(9, '0'))
     characteristics = fields.get("Characteristics", "").replace(':', ' ').upper().split()
     if archive_format == "zip" and "NTFS" not in characteristics:
@@ -70,9 +71,9 @@ def check_archive(storage, runner, key, control, *, archive=None):
         actual = fingerprint(archive.parent, archive.name)
         item = control['files'][0]
         if (len(control['files']) != 1 or actual.size != item['size']
-                or item.get('md5') and actual.md5 != item['md5']
-                or 'archive_md5' in control and
-                (actual.size != control['archive_size'] or actual.md5 != control['archive_md5'])):
+                or (item.get('md5') and actual.md5 != item['md5'])
+                or ('archive_md5' in control and
+                (actual.size != control['archive_size'] or actual.md5 != control['archive_md5']))):
             raise BackupError(f"Arquivo compactado individual divergente: {key}")
         return
     members = archive_members(storage, runner, archive)

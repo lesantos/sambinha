@@ -4,19 +4,23 @@ The first classes run everywhere by simulating the macOS environment, so the
 Linux CI exercises the Darwin code paths. The last class runs only on a real
 Mac and checks the same behavior against the live system.
 """
-from dataclasses import replace
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha import filesystems, inventory, mounts
 from sambinha.errors import BackupError
-from sambinha.filesystems import (mounted_filesystems, needs_destination_link_scan,
-                                  supports_posix_metadata, volatile_inode_devices)
+from sambinha.filesystems import (
+    mounted_filesystems,
+    needs_destination_link_scan,
+    supports_posix_metadata,
+    volatile_inode_devices,
+)
 from sambinha.mounts import check_mounts, is_mount_point
 from sambinha.process import Runner
 from tests.helpers import Sandbox
@@ -176,6 +180,7 @@ class SymlinkedTemporaryDirectoryTests(Sandbox):
 
     def test_default_temporary_directory_is_resolved_and_metadata_dirs_accept_it(self):
         import tempfile
+
         from sambinha.disks import use_real_temporary_directory
         from sambinha.state import private_directory
         real = self.root / "real-tmp"
@@ -192,6 +197,7 @@ class SymlinkedTemporaryDirectoryTests(Sandbox):
 
     def test_configured_temp_dir_is_left_alone(self):
         import tempfile
+
         from sambinha.disks import use_real_temporary_directory
         link = self.root / "var"
         link.symlink_to(self.root / "source", target_is_directory=True)

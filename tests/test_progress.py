@@ -1,17 +1,17 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
-import threading
 import re
+import threading
+import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.engine import run
 from sambinha.inventory import scan
-from sambinha.progress import Progress
 from sambinha.process import Runner
-from tests.helpers import Sandbox, REAL_TOOLS, contents
-import unittest
+from sambinha.progress import Progress
+from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
 class Terminal(io.StringIO):
@@ -95,9 +95,8 @@ class ProgressTests(Sandbox):
         self.assertIn('99.9% do backup', terminal.getvalue())
         terminal.truncate(0)
         terminal.seek(0)
-        with self.assertRaises(RuntimeError):
-            with progress.task('Comprimindo', '/dados'):
-                raise RuntimeError('failed')
+        with self.assertRaises(RuntimeError), progress.task('Comprimindo', '/dados'):
+            raise RuntimeError('failed')
         self.assertNotIn('100.0%', terminal.getvalue())
         self.assertFalse(progress.visible)
 

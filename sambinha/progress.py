@@ -1,9 +1,10 @@
 """Transient, throttled progress on the terminal; never an audit-log event."""
+import math
 import sys
 import threading
 import time
 from contextlib import contextmanager
-import math
+
 from .terminal import cell_width, progress_line, terminal_columns
 
 
@@ -40,7 +41,7 @@ class Progress:
         total = sum(weights)
         def report(index, fraction):
             fractions[index] = max(fractions[index], fraction)
-            return self._map(sum(w * f for w, f in zip(weights, fractions)) / total)
+            return self._map(sum(w * f for w, f in zip(weights, fractions, strict=False)) / total)
         return [Progress(self.stream, clock=self.clock, redact=self.redact, _root=self.root,
                          _sink=lambda fraction, i=i: report(i, fraction)) for i in range(len(weights))]
 

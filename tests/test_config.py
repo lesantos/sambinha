@@ -1,8 +1,8 @@
 from dataclasses import replace
 from pathlib import Path
 
-from sambinha.cli import parser, main
-from sambinha.config import Job, load, validate
+from sambinha.cli import main, parser
+from sambinha.config import load, validate
 from sambinha.errors import ConfigError
 from tests.helpers import Sandbox
 
@@ -108,8 +108,8 @@ class ConfigurationTests(Sandbox):
             load(self.toml(jobs=jobs))
         with self.assertRaisesRegex(ConfigError, 'Override desconhecido'):
             load(self.toml(), {'max_bytes': 1048576})
-        from contextlib import redirect_stderr
         import io
+        from contextlib import redirect_stderr
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser().parse_args(['--max-bytes', '1048576'])
 
@@ -299,7 +299,7 @@ class ConfigurationTests(Sandbox):
         self.assertFalse(parser().parse_args(["--no-dry-run"]).dry_run)
 
     def test_cli_invalid_config_exit_code(self):
-        from contextlib import redirect_stderr
         import io
+        from contextlib import redirect_stderr
         with redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.root / "missing")]), 2)

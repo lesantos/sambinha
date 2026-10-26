@@ -1,7 +1,8 @@
 """Shared runner, redaction, progress and audit log setup for backup and recovery runs."""
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from .disks import use_real_temporary_directory
 from .logging import RunLog

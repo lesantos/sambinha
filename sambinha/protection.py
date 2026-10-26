@@ -1,6 +1,6 @@
 """Modification-time comparisons with nanosecond precision."""
-from datetime import datetime
 import re
+from datetime import datetime
 
 from .errors import BackupError
 

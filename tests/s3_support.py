@@ -4,15 +4,16 @@ The application still uses its real Storage adapter and packing/retention
 strategies. Only the external rclone/S3 boundary is replaced; real HTTP tests
 exercise that boundary separately on machines allowing loopback networking.
 """
-import hashlib
-from datetime import datetime, timezone
 import fnmatch
+import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
+
 from botocore.exceptions import ClientError
 
-from sambinha.process import Runner
 from sambinha.errors import BackupError
+from sambinha.process import Runner
 
 
 class MotoRunner(Runner):
@@ -212,7 +213,7 @@ class MotoRunner(Runner):
                 mtime = obj.get('Metadata', {}).get('mtime')
                 if mtime:
                     seconds, _, fraction = mtime.partition('.')
-                    modified = datetime.fromtimestamp(int(seconds), timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + '.' + fraction.ljust(9, '0') + 'Z'
+                    modified = datetime.fromtimestamp(int(seconds), UTC).strftime('%Y-%m-%dT%H:%M:%S') + '.' + fraction.ljust(9, '0') + 'Z'
                 else:
                     modified = obj['LastModified'].isoformat()
                 return json.dumps({'Path': prefix.rsplit('/', 1)[-1], 'Size': obj['ContentLength'],
@@ -234,7 +235,7 @@ class MotoRunner(Runner):
                     mtime = metadata.get('mtime')
                     if mtime:
                         seconds, _, fraction = mtime.partition('.')
-                        date = datetime.fromtimestamp(int(seconds), timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+                        date = datetime.fromtimestamp(int(seconds), UTC).strftime('%Y-%m-%dT%H:%M:%S')
                         modified = date + '.' + fraction.ljust(9, '0') + 'Z'
                     else:
                         modified = item['LastModified'].isoformat()
@@ -242,8 +243,8 @@ class MotoRunner(Runner):
                                   'ModTime': modified,
                                   'Hashes': {'md5': item['ETag'].strip('"')}})
             if '--exclude-from' in args:
-                from sambinha.filtering import Selection
                 from sambinha.config import Config
+                from sambinha.filtering import Selection
                 selected = Selection(Path(args[args.index('--exclude-from') + 1]), Config(jobs=()), self).include_paths(i['Path'] for i in items)
                 items = [i for i in items if i['Path'] in selected]
             return json.dumps(items)

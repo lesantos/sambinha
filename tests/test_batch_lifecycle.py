@@ -1,11 +1,10 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
 import os
-from pathlib import Path
 import shutil
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
 from unittest.mock import patch
 
 from sambinha.config import validate
@@ -33,7 +32,7 @@ class BatchOptionsAndTraversalTests(Sandbox):
     def test_mixed_sibling_mtimes_drive_depth_first_order(self):
         paths = [self.file('older-directory/recent-file'), self.file('root-old'),
                  self.file('newer-directory/ancient-file'), self.file('root-new')]
-        for path, stamp in zip(paths, (900, 20, 1, 40)):
+        for path, stamp in zip(paths, (900, 20, 1, 40), strict=False):
             os.utime(path, ns=(stamp, stamp))
         for directory, stamp in (('older-directory', 10), ('newer-directory', 30)):
             os.utime(self.source / directory, ns=(stamp, stamp))

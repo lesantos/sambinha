@@ -2,13 +2,12 @@
 import base64
 import http.client
 import json
-import os
-from pathlib import Path, PurePosixPath
 import re
 import secrets
 import subprocess
 import tempfile
 import time
+from pathlib import Path, PurePosixPath
 
 from .errors import BackupError
 from .inventory import safe_relative

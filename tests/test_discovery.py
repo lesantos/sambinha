@@ -1,11 +1,11 @@
 """Real native-filter discovery plus bounded-failure/lifecycle regressions."""
-from dataclasses import replace
 import http.client
 import json
 import os
-from pathlib import Path
 import subprocess
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.discovery import Discovery
@@ -189,9 +189,8 @@ class DiscoveryTests(Sandbox):
 
     def test_invalid_rules_fail_at_startup_and_release_resources(self):
         server = Discovery(self.config, Runner(), self.source, self.rules('[\n'))
-        with self.assertRaisesRegex(BackupError, 'não iniciou'):
-            with server:
-                self.fail('invalid rules accepted')
+        with self.assertRaisesRegex(BackupError, 'não iniciou'), server:
+            self.fail('invalid rules accepted')
         self.assertIsNotNone(server.process.poll())
         self.assertFalse(Path(server.directory.name).exists())
 

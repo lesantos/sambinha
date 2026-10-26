@@ -1,16 +1,15 @@
 """Real transfers prove that each job observes the previous job's completed work."""
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
 import os
-from pathlib import Path
-import tarfile
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.engine import DAY, Context
 from sambinha.config import validate
+from sambinha.engine import DAY, Context
 from sambinha.errors import ConfigError
 from sambinha.inventory import scan
 from sambinha.recovery import recover

@@ -218,12 +218,13 @@ Os testes fazem backups de arquivos pequenos, recuperam as cópias e comparam se
 Prepare as ferramentas de teste no mesmo ambiente do projeto e execute a suíte completa, incluindo o servidor S3 simulado:
 
 ```bash
-.venv/bin/python -m pip install -r requirements-test.txt
-SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m coverage run --branch -m unittest discover -v
-.venv/bin/python -m coverage report --include='sambinha/*'
+.venv/bin/python -m pip install -e '.[test,dev]'
+SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m pytest -n auto --cov=sambinha --cov-branch --cov-report=term-missing --cov-fail-under=85
 ```
 
-O resultado deve terminar em `OK`. A última linha da tabela de cobertura mostra quanto do código os testes percorreram. As verificações incluem arquivos vazios, nomes com acentos, arquivos editados ou apagados, falhas de envio, recuperação após falhas e simulação. Os arquivos gerados têm no máximo **100 KiB**, e as pastas temporárias são removidas ao final.
+`make test`, `make coverage`, `make lint` (ruff) e `make typecheck` (mypy) executam os mesmos comandos; `make test-fast` pula os testes do servidor S3 por HTTP. Os testes continuam sendo casos `unittest`, então `python -m unittest discover` ainda funciona, apenas em série. O `ruff format` está configurado mas não é exigido: a integração contínua executa `ruff check` e mypy em uma etapa de lint antes dos testes (Python 3.12 e 3.13).
+
+O resultado deve terminar com a contagem de testes aprovados. A última linha da tabela de cobertura mostra quanto do código os testes percorreram. As verificações incluem arquivos vazios, nomes com acentos, arquivos editados ou apagados, falhas de envio, recuperação após falhas e simulação. Os arquivos gerados têm no máximo **100 KiB**, e as pastas temporárias são removidas ao final.
 
 O [relatório da versão atual](test-results.pt-BR.md) registra os resultados obtidos. A cada envio de código, o GitHub também executa esses testes automaticamente; você pode acompanhar o resultado na [página de testes do projeto](https://github.com/lesantos/sambinha/actions).
 
