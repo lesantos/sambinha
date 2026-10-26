@@ -169,6 +169,15 @@ Discos da origem, destino local e temporários de lotes causam erro acima de 95%
 
 As opções por job `check_source_disk` e `check_destination_disk` têm padrão true. Use false na origem para filesystems virtuais (como Seafile/FUSE) que informam capacidade zero. A opção do destino também controla a saída de restauração; temporários e proteções de montagem/caminhos continuam ativos. `[[jobs]].continue_on_job_error` tem padrão true, inclusive para falhas de preflight por job; false interrompe na primeira falha. Qualquer falha de job mantém o código de saída diferente de zero. Erros identificam o job na mensagem, no log e nas notificações. Veja a configuração no [guia completo](configuration.pt-BR.md#verificação-de-disco-por-job).
 
+`--fresh-start` (só backup) faz esta execução ignorar toda dica de retomada: o cache de fingerprints, o último scan completo e os journals de envio/publicação são descartados (o estado confirmado do backup é mantido) e temporários de processos mortos são varridos de imediato. A opção de job `resume = "fresh"` no TOML faz o mesmo em toda execução; o padrão `resume = "auto"` retoma envios em lotes interrompidos. `--prune-orphans` (só backup) apaga lotes e gerações de recuperação do destino que nenhum estado confirmado referencia e que têm mais de um dia, sob o mesmo guard de remoção em massa (`--allow-mass-deletion` o contorna); sem a opção os órfãos apenas são relatados no evento `orphans`.
+
+```bash
+sambinha --job documents --fresh-start
+sambinha --job documents --prune-orphans
+```
+
+Veja [interrupção e retomada](batch-lifecycle.pt-BR.md#interrupção-e-retomada) para as regras de journal, órfãos e varredura.
+
 ## Resumo, performance e compatibilidade
 
 Jobs batch emitem contagens indexadas de arquivos e lotes. Jobs simples registram a estratégia `rclone sync` e o `max_delete` absoluto por job; uma falha pode ocorrer depois de parte da sincronização ter sido aplicada. Veja [performance](performance.pt-BR.md) para sync nativo e perfis batch.
