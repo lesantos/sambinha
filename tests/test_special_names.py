@@ -82,3 +82,42 @@ class SpecialNameBatchTests(Sandbox):
         self.use_batch()
         with patch.object(archives, 'ARGUMENT_BUDGET', 0):
             self.roundtrip()
+
+    def test_non_utf8_name_fails_naming_the_path_without_crashing(self):
+        fd = os.open(os.fsencode(self.source) + b'/bad\xff.txt', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+        os.write(fd, b'payload')
+        os.close(fd)
+        self.file('good.txt', b'fine')
+        self.use_batch()
+        self.assertEqual(self.execute(), 1)
+        errors = [e['error'] for e in self.events if e['event'] == 'error']
+        self.assertEqual(len(errors), 1)
+        self.assertIn('bad', errors[0])
+        self.assertIn('UTF-8', errors[0])
+        self.assertNotIn('surrogates', errors[0])
+        self.assertFalse(self.destination.exists() and list(self.destination.rglob('*.7z')))
+        self.assertFalse((self.config.state_dir / 'test' / 'state.json').exists())
+
+
+class InventoryNameTests(Sandbox):
+    def test_scan_rejects_non_utf8_names_early(self):
+        fd = os.open(os.fsencode(self.source) + b'/bad\xff.txt', os.O_WRONLY | os.O_CREAT, 0o640)
+        os.close(fd)
+        with self.assertRaisesRegex(BackupError, r"UTF-8.*'bad\\udcff\.txt'"):
+            scan(self.source, mode='simple')
+
+
+class LogEncodingTests(Sandbox):
+    def test_error_events_with_surrogates_never_raise_and_stay_valid_json(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            log = RunLog(self.config.log_dir, file_level='detailed', terminal_level='detailed')
+            try:
+                log.event('error', error='Arquivo: bad\udcff.txt', details={'paths': ['x\udcff']})
+            finally:
+                log.close()
+        for text in (output.getvalue(), log.path.read_text(encoding='utf-8')):
+            record = json.loads(text.splitlines()[-1])
+            self.assertEqual(record['error'], 'Arquivo: bad\udcff.txt')
+            self.assertEqual(record['details'], {'paths': ['x\udcff']})
+

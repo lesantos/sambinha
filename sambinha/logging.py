@@ -100,6 +100,12 @@ class RunLog:
             return value
         record = clean(record)
         line = json.dumps(record, ensure_ascii=False)
+        # Surrogate escapes from non-UTF-8 file names cannot be written as
+        # UTF-8; escape them so an error about such a name is never lost.
+        try:
+            line.encode("utf-8")
+        except UnicodeEncodeError:
+            line = json.dumps(record, ensure_ascii=True)
         if to_file:
             self.stream.write(line + "\n")
             self.stream.flush()
