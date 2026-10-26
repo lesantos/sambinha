@@ -1,10 +1,20 @@
 from contextlib import redirect_stdout
 from dataclasses import replace
 import io
+import json
+import os
 import subprocess
 import unittest
+from unittest.mock import Mock, patch
 
+from sambinha import archives
+from sambinha.batches import plan
 from sambinha.config import validate
+from sambinha.context import Context
+from sambinha.errors import BackupError
+from sambinha.inventory import scan, verify
+from sambinha.logging import RunLog
+from sambinha.process import Runner
 from sambinha.recovery import recover
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
@@ -38,3 +48,37 @@ class SpecialNameBatchTests(Sandbox):
         self.use_batch()
         self.roundtrip()
         self.assertEqual(self.members(), {'a\\b', 'dir\\x/c\\'})
+
+    def test_trailing_space_and_tab_in_names_round_trip(self):
+        self.file('a ', b'space')
+        self.file('c\t', b'tab')
+        self.file('dir /x ', b'nested')
+        self.file('@at ', b'at')
+        self.use_batch()
+        self.roundtrip()
+        self.assertEqual(self.members(), {'a ', 'c\t', 'dir /x ', '@at '})
+
+    def test_zip_format_keeps_special_names(self):
+        self.file('a ', b'space')
+        self.file('a\\b', b'backslash')
+        self.use_batch(archive_format='zip')
+        self.roundtrip()
+
+    def test_listfile_fallback_rejects_names_it_cannot_express(self):
+        self.file('ok.txt', b'fine')
+        self.file('dir/c\t', b'tab')
+        self.use_batch()
+        with patch.object(archives, 'ARGUMENT_BUDGET', 0):
+            self.assertEqual(self.execute(), 1)
+        errors = [e['error'] for e in self.events if e['event'] == 'error']
+        self.assertEqual(len(errors), 1)
+        self.assertIn(repr('dir/c\t'), errors[0])
+        self.assertFalse(list(self.destination.rglob('*.7z')))
+
+    def test_listfile_fallback_still_archives_ordinary_names(self):
+        self.file('@leading', b'at')
+        self.file('-dash', b'dash')
+        self.file(' lead', b'space')
+        self.use_batch()
+        with patch.object(archives, 'ARGUMENT_BUDGET', 0):
+            self.roundtrip()
