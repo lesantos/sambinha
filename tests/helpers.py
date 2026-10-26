@@ -10,9 +10,15 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 
-from sambinha.config import Config, Job
+from sambinha.config import JOB_SCOPED_OPTIONS, Config, Job, with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.engine import run
+
+
+def override(config, **values):
+    """``replace`` for Config values that may mix global fields and per-job overrides."""
+    jobs = {k: v for k, v in values.items() if k in JOB_SCOPED_OPTIONS}
+    return with_job_overrides(replace(config, **{k: v for k, v in values.items() if k not in jobs}), **jobs)
 
 
 def tick():
@@ -36,9 +42,10 @@ class Sandbox(unittest.TestCase):
         self.source = self.root / "source"
         self.source.mkdir()
         self.destination = self.root / "destination"
-        self.config = Config(jobs=(Job("test", self.source, str(self.destination)),),
-                             state_dir=self.root / "state", log_dir=self.root / "logs",
-                             verification_mode="hash", log_file_level="detailed")
+        self.config = with_job_overrides(
+            Config(jobs=(Job("test", self.source, str(self.destination)),),
+                   state_dir=self.root / "state", log_dir=self.root / "logs"),
+            verification_mode="hash", log_file_level="detailed")
         self.notifications = []
 
     def file(self, path, content=b"test", mode=0o640):
@@ -51,7 +58,7 @@ class Sandbox(unittest.TestCase):
     def execute(self, config=None, now=1000, **kwargs):
         self.output = io.StringIO()
         with redirect_stdout(self.output):
-            code = run(validate(replace(config or self.config, log_terminal_level="detailed")), clock=lambda: now,
+            code = run(validate(with_job_overrides(config or self.config, log_terminal_level="detailed")), clock=lambda: now,
                        notifier=lambda *args: self.notifications.append(args), **kwargs)
         self.events = [json.loads(line) for line in self.output.getvalue().splitlines()]
         return code

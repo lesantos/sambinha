@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from sambinha import preflight
 from sambinha.cli import main, parser
-from sambinha.config import load
+from sambinha.config import load, with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.errors import ConfigError
 from tests.helpers import REAL_TOOLS, Sandbox, tick
@@ -103,7 +103,7 @@ class FreshStartTests(Sandbox):
         self.assertTrue(json.loads((self.directory / 'state.json').read_text())['retired'])
 
     def test_dry_run_reports_but_keeps_journals(self):
-        code, _ = self.fresh_run(replace(self.config, dry_run=True), fresh_start=True)
+        code, _ = self.fresh_run(with_job_overrides(self.config, dry_run=True), fresh_start=True)
         self.assertEqual(code, 0)
         (event,) = [e for e in self.events if e['event'] == 'fresh_start']
         self.assertTrue(event['dry_run'])

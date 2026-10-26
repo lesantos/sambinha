@@ -3,6 +3,7 @@ import unittest
 from dataclasses import replace
 from unittest.mock import Mock
 
+from sambinha.config import with_job_overrides
 from sambinha.retention import DAY, DeletionForecast, alert_time, retirement
 from tests.helpers import REAL_TOOLS, Sandbox
 
@@ -43,8 +44,7 @@ class RetentionAlertTests(Sandbox):
     def prepare(self, days=10, logic='batch'):
         for name in ('a', 'b', 'c'):
             self.file(name, name.encode())
-        self.config = replace(self.config, deleted_days=days, deletion_alert_threshold=2,
-                              jobs=(replace(self.config.jobs[0], logic=logic, max_megabytes=1 / 1024 ** 2),))
+        self.config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic, max_megabytes=1 / 1024 ** 2),)), deleted_days=days, deletion_alert_threshold=2)
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -80,7 +80,7 @@ class RetentionAlertTests(Sandbox):
     def test_zero_day_warns_before_actual_purge_without_delaying_it(self):
         for name in ('a', 'b', 'c'):
             self.file(name)
-        self.config = replace(self.config, deleted_days=0, deletion_alert_threshold=2)
+        self.config = with_job_overrides(self.config, deleted_days=0, deletion_alert_threshold=2)
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=1 / 1024 ** 2),))
         self.assertEqual(self.execute(), 0)
         for name in ('a', 'b', 'c'):
@@ -117,10 +117,10 @@ class RetentionAlertTests(Sandbox):
 
     def test_threshold_is_configurable_and_simulation_never_notifies(self):
         self.prepare()
-        self.assertEqual(self.execute(replace(self.config, deletion_alert_threshold=3), now=2000 + 8 * DAY), 0)
+        self.assertEqual(self.execute(with_job_overrides(self.config, deletion_alert_threshold=3), now=2000 + 8 * DAY), 0)
         self.assertEqual(self.notifications[-1][1], 'complete')
         self.notifications.clear()
-        self.assertEqual(self.execute(replace(self.config, dry_run=True), now=2000 + 8 * DAY), 0)
+        self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True), now=2000 + 8 * DAY), 0)
         self.assertEqual(self.notifications, [])
         self.assertEqual(len(self.state()['retired']), 3)
 
@@ -129,7 +129,7 @@ class RetentionAlertTests(Sandbox):
             self.file(name)
         first = replace(self.config.jobs[0], logic='batch', max_megabytes=1 / 1024 ** 2)
         second = replace(first, name='second', destination=str(self.root / 'second'))
-        self.config = replace(self.config, deletion_alert_threshold=5, jobs=(first, second))
+        self.config = with_job_overrides(replace(self.config, jobs=(first, second)), deletion_alert_threshold=5)
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -137,7 +137,7 @@ class RetentionAlertTests(Sandbox):
         self.assertEqual(self.execute(now=2000 + 8 * DAY), 0)
         self.assertEqual(self.notifications[-1][1], 'complete')
         self.assertFalse(any(e['event'] == 'deletion_candidate' for e in self.events))
-        self.config = replace(self.config, deletion_alert_threshold=2)
+        self.config = with_job_overrides(self.config, deletion_alert_threshold=2)
         self.assertEqual(self.execute(now=2000 + 8 * DAY), 0)
         self.assertIn('3 arquivos/versões', self.notifications[-1][3])
         self.assertEqual({e['job'] for e in self.events if e['event'] == 'deletion_candidate'}, {'test', 'second'})

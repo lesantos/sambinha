@@ -6,7 +6,7 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.cli import parser
-from sambinha.config import load
+from sambinha.config import load, with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import fingerprint, scan, verify
@@ -111,7 +111,7 @@ class VerificationModeTests(Sandbox):
         self.file('file')
         scan(self.source, mode='simple')[0].metadata()
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket')
-        config = replace(self.config, jobs=(job,), verification_mode='simple')
+        config = with_job_overrides(replace(self.config, jobs=(job,)), verification_mode='simple')
         with patch.object(Storage, 'check_simple') as check, \
              patch.object(Storage, 'get', side_effect=AssertionError('download')):
             result = verify_local_metadata_job(config, job, Mock(), Mock())
@@ -123,7 +123,7 @@ class VerificationModeTests(Sandbox):
 class SimpleModeIntegrationTests(Sandbox):
     def setUp(self):
         super().setUp()
-        self.config = replace(self.config, verification_mode='simple')
+        self.config = with_job_overrides(self.config, verification_mode='simple')
 
     def test_first_copy_repeat_and_size_or_timestamp_changes_without_hash_reads(self):
         path = self.file('dir/file', b'old')
@@ -153,12 +153,12 @@ class SimpleModeIntegrationTests(Sandbox):
         os.utime(path, ns=(stamp, stamp))
         self.assertEqual(self.execute(now=1001), 0)
         self.assertEqual((self.destination / 'file').read_bytes(), b'old')
-        self.config = replace(self.config, verification_mode='hash')
+        self.config = with_job_overrides(self.config, verification_mode='hash')
         self.assertEqual(self.execute(now=1002), 0, self.output.getvalue())
         self.assertEqual((self.destination / 'file').read_bytes(), b'new')
         history = list(self.destination.glob('.sambinha/history/*/file'))
         self.assertEqual([path.read_bytes() for path in history], [b'old'])
-        self.config = replace(self.config, verification_mode='simple')
+        self.config = with_job_overrides(self.config, verification_mode='simple')
         with patch('sambinha.inventory.fingerprint', side_effect=AssertionError('hash read')):
             self.assertEqual(self.execute(now=1003), 0, self.output.getvalue())
         self.assertEqual((self.destination / 'file').read_bytes(), b'new')
@@ -172,7 +172,7 @@ class SimpleModeIntegrationTests(Sandbox):
             self.assertEqual(recover(self.config, 'restore', output=restored), 0)
         self.assertEqual(contents(restored), contents(self.source))
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(recover(replace(self.config, verification_mode='hash'), 'verify-local-metadata'), 0)
+            self.assertEqual(recover(with_job_overrides(self.config, verification_mode='hash'), 'verify-local-metadata'), 0)
         target = self.destination / 'file'
         target.write_bytes(b'corrupt!')
         with redirect_stdout(io.StringIO()):

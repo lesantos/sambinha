@@ -5,7 +5,7 @@ from sambinha.cli import main, parser
 from sambinha.config import load
 from sambinha.config_validation import validate
 from sambinha.errors import ConfigError
-from tests.helpers import Sandbox
+from tests.helpers import Sandbox, override
 
 
 class ConfigurationTests(Sandbox):
@@ -155,7 +155,7 @@ class ConfigurationTests(Sandbox):
                        {"dry_run": "yes"}, {"cronitor_url": "http://example.com"},
                        {"rclone": ""}, {"rclone_config": 123}, {"secrets_file": "wrong-type"}, {"deletion_alert_threshold": -1}, {"deletion_alert_threshold": True}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
-                validate(replace(self.config, **values))
+                validate(override(self.config, **values))
 
     def test_log_retention_toml_cli_and_zero_disables_cleanup(self):
         jobs = '[[jobs]]\nname="test"\nsource="source"\ndestination="destination"\nlog_retention_days=30\n'
@@ -186,7 +186,7 @@ class ConfigurationTests(Sandbox):
                        {'fingerprint_full_scan_days': 0},
                        {'transfer_workers': True}, {'batch_workers': 0}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
-                validate(replace(self.config, **values))
+                validate(override(self.config, **values))
         self.assertEqual(parser().parse_args(['restore', '--job', 'test', '--output', '/tmp/restored']).action, 'restore')
         self.assertEqual(parser().parse_args(['verify-local-metadata']).action, 'verify-local-metadata')
         self.assertFalse(parser().parse_args(['--no-fingerprint-cache']).fingerprint_cache)

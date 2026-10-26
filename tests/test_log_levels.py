@@ -8,7 +8,7 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 from sambinha.cli import parser
-from sambinha.config import load
+from sambinha.config import load, with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.engine import run
 from sambinha.errors import ConfigError
@@ -28,7 +28,7 @@ class LogLevelTests(Sandbox):
                                                     ("error", "summary", "ERROR"),
                                                     ("summary", "detailed", "DEBUG")):
             with self.subTest(file_level=file_level, terminal_level=terminal_level):
-                config = replace(self.config, log_file_level=file_level, log_terminal_level=terminal_level)
+                config = with_job_overrides(self.config, log_file_level=file_level, log_terminal_level=terminal_level)
                 from sambinha.storage import Storage
                 Storage(config.jobs[0], config, runner).sync_simple(self.source, ".sambinha/history/run",
                                                                     max_delete=100)
@@ -40,7 +40,7 @@ class LogLevelTests(Sandbox):
     @unittest.skipUnless(REAL_TOOLS, "rclone and 7z required")
     def test_summary_sync_preserves_newer_destination_without_debug_output(self):
         source = self.file("file", b"old")
-        config = validate(replace(self.config, log_file_level="summary", log_terminal_level="summary"))
+        config = validate(with_job_overrides(self.config, log_file_level="summary", log_terminal_level="summary"))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run(config, runner=Runner()), 0)
         target = self.destination / "file"
@@ -60,7 +60,7 @@ class LogLevelTests(Sandbox):
     @unittest.skipUnless(REAL_TOOLS, "rclone and 7z required")
     def test_detailed_simple_sync_records_rclone_debug(self):
         self.file("file", b"content")
-        config = validate(replace(self.config, log_file_level="detailed", log_terminal_level="summary"))
+        config = validate(with_job_overrides(self.config, log_file_level="detailed", log_terminal_level="summary"))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run(config, runner=Runner()), 0)
         records = [json.loads(line) for line in next(config.log_dir.glob("*.jsonl")).read_text().splitlines()]
@@ -68,7 +68,7 @@ class LogLevelTests(Sandbox):
                             for item in records))
 
     def test_default_file_and_terminal_only_report_errors_and_summaries(self):
-        config = replace(self.config, log_file_level="summary", log_terminal_level="summary", dry_run=True)
+        config = with_job_overrides(self.config, log_file_level="summary", log_terminal_level="summary", dry_run=True)
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(run(validate(config), runner=Mock()), 0)
@@ -101,7 +101,7 @@ class LogLevelTests(Sandbox):
         self.assertEqual([json.loads(line)["event"] for line in output.getvalue().splitlines()], ["error"])
 
     def test_verification_uses_the_same_independent_levels(self):
-        config = replace(self.config, dry_run=True, log_file_level="detailed", log_terminal_level="error")
+        config = with_job_overrides(self.config, dry_run=True, log_file_level="detailed", log_terminal_level="error")
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(recover(validate(config), "verify-local-metadata", runner=Mock()), 0)

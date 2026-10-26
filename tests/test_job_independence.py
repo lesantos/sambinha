@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from sambinha.config import with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.context import Context
 from sambinha.errors import ConfigError
@@ -34,8 +35,7 @@ class IndependentJobTests(Sandbox):
         first = replace(self.config.jobs[0], source=source, destination=str(base / 'middle' / 'backup'))
         second = replace(first, name='second', source=base / 'middle',
                          destination=str(base / 'final'), logic=logic)
-        return replace(self.config, jobs=(first, second), state_dir=base / 'state', log_dir=base / 'logs',
-                       verification_mode=mode, verify_interval_days=1)
+        return with_job_overrides(replace(self.config, jobs=(first, second), state_dir=base / 'state', log_dir=base / 'logs'), verification_mode=mode, verify_interval_days=1)
 
     def execute_separately(self, config, now):
         for job in config.jobs:
@@ -123,7 +123,7 @@ class IndependentJobTests(Sandbox):
         first = replace(self.config.jobs[0], destination=str(next_source / 'rules'))
         second = replace(first, name='second', source=next_source, destination=str(self.destination),
                          exclude_files=next_source / 'rules' / 'exclude.txt')
-        config = replace(self.config, jobs=(first, second), verify_interval_days=1)
+        config = with_job_overrides(replace(self.config, jobs=(first, second)), verify_interval_days=1)
         self.assertEqual(self.execute(config), 0, self.output.getvalue())
         self.assertEqual(contents(self.destination), {'rules/exclude.txt': b'*.tmp\n', 'keep': b'keep'})
         self.verify(config)
@@ -138,7 +138,7 @@ class IndependentJobTests(Sandbox):
         first = self.config.jobs[0]
         middle = replace(first, name='middle', source=updater, destination=str(self.source / 'data'))
         last = replace(first, name='last', destination=str(self.root / 'last'), logic='batch')
-        config = replace(self.config, jobs=(first, middle, last), verify_interval_days=1)
+        config = with_job_overrides(replace(self.config, jobs=(first, middle, last)), verify_interval_days=1)
         self.execute_separately(replace(config, jobs=(first, last)), 1000)
         self.assertEqual(self.execute(config, now=2000), 0, self.output.getvalue())
         self.assertEqual((self.destination / 'data/file').read_bytes(), b'old')
@@ -166,8 +166,7 @@ class IndependentJobTests(Sandbox):
             with self.subTest(suffix=suffix):
                 second = replace(first, name='second', source=source, destination=first.destination + suffix,
                                  exclude_files=second_rules)
-                config = replace(self.config, jobs=(first, second), verify_interval_days=1,
-                                 state_dir=self.root / ('nested-state' if suffix else 'shared-state'))
+                config = with_job_overrides(replace(self.config, jobs=(first, second), state_dir=self.root / ('nested-state' if suffix else 'shared-state')), verify_interval_days=1)
                 with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
                     validate(config)
 
@@ -180,7 +179,7 @@ class IndependentJobTests(Sandbox):
         os.utime(source / 'file', ns=(2000000000, 2000000000))
         first = self.config.jobs[0]
         second = replace(first, name='second', source=source)
-        config = replace(self.config, jobs=(first, second), verify_interval_days=1)
+        config = with_job_overrides(replace(self.config, jobs=(first, second)), verify_interval_days=1)
         with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
             validate(config)
 
@@ -191,7 +190,7 @@ class IndependentJobTests(Sandbox):
         (source / 'second').write_bytes(b'second')
         first = replace(self.config.jobs[0], logic='batch')
         second = replace(first, name='second', source=source)
-        config = replace(self.config, jobs=(first, second), verify_interval_days=1)
+        config = with_job_overrides(replace(self.config, jobs=(first, second)), verify_interval_days=1)
         with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
             validate(config)
 
@@ -202,7 +201,7 @@ class IndependentJobTests(Sandbox):
         (source / 'second').write_bytes(b'second')
         first = self.config.jobs[0]
         second = replace(first, name='second', source=source)
-        config = replace(self.config, jobs=(first, second), verify_interval_days=1)
+        config = with_job_overrides(replace(self.config, jobs=(first, second)), verify_interval_days=1)
         with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
             validate(config)
 
@@ -231,7 +230,7 @@ class IndependentJobTests(Sandbox):
                 self.assertEqual(contents(destination), snapshot)
 
     def test_dry_run_matches_separate_dry_runs_without_materializing_the_chain(self):
-        config = replace(self.chain(self.root / 'dry'), dry_run=True)
+        config = with_job_overrides(self.chain(self.root / 'dry'), dry_run=True)
         self.assertEqual(self.execute(config), 1)
         self.assertFalse(config.jobs[1].source.exists())
         self.assertFalse(config.state_dir.exists())

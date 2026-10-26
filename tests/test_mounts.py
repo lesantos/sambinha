@@ -3,7 +3,7 @@ import unittest
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
-from sambinha.config import load
+from sambinha.config import load, with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.mounts import check_mounts
@@ -156,6 +156,6 @@ class MountIntegrationTests(Sandbox):
 
     def test_simulation_still_checks_mounts_but_does_not_notify(self):
         self.file('file')
-        self.config = replace(self.config, dry_run=True, jobs=(replace(self.config.jobs[0], source_mount=self.source),))
+        self.config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], source_mount=self.source),)), dry_run=True)
         self.assertEqual(self.execute(), 1)
         self.assertEqual(self.notifications, [])

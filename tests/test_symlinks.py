@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from sambinha.config import with_job_overrides
 from sambinha.errors import BackupError
 from sambinha.inventory import scan, verify
 from sambinha.local_paths import child_directory, prepare_write
@@ -98,8 +99,7 @@ class SymlinkIntegrationTests(Sandbox):
             for mode in ('simple', 'hash'):
                 with self.subTest(logic=logic, mode=mode):
                     job = replace(self.job(logic), destination=str(self.root / f'backup-{logic}-{mode}'))
-                    config = replace(self.config, jobs=(job,), verification_mode=mode,
-                                     state_dir=self.root / f'state-{logic}-{mode}')
+                    config = with_job_overrides(replace(self.config, jobs=(job,), state_dir=self.root / f'state-{logic}-{mode}'), verification_mode=mode)
                     with patch.dict(os.environ, environment):
                         self.assertEqual(self.execute(config), 0, self.output.getvalue())
                     import json
@@ -119,8 +119,7 @@ class SymlinkIntegrationTests(Sandbox):
         self.file('dir/file', b'old')
         self.file('other', b'keep')
         job = self.job('batch')
-        config = replace(self.config, jobs=(job,), state_dir=self.root / 'state-batch',
-                         deleted_days=0, version_days=0)
+        config = with_job_overrides(replace(self.config, jobs=(job,), state_dir=self.root / 'state-batch'), deleted_days=0, version_days=0)
         self.assertEqual(self.execute(config), 0)
         destination = Path(job.destination)
         before = contents(destination)
@@ -215,7 +214,7 @@ class SymlinkIntegrationTests(Sandbox):
         rules = self.root / 'rules'
         rules.write_text('/excluded/**\n/excluded-file\n')
         config = replace(self.config, jobs=(replace(self.config.jobs[0], exclude_files=rules),))
-        self.assertEqual(self.execute(replace(config, dry_run=True)), 0, self.output.getvalue())
+        self.assertEqual(self.execute(with_job_overrides(config, dry_run=True)), 0, self.output.getvalue())
         self.assertTrue(all((self.destination / name).is_symlink()
                             for name in ('included', 'excluded', 'excluded-file', 'empty')))
         self.assertEqual(self.execute(config), 0, self.output.getvalue())
@@ -256,7 +255,7 @@ class SymlinkIntegrationTests(Sandbox):
 
     def test_batch_expiry_ignores_nonconflicting_history_link(self):
         source = self.file('file', b'first')
-        config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),), version_days=0)
+        config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),)), version_days=0)
         self.assertEqual(self.execute(config), 0, self.output.getvalue())
         key = next(iter(self.state()['active']))
         archive = self.destination / key

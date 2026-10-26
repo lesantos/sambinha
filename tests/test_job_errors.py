@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from sambinha.config import with_job_overrides
 from sambinha.errors import BackupError, JobError, job_errors
 from sambinha.inventory import scan
 from sambinha.recovery import recover
@@ -120,7 +121,7 @@ class JobFailurePolicyTests(Sandbox):
     def test_scheduled_verification_failure_obeys_policy(self):
         for policy in (True, False):
             with self.subTest(policy=policy):
-                config = replace(self.two_jobs(policy, f'scheduled-{policy}'), verify_interval_days=7)
+                config = with_job_overrides(self.two_jobs(policy, f'scheduled-{policy}'), verify_interval_days=7)
                 def verify(config, job, *args, **kwargs):
                     if job.name == 'test':
                         raise BackupError('verificação falhou')

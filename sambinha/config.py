@@ -1,7 +1,7 @@
 """Validated TOML configuration and command-line overrides."""
 import os
 import tomllib
-from dataclasses import dataclass, field, replace
+from dataclasses import KW_ONLY, dataclass, field, replace
 from pathlib import Path
 
 from .config_locations import key_lines
@@ -20,11 +20,14 @@ JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
 RUN_SCOPED_FIELDS = frozenset({"adopt_identity", "prune_orphans", "fresh_start"})
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Job:
+    """One backup job. ``name``/``source``/``destination`` stay positional; every other field is keyword-only."""
+
     name: str
     source: Path
     destination: str
+    _: KW_ONLY
     type: StorageType = "local"
     logic: Logic = "simple"
     storage_class: str = "GLACIER_IR"
@@ -80,7 +83,7 @@ class Job:
         return int(self.max_megabytes * 1024 ** 2)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Config:
     jobs: tuple[Job, ...]
     state_dir: Path = field(default_factory=lambda: Path("state").resolve())
@@ -93,33 +96,22 @@ class Config:
     environment: dict[str, str] | None = field(default=None, repr=False, compare=False)
     metadata_dir: Path | None = None
     temp_dir: Path | None = None
-    # Source-compatible Python overrides. These are deliberately excluded from
-    # TOML's [backup] keys; loaded values always live on their individual jobs.
-    log_retention_days: int | None = field(default=None, repr=False, compare=False)
-    deleted_days: int | None = field(default=None, repr=False, compare=False)
-    version_days: int | None = field(default=None, repr=False, compare=False)
-    dry_run: bool | None = field(default=None, repr=False, compare=False)
-    deletion_alert_threshold: int | None = field(default=None, repr=False, compare=False)
-    verify_interval_days: int | None = field(default=None, repr=False, compare=False)
-    fingerprint_cache: bool | None = field(default=None, repr=False, compare=False)
-    verification_mode: str | None = field(default=None, repr=False, compare=False)
-    fingerprint_full_scan_days: int | None = field(default=None, repr=False, compare=False)
-    verify_source_changes: bool | None = field(default=None, repr=False, compare=False)
-    transfer_workers: int | None = field(default=None, repr=False, compare=False)
-    batch_workers: int | None = field(default=None, repr=False, compare=False)
-    log_file_level: str | None = field(default=None, repr=False, compare=False)
-    log_terminal_level: str | None = field(default=None, repr=False, compare=False)
-    recovery_index_versions: int | None = field(default=None, repr=False, compare=False)
 
-    def __post_init__(self):
-        # Preserve callers that use dataclasses.replace(config, option=value),
-        # while applying that invocation override explicitly to each job.
-        overrides = {name: getattr(self, name) for name in JOB_SCOPED_OPTIONS
-                     if getattr(self, name) is not None}
-        if overrides:
-            object.__setattr__(self, "jobs", tuple(replace(job, **overrides) for job in self.jobs))
-            for name in overrides:
-                object.__setattr__(self, name, None)
+
+def with_job_overrides(config: Config, **values) -> Config:
+    """Copy of ``config`` whose jobs carry the given per-invocation overrides.
+
+    Only ``JOB_SCOPED_OPTIONS`` are accepted (anything else is a ``TypeError``); ``None`` means "no
+    override" and is skipped, as the removed ``Config`` override fields did. Validation is unchanged:
+    call ``validate`` on the result.
+    """
+    unknown = set(values) - JOB_SCOPED_OPTIONS
+    if unknown:
+        raise TypeError(f"Override por job desconhecido: {', '.join(sorted(unknown))}")
+    values = {name: value for name, value in values.items() if value is not None}
+    if not values:
+        return config
+    return replace(config, jobs=tuple(replace(job, **values) for job in config.jobs))
 
 
 def local_path(value, base, environment=None):
@@ -147,7 +139,7 @@ def load(path: Path, overrides: dict | None = None) -> Config:
             raise ConfigError("Seções desconhecidas no TOML")
         global_values = dict(data.get("backup", {}))
         job_keys = set(Job.__dataclass_fields__) - RUN_SCOPED_FIELDS
-        config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"} - JOB_SCOPED_OPTIONS
+        config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"}
         per_job_in_backup = set(global_values) & JOB_ONLY_OPTIONS
         if per_job_in_backup:
             names = ", ".join(sorted(per_job_in_backup))

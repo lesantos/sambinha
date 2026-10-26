@@ -4,6 +4,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from sambinha.archives import compress
+from sambinha.config import with_job_overrides
 from sambinha.errors import BackupError
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, tick
@@ -93,11 +94,11 @@ class ResumeTests(Sandbox):
         self.assertEqual(self.state()['active'][done]['archive_size'], (self.destination / done).stat().st_size)
 
     def test_dry_run_never_writes_the_journal(self):
-        self.assertEqual(self.execute(config=replace(self.config, dry_run=True)), 0, self.output.getvalue())
+        self.assertEqual(self.execute(config=with_job_overrides(self.config, dry_run=True)), 0, self.output.getvalue())
         self.assertFalse(self.journal_path.exists())
         self.interrupted_run()
         before = self.journal_path.read_bytes()
-        self.assertEqual(self.execute(config=replace(self.config, dry_run=True), now=2000), 0)
+        self.assertEqual(self.execute(config=with_job_overrides(self.config, dry_run=True), now=2000), 0)
         self.assertEqual(self.journal_path.read_bytes(), before)
         self.assertTrue(any(e['event'] == 'journal_reused' for e in self.events))
 
