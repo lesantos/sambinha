@@ -19,7 +19,7 @@ from tests.helpers import Sandbox
 class ProcessTests(unittest.TestCase):
     def test_success_no_retry(self):
         runner = Runner(sleep=Mock())
-        with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'ok', '')) as mock:
+        with patch.object(Runner, '_run_captured', return_value=subprocess.CompletedProcess([], 0, 'ok', '')) as mock:
             self.assertEqual(runner.run(['program', 'arg'], retry=True), 'ok')
         self.assertEqual(mock.call_count, 1)
         runner.sleep.assert_not_called()
@@ -27,7 +27,7 @@ class ProcessTests(unittest.TestCase):
     def test_three_retries_two_seconds(self):
         sleeper = Mock()
         runner = Runner(sleep=sleeper)
-        with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'fail')) as mock:
+        with patch.object(Runner, '_run_captured', return_value=subprocess.CompletedProcess([], 1, '', 'fail')) as mock:
             with self.assertRaises(BackupError):
                 runner.run(['rclone'], retry=True)
         self.assertEqual(mock.call_count, 4)
@@ -35,13 +35,13 @@ class ProcessTests(unittest.TestCase):
 
     def test_transient_retry_then_success(self):
         runner = Runner(sleep=Mock())
-        with patch('subprocess.run', side_effect=[OSError('network'), subprocess.CompletedProcess([], 0, 'ok', '')]):
+        with patch.object(Runner, '_run_captured', side_effect=[OSError('network'), subprocess.CompletedProcess([], 0, 'ok', '')]):
             self.assertEqual(runner.run(['rclone'], retry=True), 'ok')
         runner.sleep.assert_called_once_with(2)
 
     def test_timeout_bounded_and_nontransfer_not_retried(self):
         sleeper = Mock()
-        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('7z', 1)) as mock:
+        with patch.object(Runner, '_run_captured', side_effect=subprocess.TimeoutExpired('7z', 1)) as mock:
             with self.assertRaises(BackupError):
                 Runner(sleep=sleeper).run(['7z'])
         self.assertEqual(mock.call_count, 1)
