@@ -15,6 +15,14 @@ def command(config, job, runner, operation, *args, retry=False, standard=False, 
         storage_class = (job.control_storage_class if standard == "control" else
                          "STANDARD" if standard else job.storage_class)
         flags += ["--s3-storage-class", storage_class]
+        # Optional tuning is S3-only: local destinations never receive these flags.
+        if job.fast_list and job.logic == "simple" and operation in {"sync", "check", "lsjson"}:
+            flags.append("--fast-list")
+        if operation in {"copyto", "copy", "sync"}:
+            if job.s3_chunk_size:
+                flags += ["--s3-chunk-size", job.s3_chunk_size]
+            if job.s3_upload_concurrency:
+                flags += ["--s3-upload-concurrency", str(job.s3_upload_concurrency)]
     progress = {"progress_directory": progress_directory} if progress_directory is not None else {}
     if on_output is not None:
         progress["on_output"] = on_output

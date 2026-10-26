@@ -121,3 +121,19 @@ Medido com `scripts/benchmark-verify.py` (6000 arquivos pequenos em 400 diretór
 - **Hashing.** Leituras em blocos de 1 MiB; para arquivos de 4 MiB ou mais o md5 roda em uma thread auxiliar ao lado do sha256 (fila limitada, junção em todos os caminhos de saída, erros relançados). O arquivo gerado é fingerprintado só com md5. No host sobrecarregado o ganho da sobreposição foi de apenas ~12% em teste puro em memória (2,77 s → 2,43 s para 128 MiB) e foi anulado de ponta a ponta pela passagem extra de CRC32 (2,20 s contra 2,41 s para 256 MiB): não houve ganho líquido mensurável aqui; permanece por ser simples e limitado.
 - **Conferência de CRC32.** No modo hash o inventário também calcula o CRC32 (só em memória, nunca persistido). Após `7z l -slt`, um membro com CRC diferente gera erro com o caminho; membros sem CRC (arquivos vazios, acertos de cache) são ignorados. Isso fecha a lacuna entre o que o inventário leu e o que o 7-Zip leu, mas só para arquivos hasheados naquela execução.
 - **Controles.** Os espelhos locais dos controles são validados uma vez por execução (memoizados por `Context`, invalidados quando um controle é gravado ou um espelho expirado é removido), e não duas; economiza uma leitura e validação de JSON por controle e não foi cronometrado separadamente.
+
+## Descoberta recursiva por subárvore (0.17.0)
+
+Com `exclude_files`, a descoberta fazia um `operations/list` não recursivo por diretório. Agora faz uma chamada não recursiva para a raiz da origem e uma chamada com `recurse: true` por subárvore de primeiro nível, indexando o resultado pelo diretório pai. O percurso não muda: nomes vêm só da listagem, todo `stat`/`open` usa `dir_fd` com `O_NOFOLLOW`, `IsDir` é validado contra o tipo local, a ordem é por data/nome e o rclone aplica as exclusões nativamente. O prazo (`timeout`) vale por chamada, ou seja, por subárvore. Qualquer falha interrompe toda a descoberta e o servidor `rcd` é encerrado.
+
+Custo de memória: o JSON de cada subárvore é lido de forma incremental e só `(caminho, IsDir)` é guardado por entrada (cerca de 150-250 bytes no CPython); 500 mil entradas custam da ordem de 100 MiB até o fim da descoberta. Se uma subárvore passar de 500.000 entradas, ela volta a uma chamada plana por diretório (sem configuração).
+
+Medido com `scripts/benchmark-inventory.py --same-flow` em árvore gerada (441 diretórios, 10.420 arquivos, `*.tmp` e uma subárvore excluídos), rclone local, 5 repetições, inventários idênticos ([dados](benchmarks/discovery-2026-10-26.json)): chamadas `operations/list` 419 -> 20 (1 plana + 19 recursivas); mediana de descoberta + inventário 4,21 s -> 3,70 s (-12%). No loopback local cada chamada custa só ~9 ms; o ganho cresce com a latência por chamada (p. ex. ~30 ms em discos lentos ou montagens de rede) e com o número de diretórios.
+
+## Listagens do destino por execução (0.17.0)
+
+Publicar uma geração de recuperação não lista mais o destino inteiro para podar gerações antigas de `.sambinha/indexes`: `finish()` lista só esse prefixo (`lsjson --include "/.sambinha/indexes/**"`, e o rclone ignora os demais diretórios). O relatório de órfãos agora faz uma listagem completa explícita por execução, reaproveitando a do planejamento (feita antes dos envios da execução) quando o planejamento S3 já listou. Antes, cada `finish()` listava o destino inteiro, até duas vezes por execução.
+
+## Opções do rclone para S3 (0.17.0)
+
+`fast_list`, `s3_chunk_size` e `s3_upload_concurrency` são opções opcionais por job ([configuração](configuration.pt-BR.md)). Só alteram a linha de comando do rclone (apenas jobs S3); por isso não houve benchmark: o efeito depende do tamanho do bucket, dos objetos e da banda, e os padrões não mudam. Lembre que `verification_mode = "hash"` faz o rclone calcular o MD5 de toda a origem a cada sync simples.

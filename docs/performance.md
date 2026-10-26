@@ -121,3 +121,19 @@ Measured with `scripts/benchmark-verify.py` (6000 small files in 400 directories
 - **Hashing.** Reads use 1 MiB blocks; for files of 4 MiB or more md5 runs in a helper thread beside sha256 (bounded queue, joined on every exit path, errors re-raised). The generated archive is fingerprinted with md5 only. On this overloaded host the overlap measured only ~12% in a pure in-memory test (2.77 s → 2.43 s for 128 MiB) and was cancelled end to end by the extra CRC32 pass (2.20 s vs 2.41 s for 256 MiB): no net gain was measurable here; it is kept because it is simple and bounded.
 - **CRC32 cross-check.** In hash mode the inventory also computes CRC32 (in memory only, never persisted). After `7z l -slt`, a member whose CRC differs raises an error naming the path; members without a CRC (empty files, cache hits) are skipped. This closes the gap between what the inventory read and what 7-Zip read, but only for files hashed in that run.
 - **Controls.** Local control mirrors are validated once per execution (memoized per `Context`, invalidated when a control is written or an expired mirror is removed) instead of twice; this saves one JSON read and validation per control and was not separately timed.
+
+## Recursive discovery per subtree (0.17.0)
+
+With `exclude_files`, discovery used to issue one non-recursive `operations/list` per directory. It now issues one non-recursive call for the source root plus one `recurse: true` call per first-level subtree, and indexes the answer by parent directory. The walk is unchanged: names still come only from the listing, every `stat`/`open` goes through `dir_fd` with `O_NOFOLLOW`, `IsDir` is validated against the local type, ordering is by mtime/name, and rclone applies the exclusion rules natively. The deadline (`timeout`) applies per request, i.e. per subtree. Any failure stops the whole discovery and the `rcd` server is reaped.
+
+Memory trade-off: the JSON of a subtree is parsed incrementally and only `(path, IsDir)` is kept per entry (roughly 150-250 bytes each in CPython), so 500k entries cost on the order of 100 MiB until discovery ends. If a subtree exceeds 500,000 entries, that subtree falls back to one flat request per directory (no configuration needed).
+
+Measured with `scripts/benchmark-inventory.py --same-flow` on a generated tree (441 directories, 10,420 files, `*.tmp` and one subtree excluded), local rclone, 5 repetitions, identical inventories ([data](benchmarks/discovery-2026-10-26.json)): `operations/list` calls 419 -> 20 (1 flat + 19 recursive); median discovery + inventory 4.21 s -> 3.70 s (-12%). On this local loopback each call costs only ~9 ms; the gain grows with per-call latency (e.g. ~30 ms/call on slower disks or network mounts) and with directory count.
+
+## Destination listings per run (0.17.0)
+
+Publishing a recovery generation no longer lists the whole destination to prune old `.sambinha/indexes` generations: `finish()` lists only that prefix (`lsjson --include "/.sambinha/indexes/**"`, so rclone skips every other directory). The orphan report now makes one explicit full listing per run, reusing the planner's listing (taken before the run's uploads) when S3 planning already made one. Previously every `finish()` listed the whole destination, up to twice per run.
+
+## rclone options for S3 (0.17.0)
+
+`fast_list`, `s3_chunk_size` and `s3_upload_concurrency` are optional per-job settings ([configuration](configuration.md#optional-rclone-tuning-for-s3-0170)). They only change the rclone command line (S3 jobs only), so no benchmark was run: the effect depends on bucket size, object sizes and bandwidth, and defaults are unchanged. Note that `verification_mode = "hash"` makes rclone MD5 the whole source on every simple sync.

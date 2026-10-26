@@ -244,6 +244,16 @@ batch_size_alert_percent = 200
 
 Fingerprint settings apply to batch inventories. `transfer_workers` controls concurrent rclone transfers in simple jobs. `max_delete` is an absolute per-job cap; `--allow-mass-deletion` bypasses it for one run. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](performance.md).
 
+### Optional rclone tuning for S3 (0.17.0)
+
+Three per-job settings, all optional and ignored for local destinations (never passed to rclone there):
+
+- `fast_list = true` (default `false`): passes `--fast-list` to rclone `sync`, `check` and `lsjson` of **simple** jobs on S3. Fewer listing requests on large buckets, at the cost of memory proportional to the number of objects. No effect on batch jobs.
+- `s3_chunk_size = "64M"`: passes `--s3-chunk-size` on uploads (batch archives/controls and simple sync). Format: digits plus `K`, `M` or `G` (optionally `Ki`, `Mi`, `Gi`); S3 requires at least 5 MiB per chunk. Larger chunks help multi-GB archives and use more memory per concurrent transfer (chunk size x upload concurrency x transfers).
+- `s3_upload_concurrency = 8`: passes `--s3-upload-concurrency` (integer 1-64) on the same uploads.
+
+`verification_mode = "hash"` makes simple jobs pass `--checksum` to rclone, which compares MD5 sums: rclone reads and hashes the entire local source again on every sync (S3 multipart ETags are not MD5, so rclone also has to rely on stored checksums). Use `"simple"` unless that cost is acceptable.
+
 ## S3, credentials, exclusions and notifications
 
 Use [sambinha.example.toml](../sambinha.example.toml) for the complete configuration and [rclone.example.conf](../rclone.example.conf) for the `aws` S3 remote. Create the bucket first and match its region. Prefer separate prefixes to avoid overlapping data or recovery controls. The default `GLACIER_IR` class provides immediate retrieval but charges for retrieval and has minimum billing terms. JSON controls and the recovery index use STANDARD. [S3 setup and storage classes](s3.md).

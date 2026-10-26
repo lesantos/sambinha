@@ -35,12 +35,18 @@ MAX_METADATA = 64 * 1024 * 1024
 MAX_CONTROLS_METADATA = 256 * 1024 * 1024
 
 
-def listing(storage):
-    """A missing local destination is new; a missing/inaccessible S3 bucket is fatal."""
+def listing(storage, only=None):
+    """A missing local destination is new; a missing/inaccessible S3 bucket is fatal.
+
+    ``only`` restricts the listing to one directory prefix (rclone then skips every
+    other directory instead of walking the whole destination); a missing prefix
+    is simply empty. Keys stay relative to the destination.
+    """
     if storage.job.type == 'local' and not Path(storage.job.destination).exists():
         return {}
+    narrow = ['--include', '/' + only.strip('/') + '/**'] if only else []
     raw = storage.command('lsjson', storage.job.destination, '--recursive', '--files-only',
-                          '--no-modtime', '--no-mimetype')
+                          '--no-modtime', '--no-mimetype', *narrow)
     try:
         records = json.loads(raw)
         if not isinstance(records, list):
@@ -306,17 +312,18 @@ def publish(ctx, state):
 
 def finish(ctx):
     """Called only after saving the confirmed local state."""
-    entries = listing(ctx.storage)
+    # Only the index prefix is needed to prune generations; the orphan report
+    # makes its own (single) full listing when it needs one.
+    entries = listing(ctx.storage, INDEXES)
     generations = sorted((k[len(PREFIX):-12] for k in entries if k.startswith(PREFIX)
                           and k.endswith('.commit.json') and GENERATION.fullmatch(k[len(PREFIX):-12])), reverse=True)
     for generation in generations[ctx.job.recovery_index_versions:]:
         # Remove confirmation first; an interrupted prune never exposes a bad candidate.
         ctx.storage.delete(PREFIX + generation + '.commit.json')
         ctx.storage.delete(PREFIX + generation + '.tar.gz')
-        entries.pop(PREFIX + generation + '.commit.json', None)
-        entries.pop(PREFIX + generation + '.tar.gz', None)
-    # The orphan report reuses this listing instead of asking the destination again.
-    ctx.listing = entries
+        if ctx.listing is not None:
+            ctx.listing.pop(PREFIX + generation + '.commit.json', None)
+            ctx.listing.pop(PREFIX + generation + '.tar.gz', None)
 
     (ctx.directory / 'publication.json').unlink(missing_ok=True)
     (ctx.directory / 'initialization.json').unlink(missing_ok=True)

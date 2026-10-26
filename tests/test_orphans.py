@@ -2,6 +2,7 @@ import os
 import time
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from tests.helpers import REAL_TOOLS, Sandbox, tick
 
@@ -47,6 +48,46 @@ class OrphanTests(Sandbox):
         self.assertEqual(sorted(orphans['examples']), sorted([self.ORPHAN, self.ORPHAN + '.json', self.GENERATION]))
         self.assertIsNotNone(orphans['oldest_age_days'])
         self.assertTrue((self.destination / self.ORPHAN).exists())
+
+    def listings(self, **kwargs):
+        from sambinha import index_generations
+        calls = []
+        original = index_generations.listing
+        def spy(storage, only=None):
+            calls.append(only)
+            return original(storage, only)
+        with patch.object(index_generations, 'listing', spy):
+            self.assertEqual(self.commit('b', **kwargs), 0, self.output.getvalue())
+        return calls
+
+    def test_finish_lists_only_the_index_prefix_and_report_lists_everything_once(self):
+        self.plant(self.ORPHAN)
+        calls = self.listings()
+        self.assertEqual(calls.count('.sambinha/indexes'), 1)
+        # Exactly one full destination listing per run, performed for the orphan report.
+        self.assertEqual([c for c in calls if c is None], [None])
+        (orphans,) = self.named('orphans')
+        self.assertEqual(orphans['examples'], [self.ORPHAN])
+
+    def test_prefix_listing_sees_only_index_objects_even_when_the_prefix_is_absent(self):
+        from sambinha.index_generations import listing
+        from sambinha.process import Runner
+        from sambinha.storage import Storage
+        storage = Storage(self.config.jobs[0], self.config, Runner())
+        self.plant('batch-0123456789abcdef01234567.7z')
+        self.plant('other/.sambinha/indexes/x')
+        only = listing(storage, '.sambinha/indexes')
+        self.assertTrue(only and all(k.startswith('.sambinha/indexes/') for k in only))
+        self.assertEqual(listing(storage, '.sambinha/missing'), {})
+
+    def test_report_reuses_an_existing_listing_instead_of_asking_the_destination(self):
+        from types import SimpleNamespace
+
+        from sambinha import orphans
+        ctx = SimpleNamespace(job=SimpleNamespace(dry_run=False, prune_orphans=False), rebalancing=False,
+                              listing={}, state={'active': {}, 'retired': []}, journal={})
+        with patch('sambinha.index_generations.listing', side_effect=AssertionError('second listing')):
+            orphans.report(ctx)
 
     def test_zero_orphans_emit_nothing(self):
         self.assertEqual(self.commit('b'), 0)

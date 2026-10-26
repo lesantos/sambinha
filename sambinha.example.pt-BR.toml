@@ -85,6 +85,10 @@ continue_on_job_error = true
 # Configuração S3; não afeta destinos locais.
 # storage_class = "GLACIER_IR"
 # control_storage_class = "STANDARD"
+# Ajustes opcionais do rclone, só para S3 (ignorados em destinos locais):
+# fast_list = true            # --fast-list em jobs simples: menos listagens, mais memória
+# s3_chunk_size = "64M"       # --s3-chunk-size nos envios (arquivos de vários GB)
+# s3_upload_concurrency = 8   # --s3-upload-concurrency, 1-64
 # Padrões nativos de exclusão do rclone; caminhos são relativos a este TOML.
 exclude_files = "./excludes.example.txt"
 # Fixe os volumes esperados (montados e não vazios), quando aplicável.
@@ -155,5 +159,9 @@ archive_format = "7z" # 7z ou zip
 # Veja https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
 storage_class = "GLACIER_IR"
 control_storage_class = "STANDARD" # JSONs/índices; arquivos compactados usam storage_class.
+# Ajustes opcionais do rclone, só para S3 (ignorados em destinos locais):
+# fast_list = true            # --fast-list em jobs simples: menos listagens, mais memória
+# s3_chunk_size = "64M"       # --s3-chunk-size nos envios (arquivos de vários GB)
+# s3_upload_concurrency = 8   # --s3-upload-concurrency, 1-64
 max_delete_percent = 50
 deletion_min_files = 20

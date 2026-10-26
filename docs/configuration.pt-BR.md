@@ -326,6 +326,16 @@ No modo hash, o inventário batch lê o conteúdo primeiro e periodicamente depo
 
 Durante a execução interativa, o stderr exibe o percentual do backup inteiro, a etapa e o diretório. Jobs simples acompanham as estatísticas do `rclone sync`; fases batch usam contadores ponderados e estimativas limitadas. O percentual não volta nem reinicia e chega a 100% somente após conclusão bem-sucedida. Eventos de cada arquivo aparecem no log JSON ou stdout somente se o respectivo nível for `detailed`. Progresso não entra nos logs JSON nem stdout e fica desativado quando stderr não é um terminal.
 
+### Ajustes opcionais do rclone para S3 (0.17.0)
+
+Três opções por job, todas opcionais e ignoradas em destinos locais (nunca são passadas ao rclone nesse caso):
+
+- `fast_list = true` (padrão `false`): passa `--fast-list` ao `sync`, `check` e `lsjson` do rclone em jobs **simples** no S3. Menos requisições de listagem em buckets grandes, ao custo de memória proporcional ao número de objetos. Sem efeito em jobs batch.
+- `s3_chunk_size = "64M"`: passa `--s3-chunk-size` nos envios (arquivos/controles batch e sync simples). Formato: dígitos mais `K`, `M` ou `G` (opcionalmente `Ki`, `Mi`, `Gi`); o S3 exige pelo menos 5 MiB por parte. Partes maiores ajudam arquivos de vários GB e usam mais memória por transferência simultânea (tamanho x concorrência x transferências).
+- `s3_upload_concurrency = 8`: passa `--s3-upload-concurrency` (inteiro de 1 a 64) nos mesmos envios.
+
+`verification_mode = "hash"` faz os jobs simples passarem `--checksum` ao rclone, que compara somas MD5: o rclone lê e calcula o hash de toda a origem local de novo a cada sync (ETags multipart do S3 não são MD5, então ele também depende de checksums armazenados). Use `"simple"` a menos que esse custo seja aceitável.
+
 ## Recursos adicionais
 
 A versão atual é **0.14.9**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 STORAGE_CLASSES = {"STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING",
                    "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"}
 LOG_LEVELS = {"error", "summary", "detailed"}
+# rclone size with an optional binary suffix: 16M, 64Mi, 1G (S3 chunks are at least 5 MiB).
+S3_SIZE = re.compile(r"[1-9][0-9]{0,5}[KMG]i?")
 
 
 def _validate_global(config: Config):
@@ -85,6 +87,14 @@ def _validate_job(job: Job, seen: set[str]):
             raise ConfigError(f"{name}: percentual fora do intervalo permitido")
     if not isinstance(job.compressor, str) or not job.compressor:
         raise ConfigError("compressor deve indicar um executável compatível com 7-Zip")
+    if type(job.fast_list) is not bool:
+        raise ConfigError(f"fast_list deve ser true ou false: {job.name}")
+    if job.s3_chunk_size is not None and not (isinstance(job.s3_chunk_size, str)
+                                              and S3_SIZE.fullmatch(job.s3_chunk_size)):
+        raise ConfigError(f"s3_chunk_size deve ser um tamanho como 16M, 64M ou 1G: {job.name}")
+    if job.s3_upload_concurrency is not None and (type(job.s3_upload_concurrency) is not int
+                                                  or not 1 <= job.s3_upload_concurrency <= 64):
+        raise ConfigError(f"s3_upload_concurrency deve ser um inteiro entre 1 e 64: {job.name}")
     if job.archive_format not in {"7z", "zip"}:
         raise ConfigError("archive_format deve ser 7z ou zip")
     if job.logic == "simple":
