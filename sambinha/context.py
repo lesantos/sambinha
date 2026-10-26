@@ -38,6 +38,9 @@ class Context:
         self.inventory_changed = False
         self.max_delete = -1
         self.batch_progress = {}
+        # Local control mirrors of expired history, removed only after the
+        # state without those entries is durable (see expire/save).
+        self.expired_mirrors = []
 
     def event(self, event, **values):
         if event in {"batch_start", "would_batch"}:
@@ -76,6 +79,10 @@ class Context:
     def save(self):
         atomic_json(self.state_path, self.state)
         write_manifest(self.config, self.job, self.state)
+        # Only now may the mirrors go: a crash before this point leaves a state
+        # that still references them, and publication reads every referenced mirror.
+        while self.expired_mirrors:
+            self.expired_mirrors.pop().unlink(missing_ok=True)
 
     def forecast_deletions(self):
         if self.forecast is None:
@@ -110,8 +117,9 @@ class Context:
             self.event("would_expire" if self.job.dry_run else "expire", path=entry["key"],
                        files=paths[entry["key"]], deletion_at=date(entry["expires"]))
             if not self.job.dry_run:
+                # Destination deletes are idempotent; the local mirror waits for save().
                 self.storage.delete(entry["key"])
                 if entry.get("control"):
                     self.storage.delete(entry["control"])
-                    (self.controls_directory / entry["control"]).unlink(missing_ok=True)
+                    self.expired_mirrors.append(self.controls_directory / entry["control"])
         self.state["retired"] = remaining

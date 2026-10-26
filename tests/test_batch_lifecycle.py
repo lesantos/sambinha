@@ -131,6 +131,52 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertNotIn(key, self.state()['active'])
         self.assertFalse((self.destination / key).exists())
 
+    def test_retired_entry_without_local_mirror_does_not_block_later_backups(self):
+        from sambinha.metadata import control_directory
+        self.seed()
+        (self.source / 'a').write_bytes(b'a' * 7)
+        self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
+        state = self.state()
+        entry = next(e for e in state['retired'] if e.get('control'))
+        mirror = control_directory(self.config, self.config.jobs[0]) / entry['control']
+        self.assertTrue(mirror.exists())
+        # Simulate a crash between mirror removal and state commit: the state
+        # still references the mirror, but the file is gone.
+        mirror.unlink()
+        (self.source / 'b').write_bytes(b'b' * 7)
+        self.assertEqual(self.execute(now=2001), 0, self.output.getvalue())
+        warning = next(e for e in self.events if e['event'] == 'retired_control_missing')
+        self.assertEqual((warning['path'], warning['control']), (entry['key'], entry['control']))
+        kept = next(e for e in self.state()['retired'] if e['key'] == entry['key'])
+        self.assertNotIn('control', kept)
+        self.assertEqual(kept['files'], entry['files'])
+        # Retention still expires the entry through its recorded member list.
+        self.assertEqual(self.execute(now=2000 + 3 * 86400), 0, self.output.getvalue())
+        self.assertNotIn(entry['key'], [e['key'] for e in self.state()['retired']])
+        self.assertFalse((self.destination / entry['key']).exists())
+
+    def test_expired_mirrors_are_removed_only_after_state_is_committed(self):
+        from sambinha.context import Context
+        from sambinha.metadata import control_directory
+        self.seed()
+        (self.source / 'a').write_bytes(b'a' * 7)
+        self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
+        entry = next(e for e in self.state()['retired'] if e.get('control'))
+        mirror = control_directory(self.config, self.config.jobs[0]) / entry['control']
+        expired = 2000 + 3 * 86400
+        original = Context.save
+        def crash_after_expire(ctx):
+            if ctx.expired_mirrors:
+                raise BackupError('power loss before local commit')
+            return original(ctx)
+        with patch.object(Context, 'save', crash_after_expire):
+            self.assertEqual(self.execute(now=expired), 1)
+        self.assertTrue(mirror.exists())
+        self.assertIn(entry['key'], [e['key'] for e in self.state()['retired']])
+        self.assertEqual(self.execute(now=expired + 1), 0, self.output.getvalue())
+        self.assertFalse(mirror.exists())
+        self.assertNotIn(entry['key'], [e['key'] for e in self.state()['retired']])
+
     def test_rebalance_without_source_changes_only_oversized_groups(self):
         self.seed()
         (self.source / 'a').write_bytes(b'a' * 7)
