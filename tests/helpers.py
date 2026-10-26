@@ -7,10 +7,21 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 from sambinha.config import Config, Job, validate
 from sambinha.engine import run
+
+
+def tick():
+    """Let the filesystem clock advance before a deliberate edit.
+
+    Some kernels (e.g. Linux 5.15 on ext4) stamp mtime/ctime with a coarse
+    clock (a few ms). An edit made right after a scan then keeps identical
+    timestamps and goes unnoticed, which is not what these tests exercise.
+    """
+    time.sleep(0.02)
 
 
 class Sandbox(unittest.TestCase):

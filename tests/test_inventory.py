@@ -12,7 +12,7 @@ from sambinha.filtering import Selection
 from sambinha.inventory import fingerprint, metadata, scan
 from sambinha.preflight import _read_inventory
 from sambinha.process import Runner
-from tests.helpers import REAL_TOOLS, Sandbox
+from tests.helpers import REAL_TOOLS, Sandbox, tick
 
 
 class InventoryTests(Sandbox):
@@ -87,6 +87,7 @@ class InventoryTests(Sandbox):
         expected = scan(self.source, cache_out=cache)
         with patch('sambinha.inventory.fingerprint', side_effect=AssertionError('unneeded read')):
             self.assertEqual(scan(self.source, cache=cache), expected)
+        tick()
         path.write_bytes(b'changed!')
         os.utime(path, ns=(expected[0].mtime_ns, expected[0].mtime_ns))
         self.assertNotEqual(scan(self.source, cache=cache)[0].sha256, expected[0].sha256)
@@ -244,6 +245,7 @@ class VolatileInodeTests(Sandbox):
         path = self.file('file', b'old')
         def modified(root, relative, **kwargs):
             item = metadata(root, relative, **kwargs)
+            tick()
             path.write_bytes(b'changed size')
             return item
         with patch('sambinha.inventory.metadata', side_effect=modified), \

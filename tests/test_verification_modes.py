@@ -13,7 +13,7 @@ from sambinha.inventory import fingerprint, scan, verify
 from sambinha.recovery import recover, verify_local_metadata_job
 from sambinha.state import load_state, validate_file
 from sambinha.storage import Storage
-from tests.helpers import REAL_TOOLS, Sandbox, contents
+from tests.helpers import REAL_TOOLS, Sandbox, contents, tick
 
 
 class VerificationModeTests(Sandbox):
@@ -85,6 +85,7 @@ class VerificationModeTests(Sandbox):
         from sambinha.inventory import metadata
         def changed(root, relative, **kwargs):
             item = metadata(root, relative, **kwargs)
+            tick()
             path.write_bytes(b'changed during scan')
             return item
         with patch('sambinha.inventory.metadata', side_effect=changed), self.assertRaises(BackupError):

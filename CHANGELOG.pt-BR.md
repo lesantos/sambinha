@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.14.8 — 2026-10-26
+
+Fazer `verify_source_changes = false` também ignorar as checagens de identidade de diretórios no inventário da origem; em montagens CIFS com `serverino` o inode de um diretório pode mudar entre a listagem e a abertura, o que interrompia backups com "Diretório mudou durante leitura". Forçar `RCLONE_LINKS`, `RCLONE_LOCAL_LINKS`, `RCLONE_COPY_LINKS` e `RCLONE_LOCAL_COPY_LINKS` como `false` em todo subprocesso, pois o rclone 1.75 deixa essas variáveis sobrepor `--links=false`/`--copy-links=false` e links simbólicos da origem poderiam ser copiados. Fazer os testes sensíveis a timestamps esperarem o relógio do sistema de arquivos avançar (Linux 5.15/ext4 marca mtime/ctime de forma grosseira). A suíte completa exige rclone 1.60+ e 7-Zip 21+ (`7zz`); os pacotes da distribuição (rclone 1.53 e p7zip 16.02) falham em testes não relacionados.
+
 ## 0.14.7 — 2026-10-16
 
 Adicionar `verify_source_changes` por job para controlar checagens de consistência durante a leitura/cópia dos arquivos de origem. Quando ativada, retentar alterações concorrentes até três vezes após a tentativa inicial e falhar o backup se persistirem. Manter a opção ativada por padrão na configuração do aplicativo e nos exemplos; desativá-la na configuração local do Sambinha. Documentar a diferença e cobrir retentativas e desativação.

@@ -12,6 +12,7 @@ import time
 
 from .errors import BackupError
 from .inventory import safe_relative
+from .process import child_environment
 
 
 class Discovery:
@@ -36,7 +37,7 @@ class Discovery:
             password = secrets.token_urlsafe(32)
             self.authorization = "Basic " + base64.b64encode(
                 ("sambinha:" + password).encode()).decode()
-            environment = dict(os.environ if self.runner.env is None else self.runner.env)
+            environment = child_environment(self.runner.env)
             # Authentication never appears in process arguments or diagnostics.
             environment.update(RCLONE_RC_USER="sambinha", RCLONE_RC_PASS=password)
             arguments = [self.config.rclone, "rcd", "--rc-addr", "127.0.0.1:0",

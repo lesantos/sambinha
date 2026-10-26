@@ -11,7 +11,7 @@ from sambinha.engine import preflight
 from sambinha.filtering import Selection
 from sambinha.inventory import fingerprint, scan
 from sambinha.profiles import settings
-from tests.helpers import REAL_TOOLS, Sandbox, contents
+from tests.helpers import REAL_TOOLS, Sandbox, contents, tick
 
 
 class InventoryPerformanceTests(Sandbox):
@@ -22,6 +22,7 @@ class InventoryPerformanceTests(Sandbox):
         with patch('sambinha.inventory.fingerprint', wraps=fingerprint) as hash_file:
             self.assertEqual(scan(self.source, cache=cache), before)
             hash_file.assert_not_called()
+            tick()
             path.write_bytes(b'new')
             os.utime(path, ns=(before[0].mtime_ns, before[0].mtime_ns))
             after = scan(self.source, cache=cache)

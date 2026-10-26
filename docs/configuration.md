@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.7**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.8**.
 
 ## How it protects your files
 

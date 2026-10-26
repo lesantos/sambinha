@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.14.8 — 2026-10-26
+
+Make `verify_source_changes = false` also skip the directory identity checks during source inventory; on CIFS mounts with `serverino` a directory inode can change between listing and opening, which aborted backups with "Diretório mudou durante leitura". Force `RCLONE_LINKS`, `RCLONE_LOCAL_LINKS`, `RCLONE_COPY_LINKS` and `RCLONE_LOCAL_COPY_LINKS` to `false` in every subprocess, because rclone 1.75 lets these variables override `--links=false`/`--copy-links=false` and source symlinks could be copied. Make timestamp-sensitive tests wait for the filesystem clock to advance (Linux 5.15/ext4 stamps mtime/ctime coarsely). The full suite requires rclone 1.60+ and 7-Zip 21+ (`7zz`); the distribution packages rclone 1.53 and p7zip 16.02 fail unrelated tests.
+
 ## 0.14.7 — 2026-10-16
 
 Add per-job `verify_source_changes` to control consistency checks while reading/copying source files. When enabled, retry source-change races up to three times after the initial attempt, then fail the backup. Keep the default enabled in application configuration and examples; disable it in the local Sambinha configuration. Document the tradeoff and cover retries and opt-out behavior.

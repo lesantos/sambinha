@@ -233,12 +233,12 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
                 child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
                 try:
                     opened = os.fstat(child)
-                    if _identity(before) != _identity(opened) and not _same_observation(
+                    if verify_source_changes and _identity(before) != _identity(opened) and not _same_observation(
                             before, opened, historical=True):
                         _changed("Diretório", relative, "open", before, opened)
                     walk(child, relative)
                     after = os.stat(name, dir_fd=fd, follow_symlinks=False)
-                    if _identity(opened) != _identity(after):
+                    if verify_source_changes and _identity(opened) != _identity(after):
                         _changed("Diretório", relative, "path", opened, after)
                 finally:
                     os.close(child)

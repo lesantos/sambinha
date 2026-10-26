@@ -58,6 +58,17 @@ def rclone_progress(stats):
     return percent, activity
 
 
+# Rclone 1.75 lets these variables override --links=false/--copy-links=false,
+# whereas 1.60 let the flags win. Forcing them off makes both agree, so source
+# links are never followed or translated even if the user's shell enables them.
+LINK_ENVIRONMENT = {"RCLONE_LINKS": "false", "RCLONE_LOCAL_LINKS": "false",
+                    "RCLONE_COPY_LINKS": "false", "RCLONE_LOCAL_COPY_LINKS": "false"}
+
+
+def child_environment(base=None, extra=None):
+    return {**(os.environ if base is None else base), **(extra or {}), **LINK_ENVIRONMENT}
+
+
 class Runner:
     def __init__(self, timeout=3600, sleep=time.sleep, env=None, secrets=()):
         self.timeout = timeout
@@ -105,9 +116,7 @@ class Runner:
         return message
 
     def run(self, args, *, cwd=None, retry=False, input=None, progress_directory=None, on_output=None, env=None):
-        child_env = self.env
-        if env is not None:
-            child_env = {**(os.environ if self.env is None else self.env), **env}
+        child_env = child_environment(self.env, env)
         # One original attempt plus at most three retries, two seconds apart.
         for attempt in range(4 if retry else 1):
             try:
@@ -146,7 +155,8 @@ class Runner:
         """Stream structured records and stats, retaining only an error tail when detailed."""
         process = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE if input is not None else None,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   text=True, bufsize=1, env=self.env if env is None else env)
+                                   text=True, bufsize=1,
+                                   env=child_environment(self.env) if env is None else env)
         if input is not None:
             process.stdin.write(input)
             process.stdin.close()
