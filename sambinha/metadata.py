@@ -26,8 +26,10 @@ def member_metadata(control):
     return {item["path"]: (item["size"], item["mtime_ns"]) for item in control["files"]}
 
 
-def write_control(config, job, key, control):
+def write_control(config, job, key, control, *, memo=None):
     root = control_directory(config, job)
+    if memo is not None:
+        memo.pop(key, None)  # A rewritten mirror must be read and validated again.
     atomic_json(root / (key + '.json'), control, preserve_permissions=supports_posix_metadata(root))
 
 
@@ -41,7 +43,15 @@ def read_control(path, key):
         raise BackupError(f"Controle de lote inválido: {path}: {exc}") from exc
 
 
-def cached_control(config, job, key, expected, *, write_missing=True):
+def cached_control(config, job, key, expected, *, write_missing=True, memo=None):
+    """Validate one local mirror against the index; ``memo`` (per execution) skips repeats.
+
+    A memoized result holds only while the expected members are unchanged, and
+    write_control(memo=...) drops the entry, so a rewritten mirror is re-read.
+    """
+    expectation = (member_metadata(expected), expected.get("archive_size")) if memo is not None else None
+    if memo is not None and key in memo and memo[key][0] == expectation:
+        return memo[key][1]
     root = control_directory(config, job)
     path = root / (key + ".json")
     reject_symlinks(path, label="Controle de lote", show_path=True)
@@ -49,12 +59,15 @@ def cached_control(config, job, key, expected, *, write_missing=True):
         # The committed local index already contains the exact control. This
         # also seeds a newly configured mirror without remote daily reads.
         if write_missing:
-            write_control(config, job, key, expected)
-        return expected
-    control = read_control(path, key)
-    if (member_metadata(control) != member_metadata(expected) or
-            control.get("archive_size") != expected.get("archive_size")):
-        raise BackupError(f"Controle local diverge do índice: {path}")
+            write_control(config, job, key, expected, memo=memo)
+        control = expected
+    else:
+        control = read_control(path, key)
+        if (member_metadata(control) != member_metadata(expected) or
+                control.get("archive_size") != expected.get("archive_size")):
+            raise BackupError(f"Controle local diverge do índice: {path}")
+    if memo is not None and (write_missing or path.exists()):
+        memo[key] = (expectation, control)
     return control
 
 
@@ -76,9 +89,9 @@ def write_manifest(config, job, state):
     atomic_json(path, data, preserve_permissions=supports_posix_metadata(root))
 
 
-def prepare_controls(config, job, state, *, write_missing=True):
+def prepare_controls(config, job, state, *, write_missing=True, memo=None):
     for key, control in {**state.get('excluded', {}), **state['active']}.items():
-        cached_control(config, job, key, control, write_missing=write_missing)
+        cached_control(config, job, key, control, write_missing=write_missing, memo=memo)
     old_root = config.state_dir / job.name / 'controls'
     root = control_directory(config, job)
     if write_missing and root != old_root:

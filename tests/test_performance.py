@@ -151,3 +151,17 @@ class PerformanceIntegrationTests(Sandbox):
         full = source_reads(replace(self.config, fingerprint_cache=False), 3000)
         # Without the cache the scan hashes all six and each verify pass re-reads them again.
         self.assertGreater(len(full), 6 + 6)
+
+    def test_unchanged_batch_run_reads_each_local_control_once(self):
+        from sambinha.metadata import read_control
+        for i in range(4):
+            self.file(f'dir/{i}.txt', str(i).encode())
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
+        self.assertEqual(self.execute(), 0)
+        controls = len(self.state()['active'])
+        self.assertGreater(controls, 1)
+        (self.source / 'dir/0.txt').write_bytes(b'updated')
+        with patch('sambinha.metadata.read_control', wraps=read_control) as reads:
+            self.assertEqual(self.execute(now=2000), 0)
+        # Before memoization Context and batch() each read every control.
+        self.assertLessEqual(reads.call_count, controls)

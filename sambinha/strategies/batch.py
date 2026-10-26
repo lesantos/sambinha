@@ -66,7 +66,7 @@ def upload_batch(ctx, item):
         _check_cancelled(worker.runner)
         transferred = worker.storage.put(control_path, item.key + ".json", standard="control")
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
-        write_control(ctx.config, ctx.job, item.key, control)
+        write_control(ctx.config, ctx.job, item.key, control, memo=ctx.control_memo)
         if not ctx.rebalancing:
             journal.record(ctx, item, control)
         return control, events
@@ -258,7 +258,7 @@ def batch(ctx: Context):
     batches, old, active, next_state = _plan_batches(ctx)
     if not ctx.job.dry_run:
         for key, control in {**ctx.state.get("excluded", {}), **old}.items():
-            cached_control(ctx.config, ctx.job, key, control)
+            cached_control(ctx.config, ctx.job, key, control, memo=ctx.control_memo)
     pending = _pending_uploads(ctx, batches, old, active)
     _upload_pending(ctx, pending, active)
     next_state["active"] = active

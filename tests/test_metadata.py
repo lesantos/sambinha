@@ -7,9 +7,10 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
+from sambinha.context import Context
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.metadata import control_directory, prepare_controls
+from sambinha.metadata import cached_control, control_directory, prepare_controls, read_control, write_control
 from sambinha.recovery import recover
 from sambinha.state import atomic_json, identity
 from sambinha.storage import Storage
@@ -248,3 +249,59 @@ class MetadataPublicationTests(Sandbox):
         self.assertTrue(all(key.endswith('.7z') for key in called))
         self.assertEqual(self.state(), before)
         self.assertEqual({p.relative_to(root): p.read_bytes() for p in root.rglob('*.json')}, controls)
+
+
+class ControlMemoTests(Sandbox):
+    def setup_job(self):
+        self.file('a.txt', b'alpha')
+        job = replace(self.config.jobs[0], logic='batch', type='s3', destination='aws:bucket/prefix')
+        self.config = replace(self.config, jobs=(job,), metadata_dir=self.root / 'metadata')
+        (batch,) = plan(scan(self.source, mode='simple'), job.max_bytes)
+        control = {**batch.control(), 'archive_size': 200, 'archive_md5': 'a' * 32}
+        return job, batch.key, control
+
+    def test_memoized_control_is_read_once_per_execution(self):
+        job, key, control = self.setup_job()
+        write_control(self.config, job, key, control)
+        memo = {}
+        with patch('sambinha.metadata.read_control', wraps=read_control) as reads:
+            for _ in range(3):
+                self.assertEqual(cached_control(self.config, job, key, control, memo=memo), control)
+        self.assertEqual(reads.call_count, 1)
+        with patch('sambinha.metadata.read_control', wraps=read_control) as reads:
+            cached_control(self.config, job, key, control)
+            cached_control(self.config, job, key, control)
+        self.assertEqual(reads.call_count, 2)
+
+    def test_writing_a_control_invalidates_the_memo_and_revalidates(self):
+        job, key, control = self.setup_job()
+        write_control(self.config, job, key, control)
+        memo = {}
+        cached_control(self.config, job, key, control, memo=memo)
+        path = control_directory(self.config, job) / (key + '.json')
+        write_control(self.config, job, key, {**control, 'archive_size': 999}, memo=memo)
+        self.assertNotIn(key, memo)
+        with self.assertRaisesRegex(BackupError, 'diverge do índice'):
+            cached_control(self.config, job, key, control, memo=memo)
+        write_control(self.config, job, key, control, memo=memo)
+        with patch('sambinha.metadata.read_control', wraps=read_control) as reads:
+            cached_control(self.config, job, key, control, memo=memo)
+        self.assertEqual(reads.call_count, 1)
+        self.assertTrue(path.is_file())
+
+    def test_memo_does_not_hide_a_different_expectation(self):
+        job, key, control = self.setup_job()
+        write_control(self.config, job, key, control)
+        memo = {}
+        cached_control(self.config, job, key, control, memo=memo)
+        with self.assertRaisesRegex(BackupError, 'diverge do índice'):
+            cached_control(self.config, job, key, {**control, 'archive_size': 1}, memo=memo)
+
+    def test_context_validates_controls_once_and_batch_reuses_the_result(self):
+        job, key, control = self.setup_job()
+        state = {'schema': 1, 'identity': identity(job), 'active': {key: control}, 'retired': []}
+        write_control(self.config, job, key, control)
+        with patch('sambinha.metadata.read_control', wraps=read_control) as reads:
+            ctx = Context(self.config, job, Mock(), Mock(), scan(self.source, mode='simple'), 1000, state=state)
+            cached_control(ctx.config, ctx.job, key, control, memo=ctx.control_memo)
+        self.assertEqual(reads.call_count, 1)

@@ -32,8 +32,10 @@ class Context:
         self.state = (load_state(self.state_path, self.identity, **identity_options(job))
                       if state is None else state)
         migrate_identity(self.state, job, log)
+        # Controls already read and validated in this execution (see metadata.cached_control).
+        self.control_memo = {}
         if not job.dry_run:
-            prepare_controls(config, job, self.state)
+            prepare_controls(config, job, self.state, memo=self.control_memo)
         self.metrics = {"reused_batches": 0, "rebuilt_batches": 0,
                         "bytes_planned": 0, "bytes_transferred": 0}
         self.reused_batches = set()
@@ -96,7 +98,9 @@ class Context:
         # Only now may the mirrors go: a crash before this point leaves a state
         # that still references them, and publication reads every referenced mirror.
         while self.expired_mirrors:
-            self.expired_mirrors.pop().unlink(missing_ok=True)
+            mirror = self.expired_mirrors.pop()
+            self.control_memo.pop(mirror.relative_to(self.controls_directory).as_posix().removesuffix(".json"), None)
+            mirror.unlink(missing_ok=True)
 
     def forecast_deletions(self):
         if self.forecast is None:
