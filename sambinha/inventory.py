@@ -1,10 +1,14 @@
 """Stable source inventories with strong fingerprints and race detection."""
+import errno
 import hashlib
 import json
 import os
+import queue
 import stat
+import threading
+import zlib
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 
 from .errors import BackupError, SourceChangedError
@@ -25,9 +29,14 @@ class File:
     md5: str
     mtime_ns: int
     mode: int
+    # In-memory only (never persisted, never compared): CRC32 of the bytes the inventory hashed,
+    # cross-checked against the one 7-Zip reports for the same member.
+    crc32: int | None = field(default=None, compare=False, repr=False)
 
     def metadata(self):
-        return asdict(self)
+        data = asdict(self)
+        del data["crc32"]
+        return data
 
 
 def safe_relative(value: str) -> str:
@@ -95,22 +104,67 @@ def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=Fals
         os.close(fd)
 
 
-def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None, file_fd=None) -> File:
+ALL_DIGESTS = frozenset({"sha256", "md5", "crc32"})
+BLOCK_SIZE = 1024 * 1024
+# Below this size a helper thread costs more than the overlapped md5 saves.
+THREADED_MD5_MIN = 4 * BLOCK_SIZE
+
+
+def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None, file_fd=None,
+                digests=ALL_DIGESTS) -> File:
+    """Hash a file; ``digests`` selects among sha256, md5 and crc32 (unrequested ones stay empty)."""
     if file_fd is None:
         with _source_file(root, relative, dir_fd, before) as (fd, opened):
-            return _fingerprint(relative, fd, opened, progress)
-    return _fingerprint(relative, file_fd, before, progress)
+            return _fingerprint(relative, fd, opened, progress, digests)
+    return _fingerprint(relative, file_fd, before, progress, digests)
 
 
-def _fingerprint(relative, file_fd, before, progress):
-    sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
-    while chunk := os.read(file_fd, 64 * 1024):
-        sha.update(chunk)
-        md5.update(chunk)
-        if progress:
-            progress(len(chunk))
-    return File(relative, before.st_size, sha.hexdigest(), md5.hexdigest(),
-                before.st_mtime_ns, stat.S_IMODE(before.st_mode))
+def _md5_consumer(blocks, md5, failure):
+    """Feed queued blocks to md5 until the None sentinel; keep draining after an error."""
+    while (block := blocks.get()) is not None:
+        if not failure:
+            try:
+                md5.update(block)
+            except BaseException as exc:
+                failure.append(exc)
+
+
+def _fingerprint(relative, file_fd, before, progress, digests=ALL_DIGESTS):
+    sha = hashlib.sha256() if "sha256" in digests else None
+    md5 = hashlib.md5(usedforsecurity=False) if "md5" in digests else None
+    crc = 0 if "crc32" in digests else None
+    # md5 runs in a second thread (hashlib drops the GIL for large updates) only when
+    # another digest shares the pass and the file is big enough to repay the thread.
+    threaded = md5 is not None and (sha is not None or crc is not None) and before.st_size >= THREADED_MD5_MIN
+    blocks, failure, consumer = queue.Queue(maxsize=4), [], None
+    if threaded:
+        consumer = threading.Thread(target=_md5_consumer, args=(blocks, md5, failure),
+                                    name="sambinha-md5", daemon=True)
+        consumer.start()
+    # Small files never need a full block; a growing file is caught by the race checks.
+    size = BLOCK_SIZE if before.st_size >= BLOCK_SIZE else before.st_size + 1
+    try:
+        while chunk := os.read(file_fd, size):
+            if threaded:
+                blocks.put(chunk)
+            elif md5 is not None:
+                md5.update(chunk)
+            if sha is not None:
+                sha.update(chunk)
+            if crc is not None:
+                crc = zlib.crc32(chunk, crc)
+            if progress:
+                progress(len(chunk))
+            size = BLOCK_SIZE
+    finally:
+        if consumer is not None:
+            # The consumer always drains, so the sentinel and the join cannot block for long.
+            blocks.put(None)
+            consumer.join()
+    if failure:
+        raise failure[0]
+    return File(relative, before.st_size, sha.hexdigest() if sha else "", md5.hexdigest() if md5 else "",
+                before.st_mtime_ns, stat.S_IMODE(before.st_mode), crc)
 
 
 def metadata(root: Path, relative: str, *, dir_fd=None, before=None, file_fd=None) -> File:
@@ -274,20 +328,93 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
     return result
 
 
-def verify(root: Path, files: list[File], *, mode="hash", progress=None, verify_source_changes=True):
+def _source_tree(files):
+    """Group inventory items by directory: node = (items, {child name: node})."""
+    tree = ([], {})
+    for item in files:
+        node = tree
+        *parents, _name = PurePosixPath(safe_relative(item.path)).parts
+        for part in parents:
+            node = node[1].setdefault(part, ([], {}))
+        node[0].append(item)
+    return tree
+
+
+def _unchanged(item, info, signatures):
+    """True when the scan's recorded stat signature still describes this exact item."""
+    entry = signatures.get(item.path) if signatures else None
+    return (entry is not None and stat.S_ISREG(info.st_mode) and entry["signature"] == signature(info)
+            and entry["file"] == item.metadata())
+
+
+def verify(root: Path, files: list[File], *, mode="hash", progress=None, verify_source_changes=True,
+           signatures=None):
+    """Re-check the inventory, walking real directories once through descriptors.
+
+    Every directory is opened with O_NOFOLLOW relative to its parent, so no
+    per-file ancestor lstat chain remains and a directory swapped for a symlink
+    or another directory is still caught. ``signatures`` is the scan's
+    ``cache_out`` (hash mode only): items whose stat signature is unchanged are
+    not re-read; callers pass it only when the fingerprint cache is enabled and
+    no full scan is due. Without it hash mode re-hashes every file.
+    """
     if not verify_source_changes:
         return
-    for index, item in enumerate(files):
+    from .local_paths import DIRECTORY_FLAGS
+    from .local_paths import directory as open_directory
+
+    done = 0
+    last = root
+
+    def check(fd, item):
+        nonlocal done, last
+        last = (root / item.path).parent
         if progress:
-            progress.update("Conferindo origem", (root / item.path).parent, index, len(files))
+            progress.update("Conferindo origem", last, done, len(files))
+        done += 1
+        name = item.path.rsplit("/", 1)[-1]
         for attempt in range(4):
             try:
-                actual = metadata(root, item.path) if mode == "simple" else fingerprint(root, item.path)
+                if mode == "hash" and signatures and _unchanged(
+                        item, os.stat(name, dir_fd=fd, follow_symlinks=False), signatures):
+                    return
+                actual = (metadata(root, item.path, dir_fd=fd) if mode == "simple"
+                          else fingerprint(root, item.path, dir_fd=fd))
                 if (not same_metadata(actual, item) if mode == "simple" else actual != item):
                     raise SourceChangedError(f"Origem alterada durante backup: {item.path}; execute novamente")
-                break
+                return
             except SourceChangedError:
                 if attempt == 3:
                     raise
+
+    def visit(fd, node, prefix):
+        for item in node[0]:
+            check(fd, item)
+        for name, child_node in node[1].items():
+            relative = prefix + "/" + name if prefix else name
+            before = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISLNK(before.st_mode):
+                raise BackupError(f"Origem mudou para link simbólico: {relative}")
+            try:
+                child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
+            except NotADirectoryError:
+                raise BackupError(f"Origem deixou de ser diretório: {relative}") from None
+            except OSError as exc:
+                if exc.errno != errno.ELOOP:
+                    raise
+                raise BackupError(f"Origem mudou para link simbólico: {relative}") from None
+            try:
+                opened = os.fstat(child)
+                if _identity(before) != _identity(opened) and not _same_observation(before, opened, historical=True):
+                    _changed("Diretório", relative, "open", before, opened)
+                visit(child, child_node, relative)
+                after = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if _identity(opened) != _identity(after):
+                    _changed("Diretório", relative, "path", opened, after)
+            finally:
+                os.close(child)
+
+    with open_directory(root) as root_fd:
+        visit(root_fd, _source_tree(files), "")
     if progress:
-        progress.update("Conferindo origem", (root / files[-1].path).parent if files else root, 1, 1)
+        progress.update("Conferindo origem", last, 1, 1)

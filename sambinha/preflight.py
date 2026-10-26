@@ -23,6 +23,7 @@ class JobInventory(NamedTuple):
     fingerprints: dict
     last_full_scan: float
     previous: dict
+    full_scan: bool = True
 
 
 def _check_destination(config, job, runner, checking):
@@ -71,7 +72,7 @@ def _read_inventory(config, job, runner, now, reading, log=None):
                      mode=job.verification_mode, progress=reading,
                      verify_source_changes=job.verify_source_changes)
     return JobInventory(files, selected_dirs, fingerprints,
-                        now if force else previous["last_full_scan"], previous)
+                        now if force else previous["last_full_scan"], previous, force)
 
 
 def preflight(config, runner, now=None, *, progress=None, on_job_error=None, log=None):

@@ -49,8 +49,9 @@ def upload_batch(ctx, item):
         # result would be discarded: each would leave an orphan at the destination.
         _check_cancelled(worker.runner)
         archive = compress(worker, item, Path(temp))
-        compressed = (fingerprint(ctx.source, item.files[0].path) if item.passthrough
-                      else fingerprint(Path(temp), archive.name))
+        # Only the archive size and md5 are recorded; sha256 of the archive is never used.
+        compressed = (fingerprint(ctx.source, item.files[0].path, digests={"md5"}) if item.passthrough
+                      else fingerprint(Path(temp), archive.name, digests={"md5"}))
         control = item.control()
         control.update(archive_size=compressed.size, archive_md5=compressed.md5)
         control_path = Path(temp) / "control.json"
@@ -65,7 +66,7 @@ def upload_batch(ctx, item):
         _check_cancelled(worker.runner)
         transferred = worker.storage.put(control_path, item.key + ".json", standard="control")
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
-        write_control(ctx.config, ctx.job, item.key, control)
+        write_control(ctx.config, ctx.job, item.key, control, memo=ctx.control_memo)
         if not ctx.rebalancing:
             journal.record(ctx, item, control)
         return control, events
@@ -257,7 +258,7 @@ def batch(ctx: Context):
     batches, old, active, next_state = _plan_batches(ctx)
     if not ctx.job.dry_run:
         for key, control in {**ctx.state.get("excluded", {}), **old}.items():
-            cached_control(ctx.config, ctx.job, key, control)
+            cached_control(ctx.config, ctx.job, key, control, memo=ctx.control_memo)
     pending = _pending_uploads(ctx, batches, old, active)
     _upload_pending(ctx, pending, active)
     next_state["active"] = active
@@ -274,7 +275,8 @@ def batch(ctx: Context):
     verifying = [f for item in pending for f in item.files] if ctx.rebalancing else ctx.files
     verify(ctx.source, verifying, mode=ctx.job.verification_mode,
            progress=ctx.progress.scope(0.85, 0.9) if ctx.progress else None,
-           verify_source_changes=ctx.job.verify_source_changes)
+           verify_source_changes=ctx.job.verify_source_changes,
+           signatures=ctx.signatures)
     show_progress(ctx.runner, ctx.progress.scope(0.9, 1) if ctx.progress else None)
     # Publish the recovery index before the local commit. If upload fails, the
     # previous local state stays authoritative; uploads can safely be repeated.

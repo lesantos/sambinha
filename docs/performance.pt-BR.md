@@ -102,3 +102,22 @@ Referências: [detecção de mudanças do restic](https://restic.readthedocs.io/
 ## Lotes e recuperação na versão 0.13.0
 
 Consulte [lotes persistentes, configuração unificada, alertas finais Cronitor, rebalanceamento manual e recuperação por gerações](batch-lifecycle.pt-BR.md) para os comportamentos atuais e a migração da versão 0.12.0.
+
+
+## Verificação final, hashing e controles (0.17.0)
+
+Medido com `scripts/benchmark-verify.py` (6000 arquivos pequenos em 400 diretórios mais quatro arquivos de 64 MiB; números brutos em `docs/benchmarks/verify-2026-10-26.json`). O host de medição era compartilhado e sobrecarregado (load average 7-10 em 4 núcleos), então os tempos variaram ±50% entre execuções idênticas; **as contagens de syscalls são exatas, os tempos são apenas indicativos**.
+
+| `verify()` final sobre 6005 arquivos | antes | depois |
+| --- | --- | --- |
+| chamadas `stat`, modo simples | 42.024 | 12.912 |
+| chamadas `stat`, modo hash | 42.024 | 12.912 (re-hash completo) |
+| modo hash, cache de fingerprints, sem full scan devido | releitura total (`read` 16.102) | 0 leituras, 1 `stat` por arquivo |
+| modo simples, mediana de 5 execuções | 2,86 s | 1,67 s |
+| modo hash com cache, mediana de 5 execuções | 5,33 s (cache ignorado) | 1,18 s |
+
+- **Percurso por descritores.** `verify()` abre cada diretório uma vez com `O_NOFOLLOW` relativo ao pai e valida os arquivos com `dir_fd`; a cadeia de `lstat` dos ancestrais por arquivo desapareceu. Diretório trocado por link simbólico ou por outro diretório, e troca durante a checagem do diretório, continuam gerando `BackupError`/`SourceChangedError`.
+- **Assinaturas do scan.** Com `verification_mode = "hash"`, `fingerprint_cache = true` e sem full scan devido, `verify()` (passagem final e as checagens em torno de cada execução do 7-Zip) compara a assinatura stat (dev, ino, tamanho, mtime, ctime, modo) com a registrada pelo scan e só relê os arquivos que divergem. `fingerprint_cache = false` e a execução de full scan mantêm o re-hash completo. Uma edição com mesmo tamanho e mtime ainda altera o `ctime` e é detectada.
+- **Hashing.** Leituras em blocos de 1 MiB; para arquivos de 4 MiB ou mais o md5 roda em uma thread auxiliar ao lado do sha256 (fila limitada, junção em todos os caminhos de saída, erros relançados). O arquivo gerado é fingerprintado só com md5. No host sobrecarregado o ganho da sobreposição foi de apenas ~12% em teste puro em memória (2,77 s → 2,43 s para 128 MiB) e foi anulado de ponta a ponta pela passagem extra de CRC32 (2,20 s contra 2,41 s para 256 MiB): não houve ganho líquido mensurável aqui; permanece por ser simples e limitado.
+- **Conferência de CRC32.** No modo hash o inventário também calcula o CRC32 (só em memória, nunca persistido). Após `7z l -slt`, um membro com CRC diferente gera erro com o caminho; membros sem CRC (arquivos vazios, acertos de cache) são ignorados. Isso fecha a lacuna entre o que o inventário leu e o que o 7-Zip leu, mas só para arquivos hasheados naquela execução.
+- **Controles.** Os espelhos locais dos controles são validados uma vez por execução (memoizados por `Context`, invalidados quando um controle é gravado ou um espelho expirado é removido), e não duas; economiza uma leitura e validação de JSON por controle e não foi cronometrado separadamente.

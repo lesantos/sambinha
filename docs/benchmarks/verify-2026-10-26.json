@@ -1,0 +1,119 @@
+{
+  "after_4.1": {
+    "files": 6005,
+    "hash_large_files_s": 3.4633,
+    "hash_large_mib_per_s": 73.9,
+    "large_files": 4,
+    "large_mib_each": 64,
+    "repeats": 3,
+    "scan_hash_cold_s": 4.5187,
+    "verify_hash_full_s": 3.6941,
+    "verify_hash_full_syscalls": {
+      "fstat": 12461,
+      "open": 6464,
+      "read": 16102,
+      "stat": 12912
+    },
+    "verify_hash_with_signatures_s": 0.5688,
+    "verify_hash_with_signatures_syscalls": {
+      "fstat": 451,
+      "open": 459,
+      "stat": 6907
+    },
+    "verify_simple_s": 0.913,
+    "verify_simple_syscalls": {
+      "fstat": 12461,
+      "open": 6464,
+      "stat": 12912
+    }
+  },
+  "after_4.6": {
+    "files": 6005,
+    "hash_large_files_s": 4.2252,
+    "hash_large_mib_per_s": 60.6,
+    "large_files": 4,
+    "large_mib_each": 64,
+    "repeats": 5,
+    "scan_hash_cold_s": 5.8836,
+    "verify_hash_full_s": 6.7652,
+    "verify_hash_full_syscalls": {
+      "fstat": 12461,
+      "open": 6464,
+      "read": 12262,
+      "stat": 12912
+    },
+    "verify_hash_with_signatures_s": 1.179,
+    "verify_hash_with_signatures_syscalls": {
+      "fstat": 451,
+      "open": 459,
+      "stat": 6907
+    },
+    "verify_simple_s": 1.669,
+    "verify_simple_syscalls": {
+      "fstat": 12461,
+      "open": 6464,
+      "stat": 12912
+    }
+  },
+  "before": {
+    "files": 6005,
+    "hash_large_files_s": 3.5318,
+    "hash_large_mib_per_s": 72.5,
+    "large_files": 4,
+    "large_mib_each": 64,
+    "repeats": 3,
+    "scan_hash_cold_s": 3.1979,
+    "verify_hash_full_s": 5.513,
+    "verify_hash_full_syscalls": {
+      "fstat": 12010,
+      "open": 6005,
+      "read": 16102,
+      "stat": 42024
+    },
+    "verify_hash_with_signatures_s": 8.1099,
+    "verify_simple_s": 4.2181,
+    "verify_simple_syscalls": {
+      "fstat": 12010,
+      "open": 6005,
+      "stat": 42024
+    }
+  },
+  "before_r5": {
+    "files": 6005,
+    "hash_large_files_s": 2.6673,
+    "hash_large_mib_per_s": 96.0,
+    "large_files": 4,
+    "large_mib_each": 64,
+    "repeats": 5,
+    "scan_hash_cold_s": 5.38,
+    "verify_hash_full_s": 7.9876,
+    "verify_hash_full_syscalls": {
+      "fstat": 12010,
+      "open": 6005,
+      "read": 16102,
+      "stat": 42024
+    },
+    "verify_hash_with_signatures_s": 5.3321,
+    "verify_simple_s": 2.8631,
+    "verify_simple_syscalls": {
+      "fstat": 12010,
+      "open": 6005,
+      "stat": 42024
+    }
+  },
+  "notes": {
+    "environment": "shared 4-core host, load average 7-10 during every run; wall-clock times are noisy, syscall counts are exact",
+    "hash_end_to_end_256MiB_best_of_4_s": {
+      "after_sha_md5_crc32": 2.414,
+      "before": 2.195,
+      "comment": "no gain under CPU contention: the extra CRC32 pass cancels the md5 overlap"
+    },
+    "hash_microbench_128MiB_in_memory_best_of_5_s": {
+      "crc32_only": 0.244,
+      "md5_in_helper_thread": 2.425,
+      "sha256_then_md5_serial": 2.768
+    },
+    "labels": "before/before_r5 = main at 0.16.0 (3 and 5 repeats); after_4.1 = verify rewrite only; after_4.6 = all three items (5 repeats)",
+    "tree": "6000 files of 100-4000 bytes in 400 directories + 4 files of 64 MiB"
+  }
+}
