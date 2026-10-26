@@ -4,6 +4,7 @@ import json
 from .errors import BackupError
 from .filesystems import supports_posix_metadata
 from .inventory import path_has_symlink, safe_relative
+from .names import STATE_FILE
 from .state import atomic_json, identity, load_state, validate_controls
 
 
@@ -85,7 +86,7 @@ def prepare_controls(config, job, state, *, write_missing=True):
 
 
 def local_state(config, job):
-    path = config.state_dir / job.name / 'state.json'
+    path = config.state_dir / job.name / STATE_FILE
     if path.exists() or path.is_symlink():
         return load_state(path, identity(job))
     manifest = control_directory(config, job) / '.index.json'

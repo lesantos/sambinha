@@ -6,6 +6,7 @@ import stat
 
 from .errors import BackupError
 from .inventory import safe_relative
+from .names import NAMESPACE
 
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
@@ -59,7 +60,7 @@ def prepare_write(root, relative, *, is_directory=False):
                 except FileNotFoundError:
                     info = None
                 if info and stat.S_ISLNK(info.st_mode):
-                    if parts[0] == ".sambinha":
+                    if parts[0] == NAMESPACE:
                         raise BackupError(f"Metadados do destino são link simbólico: {relative}")
                     os.unlink(name, dir_fd=fd)
                     replaced.append("/".join(parts[:index + 1]))
@@ -81,7 +82,7 @@ def conflicting_links(source, destination):
     def visit(source_fd, destination_fd, prefix):
         with os.scandir(destination_fd) as entries:
             for entry in entries:
-                if not prefix and entry.name == ".sambinha":
+                if not prefix and entry.name == NAMESPACE:
                     continue
                 linked = entry.is_symlink()
                 if not linked and not entry.is_dir(follow_symlinks=False):

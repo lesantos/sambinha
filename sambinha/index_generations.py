@@ -12,10 +12,11 @@ from .errors import BackupError
 from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
 from .metadata import read_control, write_control
+from .names import CONTROL, INDEXES, STATE_FILE
 from .state import atomic_json, identity, load_state, validate_controls
 from .storage import Storage
 
-PREFIX = '.sambinha/indexes/'
+PREFIX = INDEXES + '/'
 GENERATION = re.compile(r'[0-9]{20}-[0-9a-f]{32}\Z')
 MAX_METADATA = 64 * 1024 * 1024
 MAX_CONTROLS_METADATA = 256 * 1024 * 1024
@@ -48,7 +49,7 @@ def _archive(config, job, archive, work):
     total = 0
     with tarfile.open(archive) as tar:
         entries = tar.getmembers()
-        states = [m for m in entries if m.name == 'state.json']
+        states = [m for m in entries if m.name == STATE_FILE]
         if len(states) != 1 or not states[0].isreg() or states[0].size > MAX_METADATA:
             raise BackupError('Índice de recuperação inválido')
         state_path = work / 'validated-state.json'
@@ -83,10 +84,10 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
     candidates = []
     for generation in generations:
         candidates.append((PREFIX + generation + '.tar.gz', generation))
-        if '.sambinha/control.tar.gz' in entries:
-            candidates.append(('.sambinha/control.tar.gz', generation))
-    if '.sambinha/control.tar.gz' in entries:
-        candidates.append(('.sambinha/control.tar.gz', None))
+        if CONTROL in entries:
+            candidates.append((CONTROL, generation))
+    if CONTROL in entries:
+        candidates.append((CONTROL, None))
     failures = []
     for key, generation in candidates:
         archive = work / 'control.tar.gz'
@@ -122,7 +123,7 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
 
 def backup_state(config, job, runner, *, allow_new=True, log=None):
     """Recover before planning; never mistake an existing backup for a new one."""
-    path = config.state_dir / job.name / 'state.json'
+    path = config.state_dir / job.name / STATE_FILE
     journal = path.parent / 'publication.json'
     initialized = path.parent / 'initialization.json'
     if path.is_symlink() or journal.is_symlink() or initialized.is_symlink():
@@ -145,7 +146,7 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         own_initialization = False
         if initialized.exists():
             own_initialization = json.loads(initialized.read_text()).get('identity') == identity(job)
-        candidates = any(k == '.sambinha/control.tar.gz' or k.endswith('.commit.json') and k.startswith(PREFIX)
+        candidates = any(k == CONTROL or k.endswith('.commit.json') and k.startswith(PREFIX)
                          for k in entries)
         if (allow_new and not invalid and not candidates and
                 (not entries or own_initialization)):
@@ -192,13 +193,13 @@ def publish(ctx, state):
                     continue
                 controls[entry['key']] = read_control(path, entry['key'])
         recovery_state = {k: v for k, v in state.items() if k != 'index_pending'}
-        atomic_json(work / 'state.json', recovery_state)
-        if (work / 'state.json').stat().st_size > MAX_METADATA:
+        atomic_json(work / STATE_FILE, recovery_state)
+        if (work / STATE_FILE).stat().st_size > MAX_METADATA:
             raise BackupError('Índice excede limite de metadados (state.json)')
         archive = work / 'control.tar.gz'
         control_bytes = 0
         with tarfile.open(archive, 'w:gz') as tar:
-            tar.add(work / 'state.json', arcname='state.json')
+            tar.add(work / STATE_FILE, arcname=STATE_FILE)
             for key, control in controls.items():
                 path = work / 'control.json'
                 atomic_json(path, control)
@@ -213,8 +214,8 @@ def publish(ctx, state):
         atomic_json(marker, {'generation': generation, 'size': archive.stat().st_size,
                              'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()})
         ctx.storage.put(marker, PREFIX + generation + '.commit.json', standard="control")
-        transferred = ctx.storage.put(archive, '.sambinha/control.tar.gz', standard="control")
-        ctx.event('transferred' if transferred else 'identical', path='.sambinha/control.tar.gz')
+        transferred = ctx.storage.put(archive, CONTROL, standard="control")
+        ctx.event('transferred' if transferred else 'identical', path=CONTROL)
 
 
 def finish(ctx):

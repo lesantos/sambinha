@@ -11,6 +11,7 @@ import fcntl
 import errno
 
 from .state import private_directory
+from .retention import DAY
 
 ERROR_EVENTS = {"error", "notification_error", "mass_deletion_blocked"}
 SUMMARY_EVENTS = ERROR_EVENTS | {"summary", "restore_summary", "verification_complete", "metadata_verification_complete",
@@ -49,7 +50,7 @@ class RunLog:
                 continue
             try:
                 before = path.lstat()
-                if not stat.S_ISREG(before.st_mode) or now - before.st_mtime <= days * 86400:
+                if not stat.S_ISREG(before.st_mode) or now - before.st_mtime <= days * DAY:
                     continue
                 fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
                 try:
@@ -65,7 +66,7 @@ class RunLog:
                     # have just finished, or the pathname may have changed.
                     current = path.lstat()
                     if ((current.st_dev, current.st_ino) == (opened.st_dev, opened.st_ino)
-                            and now - os.fstat(fd).st_mtime > days * 86400):
+                            and now - os.fstat(fd).st_mtime > days * DAY):
                         path.unlink()
                         removed += 1
                 finally:

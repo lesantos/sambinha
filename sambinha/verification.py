@@ -11,6 +11,7 @@ from .filtering import Selection
 from .inventory import scan
 from .metadata import cached_control, control_directory, local_state, member_metadata, prepare_controls, read_control
 from .mounts import check_mounts
+from .names import STATE_FILE
 from .recovery_index import read_index
 from .state import indexed_files
 from .storage import Storage
@@ -59,7 +60,7 @@ def _reference(config, job, storage, work, state):
     if state is not None:
         return state
     local = local_state(config, job)
-    if ((config.state_dir / job.name / 'state.json').exists() or
+    if ((config.state_dir / job.name / STATE_FILE).exists() or
             (control_directory(config, job) / '.index.json').exists()):
         return local
     return read_index(config, job, storage, work)

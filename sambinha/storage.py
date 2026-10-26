@@ -11,6 +11,7 @@ from .disks import check_disks
 from .local_paths import prepare_write
 from .simple_storage import SimpleStorageMixin
 from . import rclone
+from .names import NAMESPACE, NAMESPACE_EXCLUDE
 
 
 class Storage(SimpleStorageMixin):
@@ -43,7 +44,7 @@ class Storage(SimpleStorageMixin):
         filters = ["--exclude-from", str(self.job.exclude_files)] if self.job.exclude_files else []
         hashes = ["--hash"] if self.job.verification_mode == "hash" else []
         raw = self.command("lsjson", self.job.destination, "--recursive", "--files-only", *hashes,
-                           "--exclude", "/.sambinha/**", *filters)
+                           *NAMESPACE_EXCLUDE, *filters)
         try:
             items = json.loads(raw)
             if not isinstance(items, list) or any(not isinstance(i, dict)
@@ -52,7 +53,7 @@ class Storage(SimpleStorageMixin):
                 raise ValueError("metadados")
             cache = {}
             return {safe_relative(i["Path"]): i for i in items
-                    if not i["Path"].startswith(".sambinha/") and
+                    if not i["Path"].startswith(NAMESPACE + "/") and
                     (self.job.type != "local" or not path_has_symlink(self.job.destination, i["Path"], cache))}
         except (ValueError, KeyError, TypeError) as exc:
             raise BackupError("Inventário rclone inválido") from exc

@@ -8,6 +8,7 @@ from dataclasses import replace
 from .errors import BackupError, job_errors
 from .discovery import Discovery
 from .inventory import safe_relative, path_has_symlink
+from .names import NAMESPACE
 
 SKIP_LINK_FLAGS = ("--skip-links", "--links=false", "--copy-links=false")
 
@@ -50,7 +51,7 @@ def retired_paths(entry, directory, *, controls_directory=None):
         if control is not None:
             return [safe_relative(item["path"]) for item in control["files"]]
     parts = entry["key"].split("/", 4)
-    return [safe_relative(parts[4] if len(parts) == 5 and parts[0] == ".sambinha" and parts[1] == "history" else entry["key"])]
+    return [safe_relative(parts[4] if len(parts) == 5 and parts[0] == NAMESPACE and parts[1] == "history" else entry["key"])]
 
 
 def path_groups(paths):

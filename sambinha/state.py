@@ -10,12 +10,13 @@ import re
 
 from .errors import BackupError
 from .inventory import safe_relative
+from .names import NAMESPACE
 
 
 def identity(job):
     """Describe the job that owns an index without depending on recovery."""
     return {"source": str(job.source), "destination": job.destination,
-            "type": job.type, "logic": job.logic, "namespace": ".sambinha"}
+            "type": job.type, "logic": job.logic, "namespace": NAMESPACE}
 
 
 def indexed_files(state, logic):
