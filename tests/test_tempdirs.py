@@ -111,6 +111,14 @@ class SweepIntegrationTests(Sandbox):
         self.assertEqual((event['removed'], event['bytes']), (1, 50))
         self.assertTrue(seen and all(name.startswith(f'sambinha-batch-{os.getpid()}-') for name in seen))
 
+    def test_fresh_start_also_sweeps_young_leftovers(self):
+        left = self.stale()
+        os.utime(left, None)
+        self.assertEqual(self.execute(), 0)
+        self.assertTrue(left.exists())  # an ordinary run keeps a recent directory
+        self.assertEqual(self.execute(now=2000, fresh_start=True), 0, self.output.getvalue())
+        self.assertFalse(left.exists())
+
     def test_dry_run_leaves_leftovers_alone(self):
         left = self.stale()
         self.assertEqual(self.execute(config=replace(self.config, dry_run=True)), 0)

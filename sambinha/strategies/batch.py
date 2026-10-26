@@ -12,6 +12,7 @@ from ..batches import plan
 from ..context import Context
 from ..disks import check_disk, check_disks, get_temporary_path
 from ..errors import BackupError
+from ..fresh import requested
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
 from ..names import CONTROL
@@ -90,7 +91,7 @@ def _plan_batches(ctx):
     current_files = {f.path: f.metadata() for f in ctx.files}
     # Archives stored by an interrupted earlier run come first, so the same
     # members form the same batch again and its upload is skipped (_pending_uploads).
-    ctx.journal = {} if ctx.rebalancing else journal.usable(ctx, confirmed, current_files)
+    ctx.journal = {} if ctx.rebalancing or requested(ctx.job) else journal.usable(ctx, confirmed, current_files)
     previous = {**{key: journal.entry_control(entry) for key, entry in ctx.journal.items()}, **old}
     batches = plan(ctx.files, ctx.job.max_bytes, extension=ctx.job.archive_format, previous=previous,
                    individual_percent=ctx.job.individual_batch_percent, rebalance=ctx.rebalancing)

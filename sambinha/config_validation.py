@@ -60,6 +60,8 @@ def _validate_job(job: Job, seen: set[str]):
             raise ConfigError(f"{name} deve ser error, summary ou detailed: {job.name}")
     if not isinstance(job.verification_mode, str) or job.verification_mode not in {"simple", "hash"}:
         raise ConfigError(f"verification_mode deve ser simple ou hash: {job.name}")
+    if not isinstance(job.resume, str) or job.resume not in {"auto", "fresh"}:
+        raise ConfigError(f"resume deve ser auto ou fresh: {job.name}")
     if job.type not in {"local", "s3"} or job.logic not in {"simple", "batch"}:
         raise ConfigError(f"Tipo ou lógica inválidos: {job.name}")
     if job.storage_class not in STORAGE_CLASSES:

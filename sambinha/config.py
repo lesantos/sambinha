@@ -21,7 +21,7 @@ JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "vers
                                 "transfer_workers", "batch_workers", "dry_run"})
 JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
 # Job fields set per invocation by the CLI, never read from TOML.
-RUN_SCOPED_FIELDS = frozenset({"adopt_identity", "prune_orphans"})
+RUN_SCOPED_FIELDS = frozenset({"adopt_identity", "prune_orphans", "fresh_start"})
 
 
 @dataclass(frozen=True)
@@ -64,11 +64,15 @@ class Job:
     transfer_workers: int = 4
     batch_workers: int = 2
     dry_run: bool = False
+    # "auto" resumes from journals/caches; "fresh" discards them each run (see fresh.py).
+    resume: str = "auto"
     # Run-scoped only (--adopt-identity): accept state/index of a renamed job or
     # of a legacy identity with other paths. Deliberately not a TOML key.
     adopt_identity: bool = False
     # Run-scoped only (--prune-orphans): delete unreferenced destination objects older than a day.
     prune_orphans: bool = False
+    # Run-scoped only (--fresh-start): same as resume = "fresh" for this invocation.
+    fresh_start: bool = False
 
     @property
     def max_bytes(self) -> int:
