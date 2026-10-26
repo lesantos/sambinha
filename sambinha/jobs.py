@@ -52,6 +52,7 @@ class JobExecution:
                       selected_dirs=inventory.selected_dirs, forecast=self.forecast, state=inventory.previous,
                       progress=self.progress.scope(0.2, 0.9))
         self.context = ctx
+        ctx.allow_mass_deletion = self.allow_mass_deletion
         cached_inventory = inventory.fingerprints if self.job.fingerprint_cache else {}
         ctx.inventory_changed = (ctx.state.get("fingerprints") != cached_inventory or
                                  ctx.state.get("last_full_scan") != inventory.last_full_scan)

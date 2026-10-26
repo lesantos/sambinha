@@ -312,6 +312,10 @@ def finish(ctx):
         # Remove confirmation first; an interrupted prune never exposes a bad candidate.
         ctx.storage.delete(PREFIX + generation + '.commit.json')
         ctx.storage.delete(PREFIX + generation + '.tar.gz')
+        entries.pop(PREFIX + generation + '.commit.json', None)
+        entries.pop(PREFIX + generation + '.tar.gz', None)
+    # The orphan report reuses this listing instead of asking the destination again.
+    ctx.listing = entries
 
     (ctx.directory / 'publication.json').unlink(missing_ok=True)
     (ctx.directory / 'initialization.json').unlink(missing_ok=True)

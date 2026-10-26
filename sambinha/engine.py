@@ -30,7 +30,9 @@ STRATEGIES = {"batch": batch}
 # directories, children), exactly like Ctrl+C; see process.handle_termination.
 @handle_termination()
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False,
-        action='backup', adopt_identity=False) -> int:
+        action='backup', adopt_identity=False, prune_orphans=False) -> int:
+    if prune_orphans:
+        config = replace(config, jobs=tuple(replace(job, prune_orphans=True) for job in config.jobs))
     if adopt_identity:
         # Identity adoption is per invocation; the jobs carry it to state/index checks.
         config = replace(config, jobs=tuple(replace(job, adopt_identity=True) for job in config.jobs))

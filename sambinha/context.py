@@ -45,6 +45,9 @@ class Context:
         self.batch_progress = {}
         # Upload journal (see journal.py): entries still believed valid, shared by worker threads.
         self.journal = {}
+        # Destination listing of the latest finish() and the run's mass-deletion override.
+        self.listing = None
+        self.allow_mass_deletion = False
         self.journal_lock = threading.Lock()
         # Local control mirrors of expired history, removed only after the
         # state without those entries is durable (see expire/save).
@@ -131,4 +134,7 @@ class Context:
                 if entry.get("control"):
                     self.storage.delete(entry["control"])
                     self.expired_mirrors.append(self.controls_directory / entry["control"])
+                if self.listing is not None:
+                    for expired in (entry["key"], entry.get("control")):
+                        self.listing.pop(expired, None)
         self.state["retired"] = remaining

@@ -6,7 +6,7 @@ import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
-from .. import journal
+from .. import journal, orphans
 from ..archives import compress, temporary_bytes
 from ..batches import plan
 from ..context import Context
@@ -261,6 +261,8 @@ def batch(ctx: Context):
     next_state["active"] = active
     if (ctx.state_path.exists() and next_state == ctx.state and not pending and not ctx.inventory_changed
             and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"])):
+        if ctx.job.prune_orphans:
+            orphans.report(ctx)
         return
     if ctx.job.dry_run:
         ctx.state = next_state
@@ -292,3 +294,4 @@ def batch(ctx: Context):
         ctx.state.pop("index_pending", None)
         ctx.save()
         finish(ctx)
+    orphans.report(ctx)
