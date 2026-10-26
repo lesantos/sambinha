@@ -4,9 +4,15 @@ Documento de handoff. Tudo aqui já foi revisado e aprovado por Leandro; o execu
 implementar o que está definido, sem reabrir decisões de design. Perguntas só se algo
 aqui for contraditório com o código real.
 
-## Estado em 2026-10-26 (atualizado após a Fase 3)
+## Estado em 2026-10-26 (0.16.0 publicada; próximo: 0.17.0)
 
-- `main` = 0.15.1 publicada + Fase 3 (identidade por nome) MESCLADA em `main` (merge `bbf7493`),
+- **0.16.0 PUBLICADA** (tag `v0.16.0`, main 9ab8ce7 + commit de release): Fase 3 (identidade por nome) e
+  2.2a/2.2b/2.3/2.4 (journal, órfãos, --fresh-start, varredura de temporários) entregues e testados
+  (602 passed, 8 skipped; ruff/mypy limpos; CI lint, 3.12 e 3.13 verdes). O job `macos` do CI ficou
+  em fila e foi PULADO por decisão do usuário: conferir o job `macos` na próxima release (0.17.0)
+  antes de taguear. Resta apenas a 0.17.0 (seções abaixo).
+- Worktree `resume` mesclado e removível; branch `identity` já removida.
+- (histórico) `main` = 0.15.1 publicada + Fase 3 (identidade por nome) MESCLADA em `main` (merge `bbf7493`),
   ainda SEM release. A 0.16.0 só sai depois de 2.2–2.4.
 - Fase 3 entregue: `state.identity` schema 2 (`STATE_SCHEMA = 3` no arquivo de estado, porque 2 já
   era usado desde 0.13 para gerações confirmadas; 1 e 2 continuam legíveis), `identity_matches`,
