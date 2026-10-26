@@ -3,7 +3,9 @@ from concurrent.futures import ThreadPoolExecutor, wait as real_wait
 from dataclasses import replace
 import importlib
 from pathlib import Path
+import signal
 import threading
+import time
 from unittest import skipUnless
 from unittest.mock import Mock, patch
 
@@ -12,7 +14,7 @@ from sambinha.batches import plan
 from sambinha.context import Context
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.process import Runner
+from sambinha.process import Interrupted, Runner
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox
 
@@ -240,3 +242,70 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
                 compress(ctx, pending[0], work)
         self.assertFalse((work / 'snapshot').exists())
         self.assertTrue((work / 'archive.7z').is_file())
+
+
+class BlockingStorage:
+    """Stand-in for rclone uploads: block until the runner's children are killed."""
+    puts = []
+    lock = threading.Lock()
+
+    def __init__(self, job, config, runner, source_required=True):
+        self.runner = runner
+
+    def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+        with BlockingStorage.lock:
+            BlockingStorage.puts.append(key)
+        self.runner.cancellation.event.wait(15)
+        # A killed rclone makes Runner.run raise Interrupted; mirror that.
+        self.runner.check_cancelled()
+        raise AssertionError('upload was never cancelled')
+
+
+class UploadInterruptionTests(BatchContext, Sandbox):
+    def test_interrupting_the_main_thread_cancels_workers_and_returns_quickly(self):
+        BlockingStorage.puts = []
+        ctx, pending, active = self.context(workers=2)
+        before = dict(active)
+
+        def compress(worker, item, work):
+            archive = work / 'archive.7z'
+            archive.write_bytes(b'archive')
+            return archive
+
+        started = time.monotonic()
+        main_thread = threading.main_thread().ident
+        with patch.object(strategy, 'Storage', BlockingStorage), patch.object(strategy, 'compress', compress):
+            # Both workers are blocked inside put() when Ctrl+C reaches the main
+            # thread. A real signal is needed: only it wakes a blocked wait().
+            timer = threading.Timer(0.5, signal.pthread_kill, (main_thread, signal.SIGINT))
+            timer.start()
+            try:
+                with self.assertRaises(KeyboardInterrupt):
+                    strategy._upload_pending(ctx, pending, active)
+            finally:
+                timer.cancel()
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 2.5, f'_upload_pending blocked for {elapsed:.1f}s')
+        self.assertTrue(ctx.runner.cancelled)
+        self.assertEqual(len(BlockingStorage.puts), 2, 'uploads continued after the interruption')
+        self.assertEqual(active, before)
+        self.assertNotIn('transferred', [call.args[0] for call in ctx.log.event.call_args_list])
+        self.assertEqual(list(Path(self.root).glob('sambinha-batch-*')), [])
+        self.assertFalse(any(thread.name.startswith('ThreadPoolExecutor') and thread.is_alive()
+                             for thread in threading.enumerate()))
+
+    def test_worker_failures_do_not_cancel_sibling_uploads(self):
+        ctx, pending, active = self.context(workers=1)
+        with patch.object(strategy, 'upload_batch', side_effect=BackupError('AccessDenied')):
+            with self.assertRaises(BackupError):
+                strategy._upload_pending(ctx, pending, active)
+        self.assertFalse(ctx.runner.cancelled)
+
+    def test_workers_stop_before_compressing_or_uploading_after_cancellation(self):
+        ctx, pending, active = self.context(workers=1, count=1)
+        ctx.runner.cancel()
+        with patch.object(strategy, 'compress') as compress, patch.object(strategy, 'Storage') as storage:
+            with self.assertRaises(Interrupted):
+                strategy.upload_batch(ctx, pending[0])
+        compress.assert_not_called()
+        storage.return_value.put.assert_not_called()

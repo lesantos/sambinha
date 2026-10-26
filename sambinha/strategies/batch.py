@@ -13,7 +13,7 @@ from ..disks import check_disk, check_disks, get_temporary_path
 from ..errors import BackupError
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
-from ..process import show_progress
+from ..process import Runner, show_progress
 from ..profiles import settings
 from ..protection import protect_newer
 from ..retention import retirement
@@ -26,6 +26,12 @@ def upload_index(ctx, state):
     publish(ctx, state)
 
 
+def _check_cancelled(runner):
+    # Test doubles may stand in for the runner; only a real token is consulted.
+    if isinstance(runner, Runner):
+        runner.check_cancelled()
+
+
 def upload_batch(ctx, item):
     # Each worker owns its runner's last_stderr and its temporary archive.
     worker = copy.copy(ctx)
@@ -35,6 +41,9 @@ def upload_batch(ctx, item):
     worker.storage = Storage(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
     with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.config.temp_dir) as temp:
         check_disks(ctx.job, config=ctx.config, check_source=not ctx.rebalancing)
+        # After an interruption, never start compression or an upload whose
+        # result would be discarded: each would leave an orphan at the destination.
+        _check_cancelled(worker.runner)
         archive = compress(worker, item, Path(temp))
         compressed = (fingerprint(ctx.source, item.files[0].path) if item.passthrough
                       else fingerprint(Path(temp), archive.name))
@@ -43,11 +52,13 @@ def upload_batch(ctx, item):
         control_path = Path(temp) / "control.json"
         atomic_json(control_path, control)
         show_progress(worker.runner, worker.progress.scope(0.7, 0.95) if worker.progress else None)
+        _check_cancelled(worker.runner)
         transferred = worker.storage.put(archive, item.key)
         events = [("transferred" if transferred else "identical", {
             "path": item.key, "files": [f.path for f in item.files],
             "bytes": compressed.size if transferred else 0})]
         show_progress(worker.runner, worker.progress.scope(0.95, 1) if worker.progress else None)
+        _check_cancelled(worker.runner)
         transferred = worker.storage.put(control_path, item.key + ".json", standard="control")
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
         write_control(ctx.config, ctx.job, item.key, control)
@@ -199,7 +210,9 @@ def _upload_pending(ctx, pending, active):
                     futures[pool.submit(upload, item)] = item
                 if not futures:
                     break
-                done, _ = wait(futures, return_when=FIRST_COMPLETED)
+                # A bounded wait lets a signal delivered to another thread
+                # reach this one (handlers only run in the main thread).
+                done, _ = wait(futures, timeout=1, return_when=FIRST_COMPLETED)
                 # Consume every completed result before submitting replacements.
                 for future in done:
                     item = futures.pop(future)
@@ -207,6 +220,14 @@ def _upload_pending(ctx, pending, active):
                     active[item.key] = control
                     for event, values in events:
                         ctx.event(event, **values)
+        except BaseException as exc:
+            stopped.set()
+            # Ctrl+C/SIGTERM: kill in-flight 7-Zip/rclone children so workers
+            # bail out in seconds instead of finishing hours of discarded work.
+            # A worker's own BackupError keeps letting its siblings finish.
+            if not isinstance(exc, Exception) and isinstance(ctx.runner, Runner):
+                ctx.runner.cancel()
+            raise
         finally:
             stopped.set()
             # In-flight workers finish their own temporary-directory cleanup.
