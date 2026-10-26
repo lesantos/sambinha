@@ -84,7 +84,7 @@ Reporting never deletes. `--prune-orphans` (backup only) removes orphans older t
 
 ## Clean restart
 
-`--fresh-start` (or `resume = "fresh"` in the job) discards the fingerprint cache and last full scan (forcing a complete rescan and rehash), `uploads.json` and `publication.json`, and logs `fresh_start` with the list of what existed. It keeps `active`, `retired` and `excluded`: changed files are still detected against the confirmed controls and nothing already stored is uploaded again. The run also sweeps leftover temporary directories of dead processes regardless of age.
+`--fresh-start` (or `resume = "fresh"` in the job) discards the fingerprint cache (`fingerprints.json`) and last full scan (forcing a complete rescan and rehash), `uploads.json` and `publication.json`, and logs `fresh_start` with the list of what existed. It keeps `active`, `retired` and `excluded`: changed files are still detected against the confirmed controls and nothing already stored is uploaded again. The run also sweeps leftover temporary directories of dead processes regardless of age.
 
 ## Temporary directory sweep
 
@@ -108,4 +108,4 @@ A truly empty destination can initialize a backup; inaccessible/missing S3 bucke
 
 Use `verify-local-metadata` for source size/time against local controls, `verify-destination-metadata` for metadata replicas and archive sizes, and `verify-destination-integrity` for archive listing/testing. None automatically rebalances growth. Local verification does not mark a group dirty just because its size limit changed. Monitor final alerts, test restores and run rebalance explicitly when desired.
 
-The producer enforces the same limits as the reader before confirming a generation: 64 MiB per state.json/control and 256 MiB total referenced controls. Exceeding a limit fails before index publication, preserving the previous confirmed point. These are recovery-format metadata bounds, not a packing member-count cap. Very large jobs may need separate source jobs or disabled persistent fingerprint caching. Rebalance freezes exclusions and continues protecting excluded history from expiry, even without the source.
+The producer enforces the same limits as the reader before confirming a generation: 64 MiB per state.json/control and 256 MiB total referenced controls. Exceeding a limit fails before index publication, preserving the previous confirmed point. These are recovery-format metadata bounds, not a packing member-count cap. Very large jobs may need separate source jobs or `verification_mode = "simple"`/`fingerprint_cache = false`; the hash cache is no longer part of `state.json` or the index. Rebalance freezes exclusions and continues protecting excluded history from expiry, even without the source.

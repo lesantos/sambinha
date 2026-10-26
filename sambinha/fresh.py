@@ -6,9 +6,11 @@ so changed files are still detected against the confirmed controls.
 """
 from .journal import JOURNAL
 from .local_paths import reject_symlinks
+from .names import FINGERPRINTS_FILE
+from .state import drop_fingerprints
 
 JOURNALS = (JOURNAL, "publication.json")
-CACHES = ("fingerprints", "last_full_scan")
+CACHES = ("last_full_scan",)
 
 
 def requested(job):
@@ -29,9 +31,20 @@ def discard_journals(config, job):
     return found
 
 
-def drop_caches(state):
-    """Forget the scan caches in memory (persisted by the run's next save); returns what existed."""
-    found = [name for name in CACHES if name in state]
+def drop_caches(state, config=None, job=None):
+    """Forget the scan caches; returns what existed.
+
+    ``last_full_scan`` (and a legacy embedded ``fingerprints``) go in memory and are persisted
+    by the run's next save; ``fingerprints.json`` is deleted now unless this is a dry run.
+    """
+    found = [name for name in (*CACHES, "fingerprints") if name in state]
     for name in found:
         del state[name]
-    return found
+    if config is not None and job is not None:
+        directory = config.state_dir / job.name
+        exists = (directory / FINGERPRINTS_FILE).exists()
+        if exists and not job.dry_run:
+            drop_fingerprints(directory)
+        if exists and "fingerprints" not in found:
+            found.append("fingerprints")
+    return sorted(found)

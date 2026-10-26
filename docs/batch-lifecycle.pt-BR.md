@@ -84,7 +84,7 @@ O relato nunca apaga. `--prune-orphans` (só backup) remove órfãos com mais de
 
 ## Reinício limpo
 
-`--fresh-start` (ou `resume = "fresh"` no job) descarta o cache de fingerprints e o último scan completo (forçando novo scan e rehash completos), `uploads.json` e `publication.json`, e registra `fresh_start` listando o que existia. Mantém `active`, `retired` e `excluded`: arquivos alterados continuam sendo detectados pela comparação com os controles confirmados e nada já armazenado é reenviado. A execução também varre, sem limite de idade, temporários deixados por processos mortos.
+`--fresh-start` (ou `resume = "fresh"` no job) descarta o cache de fingerprints (`fingerprints.json`) e o último scan completo (forçando novo scan e rehash completos), `uploads.json` e `publication.json`, e registra `fresh_start` listando o que existia. Mantém `active`, `retired` e `excluded`: arquivos alterados continuam sendo detectados pela comparação com os controles confirmados e nada já armazenado é reenviado. A execução também varre, sem limite de idade, temporários deixados por processos mortos.
 
 ## Varredura de temporários
 
@@ -108,4 +108,4 @@ Destino realmente vazio pode iniciar backup; bucket S3 ausente/inacessível é e
 
 `verify-local-metadata` compara tamanho/data da origem com controles locais; `verify-destination-metadata` compara réplicas de metadados e tamanhos; `verify-destination-integrity` lista/testa os arquivos compactados. Nenhum rebalanceia crescimento automaticamente. Mudar o limite de tamanho não torna, por si só, o lote sujo na verificação local. Acompanhe os alertas finais, teste restores e execute rebalanceamento explicitamente quando desejar.
 
-O produtor valida os mesmos limites do leitor antes de confirmar uma geração: 64 MiB para state.json ou cada controle e 256 MiB para a soma dos controles referenciados. Se exceder, o backup falha antes da publicação do índice, preservando o ponto confirmado anterior. São limites de metadados do formato de recuperação, não um limite de quantidade de membros para empacotamento. Jobs muito grandes podem exigir divisão por origem/configuração ou desativação do cache persistente de fingerprints. No rebalanceamento, exclusões são congeladas e continuam protegendo históricos da expiração, mesmo sem origem.
+O produtor valida os mesmos limites do leitor antes de confirmar uma geração: 64 MiB para state.json ou cada controle e 256 MiB para a soma dos controles referenciados. Se exceder, o backup falha antes da publicação do índice, preservando o ponto confirmado anterior. São limites de metadados do formato de recuperação, não um limite de quantidade de membros para empacotamento. Jobs muito grandes podem exigir divisão por origem/configuração ou `verification_mode = "simple"`/`fingerprint_cache = false`; o cache de hashes não faz mais parte do `state.json` nem do índice. No rebalanceamento, exclusões são congeladas e continuam protegendo históricos da expiração, mesmo sem origem.
