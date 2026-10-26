@@ -4,7 +4,10 @@ import json
 import math
 import os
 import re
+import socket
+import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -13,11 +16,116 @@ from .inventory import safe_relative
 from .local_paths import reject_symlinks
 from .names import NAMESPACE
 
+# State-file schema: 1 (pre-0.13) and 2 (0.13, confirmed generations) carry a
+# legacy path-based identity; 3 carries the name-based identity below. Older
+# executables refuse schema 3 as unsupported instead of misreading the identity.
+STATE_SCHEMA = 3
+IDENTITY_SCHEMA = 2
+MAX_ORIGINS = 8
+IDENTITY_KEYS = ("schema", "name", "type", "logic", "namespace")
+
 
 def identity(job):
-    """Describe the job that owns an index without depending on recovery."""
+    """Describe the job that owns an index: the job NAME, not the mount points.
+
+    Source and local destination paths differ between machines sharing one
+    backup, so they are recorded informationally in ``state["origins"]``. An S3
+    destination is the same string everywhere and distinguishes two jobs that
+    share a bucket.
+    """
+    result = {"schema": IDENTITY_SCHEMA, "name": job.name, "type": job.type,
+              "logic": job.logic, "namespace": NAMESPACE}
+    if job.type == "s3":
+        result["destination"] = job.destination
+    return result
+
+
+def legacy_identity(job):
+    """The pre-0.16 identity this job would have written on this machine."""
     return {"source": str(job.source), "destination": job.destination,
             "type": job.type, "logic": job.logic, "namespace": NAMESPACE}
+
+
+def identity_matches(stored, expected, *, adopt=False, legacy=None):
+    """Decide whether persisted metadata with ``stored`` identity belongs to ``expected``.
+
+    - schema-2 vs schema-2: the dicts must be equal; with ``adopt`` a different
+      ``name`` alone (renamed job) is accepted.
+    - legacy (no ``name``) vs schema-2: accepted when it equals ``legacy``, the
+      identity the current job writes with the old layout (same machine, same
+      paths); with ``adopt`` also when only the paths differ, never when
+      type/logic/namespace or an S3 destination differ.
+    """
+    if not isinstance(stored, dict) or not isinstance(expected, dict):
+        return False
+    if "name" not in stored:
+        if legacy is not None and stored == legacy:
+            return True
+        return adopt and all(stored.get(k) == expected[k] for k in ("type", "logic", "namespace")
+                             if k in expected) and ("destination" not in expected
+                                                    or stored.get("destination") == expected["destination"])
+    if stored == expected:
+        return True
+    return adopt and {k: v for k, v in stored.items() if k != "name"} == \
+        {k: v for k, v in expected.items() if k != "name"}
+
+
+def identity_options(job):
+    """Keyword arguments for load_state/identity_matches derived from a job."""
+    return {"adopt": job.adopt_identity, "legacy": legacy_identity(job)}
+
+
+def migrate_identity(state, job, log=None):
+    """Rewrite an accepted legacy/renamed identity as the current one and flag republication.
+
+    Returns the previous identity when something changed, else None. The caller
+    already validated the match; the rewrite reaches the destination through
+    ``index_pending`` so the remote index carries the new identity too.
+    """
+    expected = identity(job)
+    previous = state["identity"]
+    if previous == expected:
+        return None
+    state["identity"] = expected
+    state["schema"] = STATE_SCHEMA
+    state["index_pending"] = True
+    if log is not None:
+        event = "identity_migrated" if previous == legacy_identity(job) else "identity_adopted"
+        log.event(event, job=job.name, previous_identity=previous, identity=expected)
+    return previous
+
+
+def origin(job, now=None):
+    """Where this machine reads and writes the job; informational only."""
+    return {"host": socket.gethostname(), "platform": sys.platform, "source": str(job.source),
+            "destination": job.destination, "last_seen": time.time() if now is None else now}
+
+
+def record_origin(state, job, now=None):
+    """Upsert the current host in state['origins'] (newest last, bounded)."""
+    current = origin(job, now)
+    others = [o for o in state.get("origins", []) if o.get("host") != current["host"]]
+    state["origins"] = (others + [current])[-MAX_ORIGINS:]
+
+
+def validate_identity(data):
+    """Structural check of a stored identity; ownership is decided by identity_matches."""
+    if not isinstance(data, dict) or not all(isinstance(k, str) for k in data):
+        raise ValueError("identidade")
+    if "name" in data:
+        if (data.get("schema") != IDENTITY_SCHEMA or not isinstance(data["name"], str) or not data["name"]
+                or set(data) - set(IDENTITY_KEYS) - {"destination"}):
+            raise ValueError("identidade")
+
+
+def validate_origins(origins):
+    if not isinstance(origins, list) or len(origins) > MAX_ORIGINS:
+        raise ValueError("origens")
+    for item in origins:
+        if (not isinstance(item, dict)
+                or any(not isinstance(item.get(k), str) for k in ("host", "platform", "source", "destination"))
+                or type(item.get("last_seen")) not in (int, float) or not math.isfinite(item["last_seen"])):
+            raise ValueError("origens")
 
 
 def indexed_files(state, logic):
@@ -106,18 +214,29 @@ def atomic_json(path: Path, data, *, preserve_permissions=True):
         Path(temporary).unlink(missing_ok=True)
 
 
-def load_state(path: Path, identity: dict):
+def load_state(path: Path, identity: dict, *, adopt=False, legacy=None):
+    """Read and validate a state file owned by ``identity`` (see identity_matches).
+
+    A missing file yields an empty schema-3 state. Schema 1/2 files (legacy
+    path-based identity) are still readable; the identity itself is migrated by
+    the caller (migrate_identity), never silently here.
+    """
     reject_symlinks(path, label="Estado", include_parents=False)
     if not path.exists():
-        return {"schema": 1, "identity": identity, "active": {}, "retired": []}
+        return {"schema": STATE_SCHEMA, "identity": identity, "active": {}, "retired": []}
     try:
         data = json.loads(path.read_text())
-        if type(data["schema"]) is not int or data["schema"] not in {1, 2}:
+        if type(data["schema"]) is not int or data["schema"] not in {1, 2, STATE_SCHEMA}:
             raise UnsupportedStateError("Versão de estado não suportada")
-        if data["identity"] != identity:
-            raise ForeignStateError("Estado pertence a outra origem/destino/lógica; use outro nome de job")
+        validate_identity(data["identity"])
+        if data["schema"] == STATE_SCHEMA and "name" not in data["identity"]:
+            raise ValueError("identidade sem nome")
+        if not identity_matches(data["identity"], identity, adopt=adopt, legacy=legacy):
+            raise ForeignStateError("Estado pertence a outro job (nome/tipo/lógica); "
+                                    "use --adopt-identity para assumir um backup existente")
         if not isinstance(data["active"], dict) or not isinstance(data["retired"], list):
             raise ValueError("estrutura")
+        validate_origins(data.get("origins", []))
         if 'generation' in data and (not isinstance(data['generation'], str) or
                                      not re.fullmatch('[0-9]{20}-[0-9a-f]{32}', data['generation'])):
             raise ValueError('geração inválida')

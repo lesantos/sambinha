@@ -20,6 +20,8 @@ JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "vers
                                 "fingerprint_full_scan_days", "verify_source_changes",
                                 "transfer_workers", "batch_workers", "dry_run"})
 JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
+# Job fields set per invocation by the CLI, never read from TOML.
+RUN_SCOPED_FIELDS = frozenset({"adopt_identity"})
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,9 @@ class Job:
     transfer_workers: int = 4
     batch_workers: int = 2
     dry_run: bool = False
+    # Run-scoped only (--adopt-identity): accept state/index of a renamed job or
+    # of a legacy identity with other paths. Deliberately not a TOML key.
+    adopt_identity: bool = False
 
     @property
     def max_bytes(self) -> int:
@@ -135,7 +140,7 @@ def load(path: Path, overrides: dict | None = None) -> Config:
         if set(data) - {"backup", "jobs"}:
             raise ConfigError("Seções desconhecidas no TOML")
         global_values = dict(data.get("backup", {}))
-        job_keys = set(Job.__dataclass_fields__)
+        job_keys = set(Job.__dataclass_fields__) - RUN_SCOPED_FIELDS
         config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"} - JOB_SCOPED_OPTIONS
         per_job_in_backup = set(global_values) & JOB_ONLY_OPTIONS
         if per_job_in_backup:

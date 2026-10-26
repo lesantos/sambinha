@@ -5,7 +5,7 @@ from dataclasses import fields
 from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.config import JOB_SCOPED_OPTIONS, Config, Job, load
+from sambinha.config import JOB_SCOPED_OPTIONS, RUN_SCOPED_FIELDS, Config, Job, load
 from sambinha.secrets import read_environment
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +56,7 @@ class ExampleTests(unittest.TestCase):
                     section.add(match[1])
         expected = {field.name for field in fields(Config)} - {'jobs', 'environment'} - JOB_SCOPED_OPTIONS
         self.assertEqual(global_keys, expected)
-        expected_jobs = {field.name for field in fields(Job)} - {
+        expected_jobs = {field.name for field in fields(Job)} - RUN_SCOPED_FIELDS - {
             'max_delete', 'max_delete_percent', 'deletion_min_files'}
         examples = tomllib.loads((ROOT / 'sambinha.example.toml').read_text())['jobs']
         self.assertGreaterEqual(len(job_keys), 2)

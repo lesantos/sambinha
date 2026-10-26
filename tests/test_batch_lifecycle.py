@@ -12,7 +12,7 @@ from sambinha.engine import run
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import scan
 from sambinha.recovery import recover
-from sambinha.state import indexed_files
+from sambinha.state import STATE_SCHEMA, indexed_files
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 
@@ -59,7 +59,7 @@ class StableBatchLifecycleTests(Sandbox):
             self.file(name, name.encode() * 4)
         self.file('individual', b'i' * 30)
         self.assertEqual(self.execute(), 0, self.output.getvalue())
-        self.assertEqual(self.state()['schema'], 2)
+        self.assertEqual(self.state()['schema'], STATE_SCHEMA)
         return self.state()
 
     def restore(self, output):

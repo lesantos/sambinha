@@ -25,7 +25,15 @@ Substitua `max_bytes` por `max_megabytes` nos TOMLs e `--max-bytes` por `--max-m
 
 Remova `max_files` e todas as opções `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` dos TOMLs e comandos agendados antigos; são rejeitadas com indicação do parâmetro/linha. Substitua os ajustes por categoria por `compression_level` e `compression_threads`. Controles antigos continuam legíveis e preservam seus membros. A migração não reúne automaticamente os pequenos lotes antigos.
 
-O estado confirmado passa ao schema 2 na primeira publicação 0.13.0. Estados antigos no schema 1 continuam legíveis; executáveis antigos rejeitam o schema novo, evitando que gravem sobre associações/gerações que não entendem. Formatos futuros não suportados não são substituídos silenciosamente por um fallback antigo.
+O estado confirmado passa ao schema 2 na primeira publicação 0.13.0 e ao schema 3 (identidade por nome, abaixo) na primeira publicação após essa mudança. Estados antigos nos schemas 1 e 2 continuam legíveis; executáveis antigos rejeitam o schema novo, evitando que gravem sobre associações/gerações que não entendem. Formatos futuros não suportados não são substituídos silenciosamente por um fallback antigo.
+
+## Identidade pelo nome do job
+
+Todo índice (`state.json` local, manifesto de metadados, gerações remotas) registra seu dono. A identidade é `{schema: 2, name, type, logic, namespace}` mais `destination` apenas em jobs S3, onde bucket/prefixo são a mesma string em qualquer máquina. Caminhos de origem e de destino local são informativos: cada gravação atualiza `state["origins"]` com host, plataforma, origem, destino e `last_seen`, limitado aos 8 hosts mais recentes. O mesmo job pode rodar no Linux e no macOS com pontos de montagem diferentes sem perder o histórico.
+
+`state.identity_matches` decide a aceitação. Duas identidades schema 2 precisam ser iguais. Uma identidade antiga (sem `name`) é aceita quando caminhos/tipo/lógica coincidem com o que este job gravaria nesta máquina; o estado é regravado como schema 3 na próxima gravação e `index_pending` republica o índice remoto (evento `identity_migrated`). Qualquer outra diferença é `ForeignStateError`, salvo com `--adopt-identity` (só backup), que também aceita identidade schema 2 diferindo apenas em `name` (job renomeado) e identidade antiga com outros caminhos; a adoção registra `identity_adopted` com as identidades antiga e nova. Tipo, lógica, namespace e destino S3 nunca são adotados.
+
+O destino carrega `.sambinha/job.json` (`schema`, `name`, `type`, `logic`, `created`, `generation`), regravado após cada geração confirmada e nunca em dry run. Antes de inicializar a partir de um destino não vazio, um marcador com outro nome falha cedo: `Destino pertence ao job X; use --adopt-identity para assumir`. Quando existe estado local, a geração do marcador é comparada com a local; uma geração confirmada diferente (outra máquina publicou depois) indica associação local desatualizada e o índice remoto é readotado (evento `remote_generation_differs`), preservando o cache de fingerprints desta máquina. Destinos sem marcador seguem confiáveis como antes. As máquinas fazem backup em alternância, não ao mesmo tempo: a trava de escritor único é por máquina, e a última geração confirmada prevalece.
 
 ## Formação inicial e arquivos novos
 
@@ -66,7 +74,7 @@ Lotes GLACIER/DEEP_ARCHIVE precisam estar disponíveis após restore pela AWS; o
 
 ## Restauração e perda da máquina
 
-Restore confere o destino e sua montagem, saída e capacidade dos temporários, sem exigir caminho, montagem ou disco da origem. Preserve/recrie configuração do job e credenciais em outra máquina; a identidade registrada precisa coincidir. A saída continua nova/vazia, separada dos caminhos protegidos, com proteção contra links/sobrescrita. A restauração simples usa rclone e não exige índice batch.
+Restore confere o destino e sua montagem, saída e capacidade dos temporários, sem exigir caminho, montagem ou disco da origem. Preserve/recrie configuração do job e credenciais em outra máquina; nome, tipo e lógica do job (e destino S3) precisam coincidir; pontos de montagem podem diferir. A saída continua nova/vazia, separada dos caminhos protegidos, com proteção contra links/sobrescrita. A restauração simples usa rclone e não exige índice batch.
 
 O estado ativo fica em `state_dir/JOB/state.json`. Controles JSON ficam em `metadata_dir/JOB` (ou controles antigos no estado) e ao lado de cada lote no destino. Cada geração completa contém estado e controles referenciados ativos/excluídos/retidos.
 

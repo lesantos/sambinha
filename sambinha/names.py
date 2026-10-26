@@ -5,6 +5,8 @@ NAMESPACE = ".sambinha"
 HISTORY = NAMESPACE + "/history"
 INDEXES = NAMESPACE + "/indexes"
 CONTROL = NAMESPACE + "/control.tar.gz"
+# Destination marker naming the job that owns the prefix (see state.identity).
+JOB_MARKER = NAMESPACE + "/job.json"
 STATE_FILE = "state.json"
 # rclone filter that keeps the reserved namespace out of sync/check/restore/listing commands.
 NAMESPACE_EXCLUDE = ("--exclude", "/" + NAMESPACE + "/**")

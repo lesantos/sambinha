@@ -51,6 +51,8 @@ sambinha --job documents --allow-mass-deletion
 
 The bypass applies only to that invocation; review the source and logs before using it. A blocked job reports its removed paths and Cronitor receives an error. Other independent jobs can continue.
 
+`--adopt-identity` (backup only) is the equivalent one-invocation switch for backup identity: it lets a renamed job, or a pre-0.16 state whose paths differ, take over an existing backup instead of failing with `Destino pertence ao job X`. See [the same backup from several machines](configuration.md#same-backup-from-several-machines).
+
 ## Disk and mount monitoring
 
 Source disks, local destination disks and batch staging disks fail above 95% occupancy, including filesystem space unavailable to the current user. Exactly 95% is allowed. A not-yet-created destination uses its nearest existing ancestor for measurement. Checks run before backup and before destination changes; `disk_usage` events record the percentage and free bytes. For S3 only local source/staging disks have a measurable occupancy percentage. Restore also checks its output filesystem.

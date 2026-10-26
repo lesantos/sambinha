@@ -6,7 +6,15 @@ from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
 from .names import STATE_FILE
-from .state import atomic_json, identity, load_state, validate_controls
+from .state import (
+    STATE_SCHEMA,
+    atomic_json,
+    identity,
+    identity_matches,
+    identity_options,
+    load_state,
+    validate_controls,
+)
 
 
 def control_directory(config, job):
@@ -58,7 +66,8 @@ def write_manifest(config, job, state):
     if path.exists():
         try:
             previous = json.loads(path.read_text(encoding='utf-8'))
-            if previous.get('identity') != data['identity']:
+            # A legacy or adopted identity is accepted once and rewritten below.
+            if not identity_matches(previous.get('identity'), data['identity'], **identity_options(job)):
                 raise ForeignStateError(f'Cache de metadados pertence a outro job: {path}')
             if previous == data:
                 return
@@ -86,18 +95,19 @@ def prepare_controls(config, job, state, *, write_missing=True):
 def local_state(config, job):
     path = config.state_dir / job.name / STATE_FILE
     if path.exists() or path.is_symlink():
-        return load_state(path, identity(job))
+        return load_state(path, identity(job), **identity_options(job))
     manifest = control_directory(config, job) / '.index.json'
     if manifest.exists() or manifest.is_symlink():
         reject_symlinks(manifest, label='Índice de metadados', show_path=True)
         try:
             data = json.loads(manifest.read_text(encoding='utf-8'))
-            if data.get('schema') != 1 or data.get('identity') != identity(job) or not isinstance(data.get('active'), list):
+            if (data.get('schema') != 1 or not isinstance(data.get('active'), list)
+                    or not identity_matches(data.get('identity'), identity(job), **identity_options(job))):
                 raise ValueError('identidade ou estrutura')
             active = {safe_relative(key): read_control(control_directory(config, job) / (key + '.json'), key)
                       for key in data['active']}
             validate_controls(active, True)
-            return {'schema': 1, 'identity': identity(job), 'active': active, 'retired': []}
+            return {'schema': STATE_SCHEMA, 'identity': identity(job), 'active': active, 'retired': []}
         except (OSError, ValueError, TypeError, KeyError) as exc:
             raise BackupError(f'Índice de metadados inválido: {manifest}: {exc}') from exc
-    return load_state(path, identity(job))
+    return load_state(path, identity(job), **identity_options(job))

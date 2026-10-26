@@ -39,7 +39,8 @@ class JobExecution:
                                        self.forecast, self.clock(),
                                        on_context=lambda ctx: setattr(self, "context", ctx))
                 return
-            inventories = preflight(effective, self.runner, self.clock(), progress=self.progress.scope(0, 0.2))
+            inventories = preflight(effective, self.runner, self.clock(), progress=self.progress.scope(0, 0.2),
+                                    log=self.log)
             if self.job.logic == "simple":
                 simple(effective, self.job, self.runner, self.log, self.clock(), self.progress,
                        allow_mass_deletion=self.allow_mass_deletion)

@@ -395,6 +395,12 @@ No modo hash, o cache exige dispositivo/inode/tamanho/mtime/ctime/permissões ig
 
 Metadados e logs têm permissões privadas. O índice é validado antes da retenção e restauração; caminhos inseguros, links e conflitos entre dados ativos e histórico são rejeitados. Credenciais conhecidas são ocultadas em erros, logs e telemetria. Consulte [segurança](../SECURITY.pt-BR.md).
 
+## O mesmo backup em várias máquinas
+
+O **nome** do job é a identidade do backup, junto com tipo e lógica (e o destino S3 em jobs S3). Caminhos de origem e de destino local são registrados por máquina como origens informativas, então o mesmo job pode rodar no Linux (`/mnt/disk/Docs`) e no macOS (`/Volumes/disk/Docs`) contra um só destino, em alternância, sem perder o histórico. Mantenha o mesmo nome em `[[jobs]]` em todas as máquinas e dê a cada uma seu próprio `state_dir`; a primeira execução em uma máquina nova adota o índice confirmado do destino, recalcula os hashes da origem uma vez (o cache de fingerprints é por dispositivo) e segue dali. Restaurações funcionam de qualquer máquina com a configuração e as credenciais.
+
+Pontos de montagem por máquina podem ser expressos com `source_mount`/`destination_mount` apontando para o volume daquela máquina, ou com `${VARS}` em `source`/`destination` resolvidas do ambiente de cada máquina. Renomear um job, ou apontar um job para um destino que pertence a outro nome, é recusado (`Destino pertence ao job X`); execute `sambinha --config ... backup --adopt-identity` uma vez para assumir o backup existente; depois disso o novo nome fica gravado no marcador do destino e a opção não é mais necessária. Um estado anterior a 0.16 na mesma máquina migra sozinho; um cujos caminhos diferem também exige `--adopt-identity`. Diferenças de tipo, lógica e destino S3 nunca são adotadas.
+
 ## Jobs sequenciais e caminhos sobrepostos
 
 Desde 0.9.0, os jobs executam até o fim na ordem do TOML. Cada job congela seu próprio arquivo de exclusões, confere montagens/discos, faz um inventário atualizado usando somente seu próprio cache persistente, transfere e aplica retenção, confirma o índice, realiza a verificação devida e grava o resumo antes de o próximo começar. Uma falha no preflight posterior não impede a conclusão anterior. `continue_on_job_error` continua pertencendo ao job que falhou; não há ordenação automática de dependências nem reversão.

@@ -13,8 +13,19 @@ from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
 from .metadata import read_control, write_control
-from .names import CONTROL, INDEXES, STATE_FILE
-from .state import atomic_json, identity, load_state, validate_controls
+from .names import CONTROL, INDEXES, JOB_MARKER, STATE_FILE
+from .state import (
+    IDENTITY_SCHEMA,
+    STATE_SCHEMA,
+    atomic_json,
+    identity,
+    identity_matches,
+    identity_options,
+    load_state,
+    migrate_identity,
+    record_origin,
+    validate_controls,
+)
 from .storage import Storage
 
 PREFIX = INDEXES + '/'
@@ -56,7 +67,7 @@ def _archive(config, job, archive, work):
         state_path = work / 'validated-state.json'
         atomic_json(state_path, json.load(tar.extractfile(states[0])),
                     preserve_permissions=supports_posix_metadata(work))
-        state = load_state(state_path, identity(job))
+        state = load_state(state_path, identity(job), **identity_options(job))
         known = {**state.get('excluded', {}), **state['active']}
         retired = {entry['key'] for entry in state['retired']}
         for member in entries:
@@ -122,6 +133,52 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
                       (': ' + '; '.join(failures[:3]) if failures else ''))
 
 
+def job_marker(job, created, generation=None):
+    """Destination marker: who owns the prefix and which generation it last confirmed."""
+    return {'schema': IDENTITY_SCHEMA, 'name': job.name, 'type': job.type, 'logic': job.logic,
+            'created': created, 'generation': generation}
+
+
+def read_marker(storage, work):
+    """The destination's `.sambinha/job.json`, or None when absent/unreadable."""
+    target = work / 'job.json'
+    try:
+        storage.stat(JOB_MARKER, hashes=False)
+        storage.get(JOB_MARKER, target)
+        data = json.loads(target.read_text(encoding='utf-8'))
+    except (BackupError, OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get('name'), str) else None
+
+
+def check_marker(job, storage, work, entries):
+    """Refuse a destination whose marker names another job unless adoption was requested."""
+    if JOB_MARKER not in entries or job.adopt_identity:
+        return
+    marker = read_marker(storage, work)
+    if marker is not None and marker['name'] != job.name:
+        raise ForeignStateError(f'Destino pertence ao job {marker["name"]!r}; '
+                                'use --adopt-identity para assumir')
+
+
+def superseded(job, storage, work, previous, log=None):
+    """True when another machine confirmed a generation this local state does not know.
+
+    The marker is one small object, so the check is cheap enough for every run;
+    destinations without a marker (pre-0.16 or never published) are trusted.
+    """
+    local = previous.get('generation')
+    if not isinstance(local, str):
+        return False
+    marker = read_marker(storage, work)
+    remote = marker.get('generation') if marker and marker['name'] == job.name else None
+    if not isinstance(remote, str) or not GENERATION.fullmatch(remote) or remote == local:
+        return False
+    if log is not None:
+        log.event('remote_generation_differs', job=job.name, local=local, remote=remote)
+    return True
+
+
 def backup_state(config, job, runner, *, allow_new=True, log=None):
     """Recover before planning; never mistake an existing backup for a new one."""
     path = config.state_dir / job.name / STATE_FILE
@@ -133,35 +190,47 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
     invalid = False
     if path.exists():
         try:
-            previous = load_state(path, identity(job))
+            previous = load_state(path, identity(job), **identity_options(job))
         except (ForeignStateError, UnsupportedStateError):
             raise
         except BackupError:
             invalid = True
-    if previous is not None and not journal.exists():
-        return previous
     storage = Storage(job, config, runner)
     with tempfile.TemporaryDirectory(prefix='sambinha-bootstrap-', dir=config.temp_dir) as temp:
         work = Path(temp)
+        if previous is not None and not journal.exists():
+            if not superseded(job, storage, work, previous, log):
+                # A legacy/renamed identity accepted above is rewritten in memory;
+                # the next save/publish persists it and republishes the index.
+                migrate_identity(previous, job, log)
+                return previous
         entries = listing(storage)
+        check_marker(job, storage, work, entries)
         own_initialization = False
         if initialized.exists():
-            own_initialization = json.loads(initialized.read_text()).get('identity') == identity(job)
+            own_initialization = identity_matches(json.loads(initialized.read_text()).get('identity'),
+                                                  identity(job), **identity_options(job))
         candidates = any(k == CONTROL or (k.endswith('.commit.json') and k.startswith(PREFIX))
                          for k in entries)
         if (allow_new and not invalid and not candidates and
                 (not entries or own_initialization)):
             state = previous or load_state(work / 'empty-state.json', identity(job))
+            migrate_identity(state, job, log)
             if not job.dry_run:
                 atomic_json(initialized, {'identity': identity(job)})
             return state
         state, controls = remote_index(config, job, storage, work, entries=entries)
         state['index_pending'] = True
+        migrate_identity(state, job, log)
         if not job.dry_run:
             for key, control in controls.items():
                 write_control(config, job, key, control)
             for key, control in {**state.get('excluded', {}), **state['active']}.items():
                 write_control(config, job, key, control)
+            if previous is not None and isinstance(previous.get('fingerprints'), dict):
+                # Fingerprints are per machine (st_dev/st_ino); keep ours, not the publisher's.
+                state['fingerprints'] = previous['fingerprints']
+            record_origin(state, job)
             atomic_json(path, state)
             journal.unlink(missing_ok=True)
             initialized.unlink(missing_ok=True)
@@ -171,9 +240,23 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         return state
 
 
+def publish_marker(ctx, work, generation):
+    """Rewrite `.sambinha/job.json` after each confirmed generation, keeping the creation time."""
+    current = read_marker(ctx.storage, work)
+    created = current['created'] if (current and current['name'] == ctx.job.name
+                                     and type(current.get('created')) in (int, float)) else time.time()
+    marker = work / 'job-marker.json'
+    atomic_json(marker, job_marker(ctx.job, created, generation))
+    ctx.storage.put(marker, JOB_MARKER, standard="control")
+    if current is None or current['name'] != ctx.job.name:
+        ctx.event('job_marker_written', path=JOB_MARKER, previous=current)
+
+
 def publish(ctx, state):
     """Immutable generation + confirmation, then compatibility index and local commit."""
-    state['schema'] = 2
+    state['schema'] = STATE_SCHEMA
+    state['identity'] = ctx.identity
+    record_origin(state, ctx.job, ctx.now)
     previous = state.get('generation', '')
     sequence = int(previous.split('-', 1)[0]) if isinstance(previous, str) and GENERATION.fullmatch(previous) else 0
     generation = f'{max(time.time_ns(), sequence + 1):020d}-{uuid.uuid4().hex}'
@@ -217,6 +300,7 @@ def publish(ctx, state):
         ctx.storage.put(marker, PREFIX + generation + '.commit.json', standard="control")
         transferred = ctx.storage.put(archive, CONTROL, standard="control")
         ctx.event('transferred' if transferred else 'identical', path=CONTROL)
+        publish_marker(ctx, work, generation)
 
 
 def finish(ctx):

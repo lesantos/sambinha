@@ -78,14 +78,17 @@ class InventoryStateTests(Sandbox):
             scan(self.source)
 
     def test_atomic_json_and_identity(self):
-        identity = {'source': 'one'}
+        from dataclasses import replace
+
+        from sambinha.state import identity
+        job = self.config.jobs[0]
         path = self.root / 'state.json'
-        state = load_state(path, identity)
+        state = load_state(path, identity(job))
         atomic_json(path, state)
-        self.assertEqual(load_state(path, identity), state)
+        self.assertEqual(load_state(path, identity(job)), state)
         self.assertEqual(list(self.root.glob('.state-*')), [])
         with self.assertRaises(BackupError):
-            load_state(path, {'source': 'other'})
+            load_state(path, identity(replace(job, name='other')))
 
     def test_corrupt_state_never_interpreted_as_empty(self):
         path = self.root / 'state.json'

@@ -25,7 +25,15 @@ Replace `max_bytes` with `max_megabytes` in TOMLs and `--max-bytes` with `--max-
 
 Remove `max_files` and all `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` options from old TOML files and scheduled CLI invocations. These obsolete configuration options are rejected with parameter/line diagnostics. Replace category options with `compression_level`/`compression_threads`. Existing archive controls remain readable and their membership is preserved; migration does not automatically consolidate legacy small archives.
 
-Confirmed state migrates to schema 2 on the first 0.13.0 publication. Legacy schema 1 remains readable; older executables reject new state rather than overwrite membership/generations they do not understand. Unsupported future schemas never silently fall back to an older writable state.
+Confirmed state migrates to schema 2 on the first 0.13.0 publication and to schema 3 (name-based identity, below) on the first publication after that change. Legacy schemas 1 and 2 remain readable; older executables reject new state rather than overwrite membership/generations they do not understand. Unsupported future schemas never silently fall back to an older writable state.
+
+## Identity by job name
+
+Every index (local `state.json`, metadata manifest, remote generations) records who owns it. The identity is `{schema: 2, name, type, logic, namespace}` plus `destination` only for S3 jobs, where the bucket/prefix is the same string from any machine. Source and local destination paths are informational: each save upserts `state["origins"]` with host, platform, source, destination and `last_seen`, bounded to the 8 most recent hosts. The same job can therefore run from Linux and macOS with different mount points without losing history.
+
+`state.identity_matches` decides acceptance. Two schema-2 identities must be equal. A legacy identity (no `name`) is accepted when its paths/type/logic equal what this job would have written on this machine; the state is rewritten as schema 3 on the next save and `index_pending` republishes the remote index (event `identity_migrated`). Anything else is `ForeignStateError` unless `--adopt-identity` is given (backup only), which also accepts a schema-2 identity differing only in `name` (renamed job) and a legacy identity with other paths; adoption logs `identity_adopted` with old/new identities. Type, logic, namespace and S3 destination are never adopted.
+
+The destination carries `.sambinha/job.json` (`schema`, `name`, `type`, `logic`, `created`, `generation`), rewritten after each confirmed generation and never in dry runs. Before bootstrapping from a nonempty destination, a marker naming another job fails early: `Destino pertence ao job X; use --adopt-identity para assumir`. When a local state exists, the marker's generation is compared with the local one; a different confirmed generation (another machine published since) means the local membership is stale and the remote index is re-adopted (event `remote_generation_differs`), keeping this machine's fingerprint cache. Destinations without a marker are trusted as before. Machines back up in turn, not concurrently: the single-writer lock is per machine, and the last confirmed generation wins.
 
 ## Initial formation and new files
 
@@ -66,7 +74,7 @@ Only affected archives are downloaded/extracted, with content validation. GLACIE
 
 ## Restore and machine loss
 
-Restore checks the backup destination and its mounted volume, output directory and temporary capacity, without requiring the original source path, mount or disk. Preserve/recreate the job configuration and credentials on another machine; the recorded job identity must match. Output remains new/empty, separate from protected paths, with link/overwrite protection. Current simple-tree restores use rclone and need no batch index.
+Restore checks the backup destination and its mounted volume, output directory and temporary capacity, without requiring the original source path, mount or disk. Preserve/recreate the job configuration and credentials on another machine; the job name, type and logic (and S3 destination) must match, mount points may differ. Output remains new/empty, separate from protected paths, with link/overwrite protection. Current simple-tree restores use rclone and need no batch index.
 
 The active state is kept in `state_dir/JOB/state.json`. JSON controls are mirrored in `metadata_dir/JOB` (or legacy state controls) and beside each archive at the destination. Complete recovery generations contain the validated state and referenced active/excluded/retired controls.
 

@@ -49,8 +49,8 @@ def _check_destination(config, job, runner, checking):
             raise BackupError(f"Remote {remote} precisa ser do tipo s3")
 
 
-def _read_inventory(config, job, runner, now, reading):
-    previous = backup_state(config, job, runner)
+def _read_inventory(config, job, runner, now, reading, log=None):
+    previous = backup_state(config, job, runner, log=log)
     force = (not job.fingerprint_cache or "last_full_scan" not in previous or
              now < previous["last_full_scan"] or
              now - previous["last_full_scan"] >= job.fingerprint_full_scan_days * DAY)
@@ -66,7 +66,7 @@ def _read_inventory(config, job, runner, now, reading):
                         now if force else previous["last_full_scan"], previous)
 
 
-def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
+def preflight(config, runner, now=None, *, progress=None, on_job_error=None, log=None):
     now = time.time() if now is None else now
     checked = set()
     for index, job in enumerate(config.jobs):
@@ -98,7 +98,7 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
             reading = progress.scope(0.2 + 0.8 * index / len(config.jobs),
                                      0.2 + 0.8 * (index + 1) / len(config.jobs)) if progress else None
             show_progress(runner, reading.scope(0, 0.1) if reading else None)
-            inventories[job.name] = _read_inventory(config, job, runner, now, reading)
+            inventories[job.name] = _read_inventory(config, job, runner, now, reading, log)
             if reading:
                 files = inventories[job.name][0]
                 reading.update("Inventário concluído", (job.source / files[-1].path).parent if files else job.source, 1, 1)
