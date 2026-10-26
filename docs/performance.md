@@ -111,3 +111,7 @@ With `exclude_files`, discovery used to issue one non-recursive `operations/list
 Memory trade-off: the JSON of a subtree is parsed incrementally and only `(path, IsDir)` is kept per entry (roughly 150-250 bytes each in CPython), so 500k entries cost on the order of 100 MiB until discovery ends. If a subtree exceeds 500,000 entries, that subtree falls back to one flat request per directory (no configuration needed).
 
 Measured with `scripts/benchmark-inventory.py --same-flow` on a generated tree (441 directories, 10,420 files, `*.tmp` and one subtree excluded), local rclone, 5 repetitions, identical inventories ([data](benchmarks/discovery-2026-10-26.json)): `operations/list` calls 419 -> 20 (1 flat + 19 recursive); median discovery + inventory 4.21 s -> 3.70 s (-12%). On this local loopback each call costs only ~9 ms; the gain grows with per-call latency (e.g. ~30 ms/call on slower disks or network mounts) and with directory count.
+
+## Destination listings per run (0.17.0)
+
+Publishing a recovery generation no longer lists the whole destination to prune old `.sambinha/indexes` generations: `finish()` lists only that prefix (`lsjson --include "/.sambinha/indexes/**"`, so rclone skips every other directory). The orphan report now makes one explicit full listing per run, reusing the planner's listing (taken before the run's uploads) when S3 planning already made one. Previously every `finish()` listed the whole destination, up to twice per run.

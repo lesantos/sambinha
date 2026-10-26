@@ -2,7 +2,7 @@
 
 Interrupted or superseded runs leave immutable archives/controls (and recovery
 generations without their commit marker) behind. After a committed backup they
-are counted from the destination listing the run already holds; ``--prune-orphans``
+are counted from one destination listing per run (shared with the upload planner when it already made one); ``--prune-orphans``
 removes only those older than a day, under the same mass-deletion guard as source
 removals. Anything under ``.sambinha/history`` and every key that does not look
 like a Sambinha batch artifact is never considered.
@@ -63,8 +63,7 @@ def report(ctx, *, now=None):
     if ctx.job.dry_run or ctx.rebalancing:
         return
     if ctx.listing is None:
-        if not ctx.job.prune_orphans:
-            return
+        # One explicit full listing per run: _pending_uploads shares its own when it made one.
         from .index_generations import listing
         ctx.listing = listing(ctx.storage)
     found = find(ctx, ctx.listing)

@@ -111,3 +111,7 @@ Com `exclude_files`, a descoberta fazia um `operations/list` não recursivo por 
 Custo de memória: o JSON de cada subárvore é lido de forma incremental e só `(caminho, IsDir)` é guardado por entrada (cerca de 150-250 bytes no CPython); 500 mil entradas custam da ordem de 100 MiB até o fim da descoberta. Se uma subárvore passar de 500.000 entradas, ela volta a uma chamada plana por diretório (sem configuração).
 
 Medido com `scripts/benchmark-inventory.py --same-flow` em árvore gerada (441 diretórios, 10.420 arquivos, `*.tmp` e uma subárvore excluídos), rclone local, 5 repetições, inventários idênticos ([dados](benchmarks/discovery-2026-10-26.json)): chamadas `operations/list` 419 -> 20 (1 plana + 19 recursivas); mediana de descoberta + inventário 4,21 s -> 3,70 s (-12%). No loopback local cada chamada custa só ~9 ms; o ganho cresce com a latência por chamada (p. ex. ~30 ms em discos lentos ou montagens de rede) e com o número de diretórios.
+
+## Listagens do destino por execução (0.17.0)
+
+Publicar uma geração de recuperação não lista mais o destino inteiro para podar gerações antigas de `.sambinha/indexes`: `finish()` lista só esse prefixo (`lsjson --include "/.sambinha/indexes/**"`, e o rclone ignora os demais diretórios). O relatório de órfãos agora faz uma listagem completa explícita por execução, reaproveitando a do planejamento (feita antes dos envios da execução) quando o planejamento S3 já listou. Antes, cada `finish()` listava o destino inteiro, até duas vezes por execução.

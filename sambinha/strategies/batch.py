@@ -148,6 +148,8 @@ def _pending_uploads(ctx, batches, old, active):
     pending = []
     from ..index_generations import listing
     entries = listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys or ctx.journal) else None
+    if entries is not None:
+        ctx.listing = entries  # snapshot before this run's uploads; reused by the orphan report
     for item in batches:
         mirror = ctx.controls_directory / (item.key + ".json")
         saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None

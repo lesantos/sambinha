@@ -45,7 +45,7 @@ class Context:
         self.batch_progress = {}
         # Upload journal (see journal.py): entries still believed valid, shared by worker threads.
         self.journal = {}
-        # Destination listing of the latest finish() and the run's mass-deletion override.
+        # Destination listing shared by the upload planner and the orphan report, and the run's mass-deletion override.
         self.listing = None
         self.allow_mass_deletion = False
         self.journal_lock = threading.Lock()
