@@ -4,7 +4,16 @@ Documento de handoff. Tudo aqui já foi revisado e aprovado por Leandro; o execu
 implementar o que está definido, sem reabrir decisões de design. Perguntas só se algo
 aqui for contraditório com o código real.
 
-## Estado em 2026-10-26 (0.16.0 publicada; próximo: 0.17.0)
+## Estado em 2026-10-26 (0.17.0 implementada e mesclada; falta suíte completa, CI macOS e release)
+
+- 0.17.0: itens 4.1–4.8 e 5.6–5.10 todos MESCLADOS em `main`; versão e CHANGELOG em 0.17.0 já commitados
+  localmente. PENDENTE (decisão do usuário: rodar tudo só ao final): suíte completa
+  (`SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m pytest -n auto --cov=sambinha --cov-branch`), ajustar
+  `fail_under` (meta 92 se a cobertura real permitir; está 85 em pyproject e no CI), push, conferir o job
+  `macos` do CI (pulado na 0.16.0), tag `v0.17.0` e `gh release create`.
+- Itens menores de baixa prioridade (última seção) NÃO foram feitos.
+
+(histórico das fases anteriores abaixo)
 
 - **0.16.0 PUBLICADA** (tag `v0.16.0`, main 9ab8ce7 + commit de release): Fase 3 (identidade por nome) e
   2.2a/2.2b/2.3/2.4 (journal, órfãos, --fresh-start, varredura de temporários) entregues e testados

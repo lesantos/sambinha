@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.16.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
+Sambinha **0.17.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
 
 Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
