@@ -121,3 +121,17 @@ class LogEncodingTests(Sandbox):
             self.assertEqual(record['error'], 'Arquivo: bad\udcff.txt')
             self.assertEqual(record['details'], {'paths': ['x\udcff']})
 
+
+class PassthroughVerificationTests(Sandbox):
+    def test_passthrough_batch_verifies_the_source_once(self):
+        self.file('big.zip', b'z' * 4096)
+        job = replace(self.config.jobs[0], logic='batch', max_megabytes=1 / 1024,
+                      check_source_disk=False, check_destination_disk=False)
+        config = replace(self.config, jobs=(job,))
+        files = scan(self.source)
+        batch = plan(files, 1024)[0]
+        self.assertTrue(batch.passthrough)
+        ctx = Context(config, job, Runner(), Mock(), files, 1000)
+        with patch.object(archives, 'verify', wraps=verify) as verified:
+            self.assertEqual(archives.compress(ctx, batch, self.root), self.source / 'big.zip')
+        self.assertEqual(verified.call_count, 1)

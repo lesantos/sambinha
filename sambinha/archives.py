@@ -46,14 +46,12 @@ def member_arguments(files, listing: Path):
 def compress(ctx, batch, work: Path):
     if batch.passthrough:
         item = batch.files[0]
+        # The file is uploaded straight from the source, so a single check
+        # that it still matches the inventory is all compression can offer.
         verify(ctx.source, [item], mode=ctx.job.verification_mode,
-               progress=ctx.progress.scope(0, 0.5) if ctx.progress else None,
+               progress=ctx.progress.scope(0, 1) if ctx.progress else None,
                verify_source_changes=ctx.job.verify_source_changes)
-        source = ctx.source / item.path
-        verify(ctx.source, [item], mode=ctx.job.verification_mode,
-               progress=ctx.progress.scope(0.5, 1) if ctx.progress else None,
-               verify_source_changes=ctx.job.verify_source_changes)
-        return source
+        return ctx.source / item.path
     check_disk(work, "temporários", required_bytes=temporary_bytes(batch))
     # Validate both sides of the read: the inventory must still match before
     # 7-Zip opens source paths and after it has finished reading them.
