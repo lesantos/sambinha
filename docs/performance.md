@@ -115,3 +115,7 @@ Measured with `scripts/benchmark-inventory.py --same-flow` on a generated tree (
 ## Destination listings per run (0.17.0)
 
 Publishing a recovery generation no longer lists the whole destination to prune old `.sambinha/indexes` generations: `finish()` lists only that prefix (`lsjson --include "/.sambinha/indexes/**"`, so rclone skips every other directory). The orphan report now makes one explicit full listing per run, reusing the planner's listing (taken before the run's uploads) when S3 planning already made one. Previously every `finish()` listed the whole destination, up to twice per run.
+
+## rclone options for S3 (0.17.0)
+
+`fast_list`, `s3_chunk_size` and `s3_upload_concurrency` are optional per-job settings ([configuration](configuration.md#optional-rclone-tuning-for-s3-0170)). They only change the rclone command line (S3 jobs only), so no benchmark was run: the effect depends on bucket size, object sizes and bandwidth, and defaults are unchanged. Note that `verification_mode = "hash"` makes rclone MD5 the whole source on every simple sync.

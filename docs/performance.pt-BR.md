@@ -115,3 +115,7 @@ Medido com `scripts/benchmark-inventory.py --same-flow` em árvore gerada (441 d
 ## Listagens do destino por execução (0.17.0)
 
 Publicar uma geração de recuperação não lista mais o destino inteiro para podar gerações antigas de `.sambinha/indexes`: `finish()` lista só esse prefixo (`lsjson --include "/.sambinha/indexes/**"`, e o rclone ignora os demais diretórios). O relatório de órfãos agora faz uma listagem completa explícita por execução, reaproveitando a do planejamento (feita antes dos envios da execução) quando o planejamento S3 já listou. Antes, cada `finish()` listava o destino inteiro, até duas vezes por execução.
+
+## Opções do rclone para S3 (0.17.0)
+
+`fast_list`, `s3_chunk_size` e `s3_upload_concurrency` são opções opcionais por job ([configuração](configuration.pt-BR.md)). Só alteram a linha de comando do rclone (apenas jobs S3); por isso não houve benchmark: o efeito depende do tamanho do bucket, dos objetos e da banda, e os padrões não mudam. Lembre que `verification_mode = "hash"` faz o rclone calcular o MD5 de toda a origem a cada sync simples.

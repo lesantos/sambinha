@@ -33,6 +33,10 @@ class Job:
     logic: Logic = "simple"
     storage_class: str = "GLACIER_IR"
     control_storage_class: str = "STANDARD"
+    # Optional rclone tuning, S3 only (never passed for local destinations; see rclone.py).
+    fast_list: bool = False  # --fast-list for simple sync/check/lsjson
+    s3_chunk_size: str | None = None  # e.g. "64M" -> --s3-chunk-size on uploads
+    s3_upload_concurrency: int | None = None  # 1-64 -> --s3-upload-concurrency on uploads
     max_megabytes: int | float = 1024
     individual_batch_percent: float = 100
     batch_size_alert_percent: float = 200

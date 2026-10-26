@@ -51,7 +51,7 @@ class ExampleTests(unittest.TestCase):
                 section = set()
                 job_keys.append(section)
             else:
-                match = re.match(r'^\s*(?:#\s*)?([a-z_]+)\s*=', line)
+                match = re.match(r'^\s*(?:#\s*)?([a-z0-9_]+)\s*=', line)
                 if match and section is not None:
                     section.add(match[1])
         expected = {field.name for field in fields(Config)} - {'jobs', 'environment'} - JOB_SCOPED_OPTIONS
