@@ -28,7 +28,10 @@ class Sandbox(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="sambinha-test-")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # macOS places temporary directories under /var, a symlink to
+        # /private/var; configured roots are resolved by config.load, so the
+        # sandbox resolves too and the no-follow directory walk sees real paths.
+        self.root = Path(self.temp.name).resolve()
         self.source = self.root / "source"
         self.source.mkdir()
         self.destination = self.root / "destination"

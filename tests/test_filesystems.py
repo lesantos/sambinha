@@ -13,6 +13,18 @@ from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
+def setUpModule():
+    # These tables are Linux mountinfo rows; force the Linux backend so the
+    # same expectations hold when the suite runs on macOS.
+    global _platform
+    _platform = patch("sambinha.filesystems._PLATFORM", "linux")
+    _platform.start()
+
+
+def tearDownModule():
+    _platform.stop()
+
+
 def mount_table(*mounts):
     lines = []
     for index, (path, filesystem) in enumerate(mounts, 1):
