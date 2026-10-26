@@ -1,12 +1,12 @@
-from dataclasses import replace
 import json
 import os
-from pathlib import Path
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sambinha.filesystems import supports_posix_metadata, needs_destination_link_scan, volatile_inode_devices
 from sambinha.errors import BackupError
+from sambinha.filesystems import needs_destination_link_scan, supports_posix_metadata, volatile_inode_devices
 from sambinha.process import Runner
 from sambinha.recovery import recover
 from sambinha.storage import Storage

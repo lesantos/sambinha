@@ -1,14 +1,14 @@
-from dataclasses import replace
 import os
-from pathlib import Path
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from sambinha.errors import BackupError
 from sambinha.inventory import scan, verify
-from sambinha.storage import Storage
+from sambinha.local_paths import child_directory, prepare_write
 from sambinha.process import Runner
-from sambinha.local_paths import prepare_write, child_directory
+from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 

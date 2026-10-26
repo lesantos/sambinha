@@ -1,12 +1,12 @@
 """Confirmed recovery generations, safe bootstrap and publication recovery."""
 import hashlib
 import json
-from pathlib import Path
 import re
 import tarfile
 import tempfile
 import time
 import uuid
+from pathlib import Path
 
 from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .filesystems import supports_posix_metadata
@@ -108,12 +108,12 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
                 raise BackupError('Geração divergente do índice')
             for lot, control in state['active'].items():
                 if (lot not in entries or lot + '.json' not in entries or
-                        'archive_size' in control and entries[lot] != control['archive_size']):
+                        ('archive_size' in control and entries[lot] != control['archive_size'])):
                     raise BackupError(f'Geração referencia lote ausente/divergente: {lot}')
             return state, controls
         except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
             # Never adopt another job's identity or follow a metadata symlink.
-            if isinstance(exc, (ForeignStateError, UnsupportedStateError)) or isinstance(exc, BackupError) and 'link simbólico' in str(exc):
+            if isinstance(exc, (ForeignStateError, UnsupportedStateError)) or (isinstance(exc, BackupError) and 'link simbólico' in str(exc)):
                 raise
             failures.append(str(exc))
     if not candidates and not entries and allow_new:
@@ -147,7 +147,7 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         own_initialization = False
         if initialized.exists():
             own_initialization = json.loads(initialized.read_text()).get('identity') == identity(job)
-        candidates = any(k == CONTROL or k.endswith('.commit.json') and k.startswith(PREFIX)
+        candidates = any(k == CONTROL or (k.endswith('.commit.json') and k.startswith(PREFIX))
                          for k in entries)
         if (allow_new and not invalid and not candidates and
                 (not entries or own_initialization)):

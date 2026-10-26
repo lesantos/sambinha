@@ -1,15 +1,15 @@
 """Read-only job checks and independent batch inventories."""
 import json
 import os
+import time
 from pathlib import Path
 from typing import NamedTuple
-import time
 
 from .disks import check_disks
 from .errors import BackupError, job_errors
 from .filtering import Selection
-from .inventory import File, scan
 from .index_generations import backup_state
+from .inventory import File, scan
 from .mounts import check_mounts, uses_mountpoint_command
 from .process import credential_values, show_progress
 from .retention import DAY

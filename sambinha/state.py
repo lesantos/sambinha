@@ -1,12 +1,12 @@
 """Atomic state persistence and an advisory single-writer lock on Linux."""
-from contextlib import contextmanager
 import fcntl
 import json
-import os
-from pathlib import Path
-import tempfile
 import math
+import os
 import re
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
 
 from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .inventory import safe_relative
@@ -60,11 +60,11 @@ def validate_controls(controls, batch):
                 raise ValueError("controle de lote")
             members = control["files"]
             if 'individual' in control and (type(control['individual']) is not bool or
-                                            control['individual'] and len(members) != 1):
+                                            (control['individual'] and len(members) != 1)):
                 raise ValueError('lote individual inválido')
             if 'passthrough' in control and (type(control['passthrough']) is not bool or
-                                             control['passthrough'] and
-                                             (len(members) != 1 or not control.get('individual', True))):
+                                             (control['passthrough'] and
+                                             (len(members) != 1 or not control.get('individual', True)))):
                 raise ValueError('arquivo compactado individual inválido')
             if 'batch_id' in control and (not isinstance(control['batch_id'], str) or
                                           not re.fullmatch('[0-9a-f]{24}', control['batch_id'])):

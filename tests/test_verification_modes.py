@@ -1,9 +1,8 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
-import json
 import os
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.cli import parser
@@ -11,7 +10,7 @@ from sambinha.config import load, validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import fingerprint, scan, verify
 from sambinha.recovery import recover, verify_local_metadata_job
-from sambinha.state import load_state, validate_file
+from sambinha.state import validate_file
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, tick
 
@@ -108,7 +107,7 @@ class VerificationModeTests(Sandbox):
 
     def test_simple_s3_verification_delegates_to_rclone_check(self):
         self.file('file')
-        item = scan(self.source, mode='simple')[0].metadata()
+        scan(self.source, mode='simple')[0].metadata()
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket')
         config = replace(self.config, jobs=(job,), verification_mode='simple')
         with patch.object(Storage, 'check_simple') as check, \

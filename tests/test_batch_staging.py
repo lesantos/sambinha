@@ -1,11 +1,13 @@
-from collections import namedtuple
-from concurrent.futures import ThreadPoolExecutor, wait as real_wait
-from dataclasses import replace
 import importlib
-from pathlib import Path
 import signal
 import threading
 import time
+from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as real_wait
+from dataclasses import replace
+from pathlib import Path
+from typing import ClassVar
 from unittest import skipUnless
 from unittest.mock import Mock, patch
 
@@ -149,9 +151,8 @@ class BatchStagingTests(BatchContext, Sandbox):
             return Usage(100 * MIB, 10 * MIB, 90 * MIB) if calls == 1 else Usage(10 * MIB, 9.4 * MIB, 0.6 * MIB)
 
         with patch('tempfile.tempdir', str(staging)), patch('shutil.disk_usage', side_effect=usage), \
-             patch.object(Storage, 'put') as put:
-            with self.assertRaisesRegex(BackupError, 'Espaço insuficiente'):
-                strategy._upload_pending(ctx, pending, active)
+             patch.object(Storage, 'put') as put, self.assertRaisesRegex(BackupError, 'Espaço insuficiente'):
+            strategy._upload_pending(ctx, pending, active)
         put.assert_not_called()
         self.assertEqual(list(staging.iterdir()), [])
 
@@ -227,7 +228,7 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
         self.assertFalse(ctx.state_path.exists())
 
     def test_direct_source_archive_is_rejected_if_member_listing_is_invalid(self):
-        ctx, pending, active = self.context(count=1)
+        ctx, pending, _active = self.context(count=1)
         work = self.root / 'work'
         work.mkdir()
         original_run = ctx.runner.run
@@ -237,16 +238,15 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
                 return ''  # A valid .7z with an invalid member listing.
             return original_run(args, **kwargs)
 
-        with patch.object(ctx.runner, 'run', run):
-            with self.assertRaisesRegex(BackupError, 'Lote incompleto'):
-                compress(ctx, pending[0], work)
+        with patch.object(ctx.runner, 'run', run), self.assertRaisesRegex(BackupError, 'Lote incompleto'):
+            compress(ctx, pending[0], work)
         self.assertFalse((work / 'snapshot').exists())
         self.assertTrue((work / 'archive.7z').is_file())
 
 
 class BlockingStorage:
     """Stand-in for rclone uploads: block until the runner's children are killed."""
-    puts = []
+    puts: ClassVar[list] = []
     lock = threading.Lock()
 
     def __init__(self, job, config, runner, source_required=True):
@@ -302,7 +302,7 @@ class UploadInterruptionTests(BatchContext, Sandbox):
         self.assertFalse(ctx.runner.cancelled)
 
     def test_workers_stop_before_compressing_or_uploading_after_cancellation(self):
-        ctx, pending, active = self.context(workers=1, count=1)
+        ctx, pending, _active = self.context(workers=1, count=1)
         ctx.runner.cancel()
         with patch.object(strategy, 'compress') as compress, patch.object(strategy, 'Storage') as storage:
             with self.assertRaises(Interrupted):

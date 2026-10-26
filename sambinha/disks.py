@@ -1,8 +1,8 @@
 """Reject local filesystems above 95 percent occupancy before writes."""
-from pathlib import Path
 import os
 import shutil
 import tempfile
+from pathlib import Path
 
 from .errors import BackupError
 

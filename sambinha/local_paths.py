@@ -1,8 +1,8 @@
 """Replace conflicting destination links without touching their targets."""
-from contextlib import contextmanager
 import os
-from pathlib import Path, PurePosixPath
 import stat
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
 
 from .errors import BackupError
 from .inventory import safe_relative

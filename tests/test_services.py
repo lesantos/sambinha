@@ -1,14 +1,11 @@
-from dataclasses import replace
-import io
-import json
-from pathlib import Path
 import subprocess
 import unittest
+from dataclasses import replace
 from unittest.mock import Mock, patch
 from urllib.error import URLError
 
 from sambinha.errors import BackupError
-from sambinha.inventory import scan, safe_relative, verify
+from sambinha.inventory import safe_relative, scan, verify
 from sambinha.notify import notify
 from sambinha.process import Runner
 from sambinha.state import atomic_json, load_state, lock
@@ -48,9 +45,8 @@ class ProcessTests(unittest.TestCase):
         sleeper.assert_not_called()
 
     def test_dependency_check_lists_all_missing(self):
-        with patch('shutil.which', return_value=None):
-            with self.assertRaisesRegex(BackupError, '7z, rclone'):
-                Runner().require(['rclone', '7z', 'rclone'])
+        with patch('shutil.which', return_value=None), self.assertRaisesRegex(BackupError, '7z, rclone'):
+            Runner().require(['rclone', '7z', 'rclone'])
 
 
 class InventoryStateTests(Sandbox):
@@ -99,17 +95,15 @@ class InventoryStateTests(Sandbox):
                 load_state(path, {})
 
     def test_lock_contention_and_release(self):
-        with lock(self.root / 'lock'):
-            with self.assertRaises(BackupError):
-                with lock(self.root / 'lock'):
-                    pass
+        with lock(self.root / 'lock'), self.assertRaises(BackupError), lock(self.root / 'lock'):
+            pass
         with lock(self.root / 'lock'):
             pass
 
 
 class NotificationTests(unittest.TestCase):
     def test_cronitor_states_series_and_existing_query(self):
-        from urllib.parse import urlsplit, parse_qs
+        from urllib.parse import parse_qs, urlsplit
         for state in ('run', 'complete', 'fail'):
             with self.subTest(state=state):
                 response = Mock(status=200)
@@ -121,7 +115,7 @@ class NotificationTests(unittest.TestCase):
                 self.assertEqual(query, {'env': ['test'], 'state': [state], 'series': ['series']})
 
     def test_cronitor_failure_message_is_encoded_and_bounded(self):
-        from urllib.parse import urlsplit, parse_qs
+        from urllib.parse import parse_qs, urlsplit
         response = Mock(status=200)
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)

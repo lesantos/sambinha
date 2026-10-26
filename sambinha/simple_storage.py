@@ -1,8 +1,8 @@
 """Native tree sync, history, verification and restoration for Storage."""
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import re
+from datetime import UTC, datetime
+from pathlib import Path
 
 from .disks import check_disks
 from .errors import BackupError
@@ -93,7 +93,7 @@ class SimpleStorageMixin:
             name = entry.get("Path") if isinstance(entry, dict) else None
             if not isinstance(name, str) or not re.fullmatch(r"\d{8}T\d{6}-[0-9a-f]{32}", name):
                 continue
-            started = datetime.strptime(name[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc).timestamp()
+            started = datetime.strptime(name[:15], "%Y%m%dT%H%M%S").replace(tzinfo=UTC).timestamp()
             if started + retention_days * DAY > now:
                 continue
             expired.append(name)

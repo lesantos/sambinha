@@ -1,10 +1,10 @@
 """Restore selected content only after validating every staged member."""
-from contextlib import contextmanager
 import errno
 import os
-from pathlib import Path
 import shutil
 import tempfile
+from contextlib import contextmanager
+from pathlib import Path
 
 from .archive_recovery import unpack
 from .disks import check_disk

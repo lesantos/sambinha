@@ -1,17 +1,17 @@
 """Full rclone/S3 HTTP integration; opt in where loopback sockets are allowed."""
-from dataclasses import replace
 import os
-from pathlib import Path
 import shutil
 import socket
 import subprocess
 import time
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 from urllib.request import urlopen
 
-from sambinha.process import Runner
 from sambinha.config import load
+from sambinha.process import Runner
 from tests import test_s3_integration as suite
 from tests.helpers import Sandbox
 
@@ -44,7 +44,7 @@ class S3HTTPTests(suite.S3IntegrationTests):
                     return
             except OSError:
                 if cls.server.poll() is not None:
-                    raise RuntimeError('Moto server exited before readiness')
+                    raise RuntimeError('Moto server exited before readiness') from None
                 time.sleep(0.1)
         raise RuntimeError('Moto server did not become ready')
 
@@ -101,8 +101,9 @@ class S3HTTPTests(suite.S3IntegrationTests):
         self.assertNotIn('PRIVATE-S3-SECRET', self.output.getvalue())
 
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
-        from sambinha.recovery import verify_local_metadata_job
         from unittest.mock import Mock, patch
+
+        from sambinha.recovery import verify_local_metadata_job
         self.file('file.txt', b'original')
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):

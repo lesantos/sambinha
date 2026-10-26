@@ -1,11 +1,11 @@
 """Stable source inventories with strong fingerprints and race detection."""
-from dataclasses import asdict, dataclass
-from contextlib import contextmanager
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
 import stat
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path, PurePosixPath
 
 from .errors import BackupError, SourceChangedError
 from .filesystems import volatile_inode_devices
@@ -115,7 +115,7 @@ def _fingerprint(relative, file_fd, before, progress):
 
 def metadata(root: Path, relative: str, *, dir_fd=None, before=None, file_fd=None) -> File:
     if file_fd is None:
-        with _source_file(root, relative, dir_fd, before, metadata_only=True) as (fd, opened):
+        with _source_file(root, relative, dir_fd, before, metadata_only=True) as (_fd, opened):
             return _metadata(relative, opened)
     return _metadata(relative, before)
 
@@ -156,7 +156,8 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
     symlinks or cached assumptions about ancestor paths.
     """
     # Lazy import: local_paths shares safe_relative with this module.
-    from .local_paths import DIRECTORY_FLAGS, directory as open_directory
+    from .local_paths import DIRECTORY_FLAGS
+    from .local_paths import directory as open_directory
 
     result = []
     visited = 0

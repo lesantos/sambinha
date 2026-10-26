@@ -1,17 +1,17 @@
 """Redacted JSON-lines events with independent file and terminal detail."""
-from datetime import datetime, timezone
+import errno
+import fcntl
 import json
-from pathlib import Path
-import uuid
 import os
 import re
 import stat
 import time
-import fcntl
-import errno
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 
-from .state import private_directory
 from .retention import DAY
+from .state import private_directory
 
 ERROR_EVENTS = {"error", "notification_error", "mass_deletion_blocked"}
 SUMMARY_EVENTS = ERROR_EVENTS | {"summary", "restore_summary", "verification_complete", "metadata_verification_complete",
@@ -31,7 +31,7 @@ class RunLog:
         self.terminal_level = terminal_level
         self.job_levels = {} if job_levels is None else dict(job_levels)
         self.id = uuid.uuid4().hex
-        self.path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{self.id}.jsonl"
+        self.path = directory / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{self.id}.jsonl"
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         # A retention pass in another invocation must not remove an open log.
         fcntl.flock(fd, fcntl.LOCK_SH)
@@ -89,7 +89,7 @@ class RunLog:
         to_terminal = visible(terminal_level)
         if not to_file and not to_terminal:
             return
-        record = {"time": datetime.now(timezone.utc).isoformat(), "event": event, **details}
+        record = {"time": datetime.now(UTC).isoformat(), "event": event, **details}
         # Redact values before JSON escaping so multiline secrets are covered.
         def clean(value):
             if isinstance(value, str):

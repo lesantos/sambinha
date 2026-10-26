@@ -1,7 +1,7 @@
 """Backup orchestration and independent, sequential job lifecycles."""
+import time
 from contextlib import nullcontext
 from pathlib import Path
-import time
 
 from .archives import compress as compress
 from .batch_alerts import collect as collect_batch_alerts
@@ -18,7 +18,8 @@ from .retention import DeletionForecast
 from .session import open_session
 from .state import lock
 from .strategies.batch import batch
-from .strategies.batch import upload_batch as upload_batch, upload_index as upload_index
+from .strategies.batch import upload_batch as upload_batch
+from .strategies.batch import upload_index as upload_index
 from .versions import check_rclone_version
 
 STRATEGIES = {"batch": batch}

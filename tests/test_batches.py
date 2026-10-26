@@ -1,5 +1,5 @@
-from dataclasses import replace
 import unittest
+from dataclasses import replace
 
 from sambinha.batches import Batch, individual, plan
 from sambinha.inventory import File

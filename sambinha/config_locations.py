@@ -2,7 +2,6 @@
 import re
 import tomllib
 
-
 _TOKENS = re.compile(
     r'"""(?:[^"\\]|\\[\s\S]|"(?!""))*""""{0,2}'
     r"|'''[\s\S]*?'''\'{0,2}"

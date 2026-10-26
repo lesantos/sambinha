@@ -1,9 +1,9 @@
 """Single-pass inventories, stable ordering and descriptor-anchored race guards."""
-from dataclasses import replace
 import os
+import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 from sambinha import inventory

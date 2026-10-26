@@ -1,9 +1,9 @@
 """Manual rebalance of oversized active groups, independent of the source."""
-from dataclasses import replace
-from pathlib import Path
 import os
 import shutil
 import tempfile
+from dataclasses import replace
+from pathlib import Path
 
 from .archive_recovery import unpack
 from .batches import individual

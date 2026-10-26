@@ -1,10 +1,9 @@
 """Read-only filesystem capabilities from the current mount namespace."""
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
-
+from pathlib import Path
 
 # Request ownership/mode metadata only for filesystems with native POSIX
 # attributes. FAT/exFAT, mapped Windows/network mounts and unknown backends

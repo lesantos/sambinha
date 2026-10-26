@@ -1,10 +1,10 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
 import io
 import json
 import os
 import subprocess
 import unittest
+from contextlib import redirect_stdout
+from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha import archives

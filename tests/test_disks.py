@@ -1,7 +1,7 @@
-from dataclasses import replace
 from collections import namedtuple
+from dataclasses import replace
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from sambinha.disks import check_disk, check_disks
 from sambinha.errors import BackupError

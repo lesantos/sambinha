@@ -1,10 +1,10 @@
 """Immutable batch uploads and transactional recovery-index publication."""
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import copy
 import json
-from pathlib import Path
 import tempfile
 import threading
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from pathlib import Path
 
 from ..archives import compress, temporary_bytes
 from ..batches import plan
@@ -188,7 +188,7 @@ def _upload_pending(ctx, pending, active):
             raise BackupError(f"{exc}; lotes que definem a estimativa: " + " | ".join(details)) from exc
         scopes = (ctx.progress.scope(0.1, 0.85).parallel(
             [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
-        ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes)}
+        ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes, strict=False)}
         stopped = threading.Event()
 
         def upload(item):

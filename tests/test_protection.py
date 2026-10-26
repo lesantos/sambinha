@@ -1,16 +1,11 @@
-from contextlib import redirect_stdout
-from dataclasses import replace
-import io
-import json
 import os
-from pathlib import Path
 import unittest
+from dataclasses import replace
 
-from sambinha.engine import run
 from sambinha.errors import BackupError
-from sambinha.protection import timestamp_ns
 from sambinha.process import Runner
-from tests.helpers import REAL_TOOLS, Sandbox, contents
+from sambinha.protection import timestamp_ns
+from tests.helpers import REAL_TOOLS, Sandbox
 
 
 class TimestampTests(unittest.TestCase):

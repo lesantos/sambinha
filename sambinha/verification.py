@@ -1,8 +1,8 @@
 """Daily source checks, metadata replica checks and manual archive integrity tests."""
-from dataclasses import replace
 import json
-from pathlib import Path
 import tempfile
+from dataclasses import replace
+from pathlib import Path
 
 from .archive_recovery import check_archive
 from .batches import plan

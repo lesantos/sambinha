@@ -1,7 +1,7 @@
 """Verify expected local mounts before backups and destructive operations."""
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from .errors import BackupError
 

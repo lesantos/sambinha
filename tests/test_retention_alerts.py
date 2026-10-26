@@ -1,10 +1,9 @@
-from dataclasses import replace
 import json
-from pathlib import Path
 import unittest
+from dataclasses import replace
 from unittest.mock import Mock
 
-from sambinha.retention import DAY, DeletionForecast, retirement, alert_time
+from sambinha.retention import DAY, DeletionForecast, alert_time, retirement
 from tests.helpers import REAL_TOOLS, Sandbox
 
 
@@ -87,6 +86,7 @@ class RetentionAlertTests(Sandbox):
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
         from unittest.mock import patch
+
         from sambinha.storage import Storage
         original = Storage.delete
         seen = []

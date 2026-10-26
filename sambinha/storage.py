@@ -2,16 +2,16 @@
 import json
 from pathlib import Path
 
-from .config import Config, Job
-from .errors import BackupError
-from .inventory import safe_relative, path_has_symlink
-from .protection import timestamp_ns
-from .mounts import check_mounts
-from .disks import check_disks
-from .local_paths import prepare_write
-from .simple_storage import SimpleStorageMixin
 from . import rclone
+from .config import Config, Job
+from .disks import check_disks
+from .errors import BackupError
+from .inventory import path_has_symlink, safe_relative
+from .local_paths import prepare_write
+from .mounts import check_mounts
 from .names import NAMESPACE, NAMESPACE_EXCLUDE
+from .protection import timestamp_ns
+from .simple_storage import SimpleStorageMixin
 
 
 class Storage(SimpleStorageMixin):

@@ -1,7 +1,7 @@
 """CLI with explicit overrides; omitted arguments inherit TOML values."""
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from . import __version__
 from .config import load

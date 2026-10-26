@@ -1,10 +1,10 @@
 """Compress and validate a batch directly from its source before upload."""
-from pathlib import Path
 import json
 import os
+from pathlib import Path
 
-from .errors import BackupError
 from .disks import check_disk
+from .errors import BackupError
 from .inventory import verify
 from .process import show_progress
 from .profiles import settings
@@ -62,7 +62,7 @@ def compress(ctx, batch, work: Path):
     members = member_arguments(batch.files, work / "files.txt")
     # -spd prevents wildcard interpretation of filenames; "--" ends switch
     # parsing so names starting with "-" or "@" are taken literally.
-    kind, level, threads = settings(ctx.job, batch.files)
+    _kind, level, threads = settings(ctx.job, batch.files)
     directory = (ctx.job.source / batch.files[0].path).parent
     show_progress(ctx.runner, ctx.progress.scope(0.1, 0.7) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,

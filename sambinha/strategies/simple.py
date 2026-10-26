@@ -1,5 +1,5 @@
 """Native rclone synchronization and run-scoped history retention."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..errors import BackupError
 from ..names import HISTORY
@@ -8,7 +8,7 @@ from ..storage import Storage
 
 
 def simple(config, job, runner, log, now, progress, *, allow_mass_deletion=False):
-    history_id = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + log.id
+    history_id = datetime.fromtimestamp(now, UTC).strftime("%Y%m%dT%H%M%S") + "-" + log.id
     backup_dir = f"{HISTORY}/{history_id}"
     max_delete = -1 if allow_mass_deletion else job.max_delete
     log.event("sync_start", job=job.name, max_delete=max_delete, backup_dir=backup_dir)

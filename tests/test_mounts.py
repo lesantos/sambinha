@@ -1,7 +1,6 @@
-from dataclasses import replace
-from pathlib import Path
 import shutil
 import unittest
+from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.config import load, validate

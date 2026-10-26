@@ -1,15 +1,14 @@
-from dataclasses import replace
 import importlib.util
 import io
 import json
 import os
-from pathlib import Path
 import tarfile
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
-from sambinha.engine import DAY
 from sambinha.config import validate
+from sambinha.engine import DAY
 from sambinha.errors import BackupError, ConfigError
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.s3_support import MotoRunner
@@ -21,8 +20,8 @@ MOTO_AVAILABLE = importlib.util.find_spec('moto') is not None
 class S3IntegrationTests(Sandbox):
     def setUp(self):
         super().setUp()
-        from moto import mock_aws
         import boto3
+        from moto import mock_aws
         emulator = mock_aws()
         emulator.start()
         self.addCleanup(emulator.stop)
@@ -62,7 +61,7 @@ class S3IntegrationTests(Sandbox):
         self.file('root.txt', b'root')
         self.file('tree/a.txt', b'original a')
         self.file('tree/b.txt', bytes(range(256)) * 100)
-        self.file('tree/sub/ação.txt', 'Texto com acentos'.encode())
+        self.file('tree/sub/ação.txt', b'Texto com acentos')
         self.file('tree/sub/empty', b'')
         self.file('other/@ file.txt', b'file with @ and spaces')
 
@@ -115,7 +114,7 @@ class S3IntegrationTests(Sandbox):
                                  notifier=lambda *args: None), 0)
         self.assertEqual(contents(output), {
             'tree/a.txt': b'original a', 'tree/b.txt': bytes(range(256)) * 100,
-            'tree/sub/ação.txt': 'Texto com acentos'.encode(),
+            'tree/sub/ação.txt': b'Texto com acentos',
             'tree/sub/empty': b'', 'root.txt': b'root',
         })
 
@@ -132,8 +131,9 @@ class S3IntegrationTests(Sandbox):
             self.assertEqual(self.execute(now=1002), 0, self.output.getvalue())
         self.assertFalse(any(e['event'] == 'transferred' for e in self.events))
         self.assert_complete()
-        from sambinha.recovery import verify_local_metadata_job
         from unittest.mock import Mock
+
+        from sambinha.recovery import verify_local_metadata_job
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
             result = verify_local_metadata_job(self.config, self.config.jobs[0], self.runner, Mock())
         self.assertEqual(result['mode'], 'rclone_check')
@@ -205,9 +205,10 @@ class S3IntegrationTests(Sandbox):
 
     def test_batch_json_replicas_stay_standard_and_update_together(self):
         from unittest.mock import Mock
+
         from sambinha.metadata import control_directory
         from sambinha.storage import Storage
-        from sambinha.verification import verify_local_metadata_job, verify_destination_metadata_job
+        from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
         self.file('a.txt', b'alpha')
         self.file('b.txt', b'beta')
         self.use_batch('DEEP_ARCHIVE')
@@ -372,8 +373,9 @@ class S3IntegrationTests(Sandbox):
         self.assertTrue(all((download / key).exists() for key in old_keys))
 
     def test_s3_simple_and_batch_verification_only_reads_metadata(self):
-        from sambinha.recovery import verify_local_metadata_job, verify_destination_metadata_job
         from unittest.mock import Mock
+
+        from sambinha.recovery import verify_destination_metadata_job, verify_local_metadata_job
         from sambinha.storage import Storage
         self.file('data.txt', bytes(range(256)))
         self.file('more.txt', b'original')
@@ -476,6 +478,7 @@ class S3IntegrationTests(Sandbox):
     def test_s3_state_recovery_and_restore_work_without_original_source(self):
         import shutil
         from contextlib import redirect_stdout
+
         from sambinha.recovery import recover
         self.config=replace(self.config,jobs=(replace(self.config.jobs[0],logic='batch'),))
         self.file('a',b'original');self.file('b',b'other')

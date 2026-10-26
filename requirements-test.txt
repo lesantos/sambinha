@@ -1,3 +1,2 @@
-# Install the application too; these dependencies support tests only.
-moto[s3,server]>=5.0,<6
-coverage>=7.6,<8
+# Shim for older docs/scripts: the real list lives in pyproject.toml [project.optional-dependencies].
+-e .[test]

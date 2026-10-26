@@ -8,11 +8,11 @@ The baseline directory must contain sambinha/. No backup or S3 operation runs.
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import statistics
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 def worker(payload):
@@ -84,7 +84,7 @@ def main():
                 raise RuntimeError('Inventories differ: paths/order, metadata, directories or fingerprints')
             if iteration:
                 samples[variant].append(sample)
-            print(f"{variant} {'warmup' if not iteration else iteration}: "
+            print(f"{variant} {iteration if iteration else 'warmup'}: "
                   f"{sample['seconds']:.3f}s, {sample['files']} files", flush=True)
     medians = {variant: statistics.median(s['seconds'] for s in values)
                for variant, values in samples.items()}
