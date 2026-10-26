@@ -133,15 +133,17 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
                       (': ' + '; '.join(failures[:3]) if failures else ''))
 
 
-def job_marker(job, created):
+def job_marker(job, created, generation=None):
+    """Destination marker: who owns the prefix and which generation it last confirmed."""
     return {'schema': IDENTITY_SCHEMA, 'name': job.name, 'type': job.type, 'logic': job.logic,
-            'created': created}
+            'created': created, 'generation': generation}
 
 
 def read_marker(storage, work):
     """The destination's `.sambinha/job.json`, or None when absent/unreadable."""
     target = work / 'job.json'
     try:
+        storage.stat(JOB_MARKER, hashes=False)
         storage.get(JOB_MARKER, target)
         data = json.loads(target.read_text(encoding='utf-8'))
     except (BackupError, OSError, ValueError):
@@ -157,6 +159,24 @@ def check_marker(job, storage, work, entries):
     if marker is not None and marker['name'] != job.name:
         raise ForeignStateError(f'Destino pertence ao job {marker["name"]!r}; '
                                 'use --adopt-identity para assumir')
+
+
+def superseded(job, storage, work, previous, log=None):
+    """True when another machine confirmed a generation this local state does not know.
+
+    The marker is one small object, so the check is cheap enough for every run;
+    destinations without a marker (pre-0.16 or never published) are trusted.
+    """
+    local = previous.get('generation')
+    if not isinstance(local, str):
+        return False
+    marker = read_marker(storage, work)
+    remote = marker.get('generation') if marker and marker['name'] == job.name else None
+    if not isinstance(remote, str) or not GENERATION.fullmatch(remote) or remote == local:
+        return False
+    if log is not None:
+        log.event('remote_generation_differs', job=job.name, local=local, remote=remote)
+    return True
 
 
 def backup_state(config, job, runner, *, allow_new=True, log=None):
@@ -175,14 +195,15 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
             raise
         except BackupError:
             invalid = True
-    if previous is not None and not journal.exists():
-        # A legacy/renamed identity accepted above is rewritten in memory; the
-        # next save/publish persists it and republishes the index.
-        migrate_identity(previous, job, log)
-        return previous
     storage = Storage(job, config, runner)
     with tempfile.TemporaryDirectory(prefix='sambinha-bootstrap-', dir=config.temp_dir) as temp:
         work = Path(temp)
+        if previous is not None and not journal.exists():
+            if not superseded(job, storage, work, previous, log):
+                # A legacy/renamed identity accepted above is rewritten in memory;
+                # the next save/publish persists it and republishes the index.
+                migrate_identity(previous, job, log)
+                return previous
         entries = listing(storage)
         check_marker(job, storage, work, entries)
         own_initialization = False
@@ -206,6 +227,9 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
                 write_control(config, job, key, control)
             for key, control in {**state.get('excluded', {}), **state['active']}.items():
                 write_control(config, job, key, control)
+            if previous is not None and isinstance(previous.get('fingerprints'), dict):
+                # Fingerprints are per machine (st_dev/st_ino); keep ours, not the publisher's.
+                state['fingerprints'] = previous['fingerprints']
             record_origin(state, job)
             atomic_json(path, state)
             journal.unlink(missing_ok=True)
@@ -216,21 +240,16 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         return state
 
 
-def publish_marker(ctx, work):
-    """Write `.sambinha/job.json` once: when absent or naming another job/identity."""
-    try:
-        ctx.storage.stat(JOB_MARKER, hashes=False)
-        current = read_marker(ctx.storage, work)
-    except BackupError:
-        current = None
-    expected = job_marker(ctx.job, 0)
-    if current is not None and {k: v for k, v in current.items() if k != 'created'} == \
-            {k: v for k, v in expected.items() if k != 'created'}:
-        return
+def publish_marker(ctx, work, generation):
+    """Rewrite `.sambinha/job.json` after each confirmed generation, keeping the creation time."""
+    current = read_marker(ctx.storage, work)
+    created = current['created'] if (current and current['name'] == ctx.job.name
+                                     and type(current.get('created')) in (int, float)) else time.time()
     marker = work / 'job-marker.json'
-    atomic_json(marker, job_marker(ctx.job, time.time()))
+    atomic_json(marker, job_marker(ctx.job, created, generation))
     ctx.storage.put(marker, JOB_MARKER, standard="control")
-    ctx.event('job_marker_written', path=JOB_MARKER, previous=current)
+    if current is None or current['name'] != ctx.job.name:
+        ctx.event('job_marker_written', path=JOB_MARKER, previous=current)
 
 
 def publish(ctx, state):
@@ -281,7 +300,7 @@ def publish(ctx, state):
         ctx.storage.put(marker, PREFIX + generation + '.commit.json', standard="control")
         transferred = ctx.storage.put(archive, CONTROL, standard="control")
         ctx.event('transferred' if transferred else 'identical', path=CONTROL)
-        publish_marker(ctx, work)
+        publish_marker(ctx, work, generation)
 
 
 def finish(ctx):
