@@ -4,14 +4,22 @@ Documento de handoff. Tudo aqui já foi revisado e aprovado por Leandro; o execu
 implementar o que está definido, sem reabrir decisões de design. Perguntas só se algo
 aqui for contraditório com o código real.
 
-## Estado em 2026-10-26
+## Estado em 2026-10-26 (atualizado após a Fase 3)
 
-- `main` = 0.15.1 publicada (tag `v0.15.1`, CI verde: lint, Python 3.12, 3.13, macOS).
+- `main` = 0.15.1 publicada + Fase 3 (identidade por nome) MESCLADA em `main` (merge `bbf7493`),
+  ainda SEM release. A 0.16.0 só sai depois de 2.2–2.4.
+- Fase 3 entregue: `state.identity` schema 2 (`STATE_SCHEMA = 3` no arquivo de estado, porque 2 já
+  era usado desde 0.13 para gerações confirmadas; 1 e 2 continuam legíveis), `identity_matches`,
+  `migrate_identity`, `record_origin` (origins, máx. 8), `--adopt-identity` via `Job.adopt_identity`,
+  marcador `.sambinha/job.json` (com `generation`; se outra máquina publicou depois, o índice remoto
+  é readotado: evento `remote_generation_differs`), `tests/test_identity.py` (12 testes), docs em
+  batch-lifecycle, configuration, architecture, performance, usage. Seção "3. Identidade por nome"
+  abaixo fica como registro; não refazer.
 - Worktrees em `/home/leandro/dev/sambinha-wt/`:
-  - `identity` (branch `identity`): Fase 3 EM ANDAMENTO por um agente; pode haver commits e
-    alterações não commitadas. Primeiro passo do executor: `git -C ../sambinha-wt/identity status`
-    e `git log main..identity`; continuar dali, não recomeçar.
-  - `resume` (branch `resume`): vazio (igual a `main`). Fase 2.2–2.4 ainda não começou.
+  - `identity`: concluído e mesclado; pode ser removido (`git worktree remove ../sambinha-wt/identity`).
+  - `resume` (branch `resume`): criado a partir de `main` ANTES da Fase 3; antes de começar, fazer
+    `git -C ../sambinha-wt/resume merge main` (ou recriar a partir de `main`). Fases 2.2–2.4 ainda não
+    começaram: PRÓXIMO PASSO.
 - Se os worktrees não existirem mais: `git worktree add -b <branch> ../sambinha-wt/<branch> main`.
 
 ## Convenções obrigatórias
