@@ -6,14 +6,20 @@ import subprocess
 import tempfile
 import time
 import unittest
+from collections import namedtuple
 from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar
+from unittest.mock import Mock
 
+from sambinha.batches import plan
 from sambinha.config import JOB_SCOPED_OPTIONS, Config, Job, with_job_overrides
 from sambinha.config_validation import validate
+from sambinha.context import Context
 from sambinha.engine import run
+from sambinha.inventory import scan
+from sambinha.process import Runner
 
 
 def override(config, **values):
@@ -136,3 +142,29 @@ def restore_batches(state, destination, restore):
 
 
 REAL_TOOLS = bool(shutil.which("rclone") and shutil.which("7z"))
+
+
+Usage = namedtuple('Usage', 'total used free')
+
+
+class Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+class BatchContext:
+    def context(self, workers=2, count=9):
+        for index in range(count):
+            self.file(f'{index}.bin', b'contents')
+        job = replace(self.config.jobs[0], type='s3', logic='batch',
+                      destination='aws:fake-bucket/', max_megabytes=1,
+                      check_source_disk=False, check_destination_disk=False)
+        config = replace(self.config, jobs=(replace(job, batch_workers=workers),))
+        job = config.jobs[0]
+        files = scan(self.source)
+        ctx = Context(config, job, Runner(), Mock(), files, 1000)
+        # Keep one tiny file per test batch while the configured size limit is
+        # large enough that these batches are not treated as oversized.
+        pending = plan(files, 1)
+        active = {item.key: item.control() for item in pending}
+        return ctx, pending, active

@@ -68,7 +68,7 @@ O que muda em relação ao Linux:
 - Jobs em lotes rejeitam nomes com caracteres de controle, o que inclui os arquivos `Icon\r` que o Finder cria em pastas com ícone personalizado. Exclua-os com a regra `Icon[\x0d␍]` descrita adiante; jobs simples os copiam pelo rclone.
 - Agende com `cron` ou com um agente `launchd` em `~/Library/LaunchAgents`; o comando é o mesmo `.venv/bin/sambinha backup`.
 
-Os testes marcados como `RealMacOSTests` em `tests/test_macos.py` rodam somente em um Mac e conferem esses comportamentos no sistema real; os demais testes de macOS simulam a plataforma e rodam também no CI Linux.
+Os testes marcados como `RealMacOSTests` em `tests/integration/test_macos.py` rodam somente em um Mac e conferem esses comportamentos no sistema real; os demais testes de macOS simulam a plataforma e rodam também no CI Linux.
 
 ## Faça seu primeiro backup
 
@@ -222,7 +222,9 @@ Prepare as ferramentas de teste no mesmo ambiente do projeto e execute a suíte 
 SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m pytest -n auto --cov=sambinha --cov-branch --cov-report=term-missing --cov-fail-under=85
 ```
 
-`make test`, `make coverage`, `make lint` (ruff) e `make typecheck` (mypy) executam os mesmos comandos; `make test-fast` pula os testes do servidor S3 por HTTP. Os testes continuam sendo casos `unittest`, então `python -m unittest discover` ainda funciona, apenas em série. O `ruff format` está configurado mas não é exigido: a integração contínua executa `ruff check` e mypy em uma etapa de lint antes dos testes (Python 3.12 e 3.13).
+`make test`, `make coverage`, `make lint` (ruff) e `make typecheck` (mypy) executam os mesmos comandos; `make test-fast` executa só `tests/unit` (sem rclone, 7-Zip nem rede) e `make test-integration` só `tests/integration`. Os testes continuam sendo casos `unittest`, então `python -m unittest discover` ainda funciona, apenas em série. O `ruff format` está configurado mas não é exigido: a integração contínua executa `ruff check` e mypy em uma etapa de lint antes dos testes (Python 3.12 e 3.13).
+
+Os testes ficam em dois diretórios, marcados automaticamente (`pytest -m unit`, `pytest -m integration`). `tests/unit` é lógica pura com mocks, fakes (`FakeRunner`) e diretórios temporários; não precisa de rclone, 7z nem rede e roda em segundos. `tests/integration` usa rclone/7-Zip reais, o processo real da CLI ou Moto/S3 por HTTP, e se pula sozinho quando falta uma ferramenta. Os construtores compartilhados (`Sandbox`, `FakeRunner`) ficam em `tests/helpers.py`.
 
 O resultado deve terminar com a contagem de testes aprovados. A última linha da tabela de cobertura mostra quanto do código os testes percorreram. As verificações incluem arquivos vazios, nomes com acentos, arquivos editados ou apagados, falhas de envio, recuperação após falhas e simulação. Os arquivos gerados têm no máximo **100 KiB**, e as pastas temporárias são removidas ao final.
 

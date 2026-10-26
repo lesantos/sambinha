@@ -56,7 +56,7 @@ Behavior that differs from Linux:
 - Batch jobs reject names with control characters, which includes the `Icon\r` files Finder creates in folders with custom icons. Exclude them with the `Icon[\x0d␍]` rule described below; simple jobs copy them through rclone.
 - Schedule with `cron` or a `launchd` agent in `~/Library/LaunchAgents`; the command is the same `.venv/bin/sambinha backup`.
 
-Tests marked `RealMacOSTests` in `tests/test_macos.py` run only on a Mac and check these behaviors against the live system; the remaining macOS tests simulate the platform and run on Linux CI as well.
+Tests marked `RealMacOSTests` in `tests/integration/test_macos.py` run only on a Mac and check these behaviors against the live system; the remaining macOS tests simulate the platform and run on Linux CI as well.
 
 ## First backup
 
@@ -313,9 +313,9 @@ Excluded files are not uploaded or considered removed. Files already in the back
 SAMBINHA_HTTP_S3_TESTS=1 .venv/bin/python -m pytest -n auto --cov=sambinha --cov-branch --cov-report=term-missing --cov-fail-under=85
 ```
 
-`make test`, `make coverage`, `make lint` (ruff) and `make typecheck` (mypy) wrap the same commands; `make test-fast` skips the HTTP S3 server tests. The tests remain `unittest` cases, so `python -m unittest discover` still works, only serially. `ruff format` is configured but not enforced: CI runs `ruff check` and mypy in a lint job before the test matrix (Python 3.12 and 3.13).
+`make test`, `make coverage`, `make lint` (ruff) and `make typecheck` (mypy) wrap the same commands; `make test-fast` runs only `tests/unit` (no rclone, 7-Zip or network) and `make test-integration` only `tests/integration`. The tests remain `unittest` cases, so `python -m unittest discover` still works, only serially. `ruff format` is configured but not enforced: CI runs `ruff check` and mypy in a lint job before the test matrix (Python 3.12 and 3.13).
 
-Tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They do not require real AWS or Cronitor credentials. HTTP integration requires loopback networking. Results are recorded in [test results](test-results.md); GitHub runs [continuous tests](https://github.com/lesantos/sambinha/actions).
+Tests live in two directories, marked automatically (`pytest -m unit`, `pytest -m integration`). `tests/unit` is pure logic with mocks, fakes (`FakeRunner`) and temporary directories; it needs neither rclone, 7z nor network and runs in seconds. `tests/integration` uses real rclone/7-Zip subprocesses, the real CLI process or Moto/HTTP S3 and skips itself when a tool is missing. Shared builders (`Sandbox`, `FakeRunner`) live in `tests/helpers.py`. Integration tests use temporary files, real rclone/7-Zip and Moto's local AWS emulator. They do not require real AWS or Cronitor credentials. HTTP integration requires loopback networking. Results are recorded in [test results](test-results.md); GitHub runs [continuous tests](https://github.com/lesantos/sambinha/actions).
 
 English is the default documentation language. Every maintained Markdown guide and public commented configuration example has a `.pt-BR` counterpart. Code, configuration keys, dependency lists, backup data fixtures and license identifiers retain their stable names. See the [usage guide](usage.md), [architecture](architecture.md), [security notes](../SECURITY.md), [changelog](../CHANGELOG.md), and [configuration example](../sambinha.example.toml).
 

@@ -1,0 +1,231 @@
+import importlib
+import signal
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as real_wait
+from dataclasses import replace
+from pathlib import Path
+from typing import ClassVar
+from unittest.mock import Mock, patch
+
+from sambinha.archives import temporary_bytes
+from sambinha.batches import plan
+from sambinha.errors import BackupError
+from sambinha.inventory import scan
+from sambinha.process import Interrupted
+from sambinha.storage import Storage
+from tests.helpers import BatchContext, Sandbox, Usage
+
+strategy = importlib.import_module('sambinha.strategies.batch')
+
+
+
+
+MIB = 1024 ** 2
+
+
+
+
+class BatchStagingTests(BatchContext, Sandbox):
+    def test_first_failure_stops_pending_batches(self):
+        ctx, pending, active = self.context(workers=1)
+        with patch.object(strategy, 'upload_batch', side_effect=BackupError('AccessDenied')) as upload:
+            with self.assertRaisesRegex(BackupError, 'AccessDenied'):
+                strategy._upload_pending(ctx, pending, active)
+        self.assertEqual(upload.call_count, 1)
+        self.assertFalse(ctx.state_path.exists())
+
+    def test_later_failure_is_detected_while_first_worker_is_still_busy(self):
+        ctx, pending, active = self.context()
+        first_started = threading.Event()
+        failed_result = threading.Event()
+        release = threading.Event()
+        started = []
+        lock = threading.Lock()
+
+        def upload(worker, item):
+            with lock:
+                started.append(item.key)
+            if item == pending[0]:
+                first_started.set()
+                if not release.wait(15):
+                    raise AssertionError('First worker was not released')
+                return item.control(), []
+            self.assertEqual(item, pending[1], 'A pending batch started after failure')
+            self.assertTrue(first_started.wait(10))
+            raise BackupError('second worker failed')
+
+        def observe(*args, **kwargs):
+            result = real_wait(*args, **kwargs)
+            if any(f.exception() for f in result.done):
+                failed_result.set()
+            return result
+
+        with patch.object(strategy, 'upload_batch', upload), patch.object(strategy, 'wait', observe):
+            with ThreadPoolExecutor(max_workers=1) as caller:
+                future = caller.submit(strategy._upload_pending, ctx, pending, active)
+                try:
+                    self.assertTrue(failed_result.wait(10), 'Failure was hidden behind the busy worker')
+                    self.assertFalse(future.done(), 'In-flight cleanup must finish before returning')
+                    self.assertEqual(set(started), {pending[0].key, pending[1].key})
+                finally:
+                    release.set()
+                with self.assertRaisesRegex(BackupError, 'second worker failed'):
+                    future.result(timeout=10)
+        self.assertEqual(len(started), 2)
+        self.assertFalse(ctx.state_path.exists())
+
+    def test_space_check_uses_largest_actual_batches_before_starting_workers(self):
+        ctx, pending, active = self.context(count=3)
+        self.file('0.bin', b'a' * 1000)
+        self.file('1.bin', b'b' * 2000)
+        self.file('2.bin', b'c' * 3000)
+        pending = plan(scan(self.source), ctx.job.max_bytes)
+        required = sorted((temporary_bytes(item) for item in pending), reverse=True)
+        checked = threading.Event()
+
+        def check(*args, **kwargs):
+            self.assertEqual(kwargs['required_bytes'], sum(required[:2]))
+            checked.set()
+
+        def upload(worker, item):
+            self.assertTrue(checked.is_set())
+            return item.control(), []
+
+        with patch.object(strategy, 'check_disk', check), patch.object(strategy, 'upload_batch', upload):
+            strategy._upload_pending(ctx, pending, active)
+
+    def test_combined_space_shortage_stops_before_any_batch_is_prepared(self):
+        ctx, pending, active = self.context()
+        # Each batch fits alone; two do not, despite occupancy below 95%.
+        with patch('shutil.disk_usage', return_value=Usage(20 * MIB, 18.5 * MIB, 1.5 * MIB)), \
+             patch.object(strategy, 'upload_batch') as upload:
+            with self.assertRaisesRegex(BackupError, 'Espaço insuficiente.*necessários.*disponíveis') as error:
+                strategy._upload_pending(ctx, pending, active)
+        self.assertIn('lotes que definem a estimativa', str(error.exception))
+        self.assertIn('maiores arquivos:', str(error.exception))
+        self.assertIn('0.bin (8 bytes)', str(error.exception))
+        self.assertIn('1.bin (8 bytes)', str(error.exception))
+        upload.assert_not_called()
+        self.assertFalse(ctx.state_path.exists())
+
+    def test_single_worker_does_not_budget_for_entire_queue(self):
+        ctx, pending, active = self.context(workers=1)
+        with patch('shutil.disk_usage', return_value=Usage(20 * MIB, 18.5 * MIB, 1.5 * MIB)), \
+             patch.object(strategy, 'upload_batch', side_effect=lambda c, item: (item.control(), [])) as upload:
+            strategy._upload_pending(ctx, pending, active)
+        self.assertEqual(upload.call_count, 9)
+
+    def test_one_batch_does_not_budget_for_unused_workers(self):
+        ctx, pending, active = self.context(workers=20, count=1)
+        with patch('shutil.disk_usage', return_value=Usage(20 * MIB, 18.5 * MIB, 1.5 * MIB)), \
+             patch.object(strategy, 'upload_batch', side_effect=lambda c, item: (item.control(), [])):
+            strategy._upload_pending(ctx, pending, active)
+
+    def test_space_is_rechecked_before_creating_archive(self):
+        ctx, pending, active = self.context(workers=1)
+        staging = self.root / 'staging'
+        staging.mkdir()
+        calls = 0
+
+        def usage(path):
+            nonlocal calls
+            calls += 1
+            return Usage(100 * MIB, 10 * MIB, 90 * MIB) if calls == 1 else Usage(10 * MIB, 9.4 * MIB, 0.6 * MIB)
+
+        with patch('tempfile.tempdir', str(staging)), patch('shutil.disk_usage', side_effect=usage), \
+             patch.object(Storage, 'put') as put, self.assertRaisesRegex(BackupError, 'Espaço insuficiente'):
+            strategy._upload_pending(ctx, pending, active)
+        put.assert_not_called()
+        self.assertEqual(list(staging.iterdir()), [])
+
+    def test_oversized_batches_run_one_at_a_time(self):
+        ctx, pending, active = self.context(workers=3, count=4)
+        ctx.job = replace(ctx.job, max_megabytes=1 / MIB)
+        pending = [replace(item, files=(replace(item.files[0], size=2 * MIB),)) for item in pending]
+        active = {item.key: item.control() for item in pending}
+        with patch.object(strategy, 'check_disk'), patch.object(strategy, 'upload_batch',
+                side_effect=lambda c, item: (item.control(), [])) as upload:
+            strategy._upload_pending(ctx, pending, active)
+        self.assertEqual(upload.call_count, len(pending))
+        self.assertEqual(upload.call_args_list[0].args[1], pending[0])
+
+
+class BlockingStorage:
+    """Stand-in for rclone uploads: block until the runner's children are killed."""
+
+    puts: ClassVar[list] = []
+
+    lock = threading.Lock()
+
+    def __init__(self, job, config, runner, source_required=True):
+        self.runner = runner
+
+    def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+        with BlockingStorage.lock:
+            BlockingStorage.puts.append(key)
+        self.runner.cancellation.event.wait(15)
+        # A killed rclone makes Runner.run raise Interrupted; mirror that.
+        self.runner.check_cancelled()
+        raise AssertionError('upload was never cancelled')
+
+
+class UploadInterruptionTests(BatchContext, Sandbox):
+    def test_interrupting_the_main_thread_cancels_workers_and_returns_quickly(self):
+        BlockingStorage.puts = []
+        ctx, pending, active = self.context(workers=2)
+        before = dict(active)
+
+        def compress(worker, item, work):
+            archive = work / 'archive.7z'
+            archive.write_bytes(b'archive')
+            return archive
+
+        started = time.monotonic()
+        main_thread = threading.main_thread().ident
+        ctx.storage_factory = BlockingStorage
+        with patch.object(strategy, 'compress', compress):
+            # Both workers are blocked inside put() when Ctrl+C reaches the main
+            # thread. A real signal is needed: only it wakes a blocked wait().
+            def interrupt_when_blocked():
+                # Fire only once both workers are inside put(); a fixed delay
+                # races with slow thread startup on loaded machines.
+                deadline = time.monotonic() + 10
+                while len(BlockingStorage.puts) < 2 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                signal.pthread_kill(main_thread, signal.SIGINT)
+
+            timer = threading.Thread(target=interrupt_when_blocked, daemon=True)
+            timer.start()
+            try:
+                with self.assertRaises(KeyboardInterrupt):
+                    strategy._upload_pending(ctx, pending, active)
+            finally:
+                timer.join(15)
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 2.5, f'_upload_pending blocked for {elapsed:.1f}s')
+        self.assertTrue(ctx.runner.cancelled)
+        self.assertEqual(len(BlockingStorage.puts), 2, 'uploads continued after the interruption')
+        self.assertEqual(active, before)
+        self.assertNotIn('transferred', [call.args[0] for call in ctx.log.event.call_args_list])
+        self.assertEqual(list(Path(self.root).glob('sambinha-batch-*')), [])
+        self.assertFalse(any(thread.name.startswith('ThreadPoolExecutor') and thread.is_alive()
+                             for thread in threading.enumerate()))
+
+    def test_worker_failures_do_not_cancel_sibling_uploads(self):
+        ctx, pending, active = self.context(workers=1)
+        with patch.object(strategy, 'upload_batch', side_effect=BackupError('AccessDenied')):
+            with self.assertRaises(BackupError):
+                strategy._upload_pending(ctx, pending, active)
+        self.assertFalse(ctx.runner.cancelled)
+
+    def test_workers_stop_before_compressing_or_uploading_after_cancellation(self):
+        ctx, pending, _active = self.context(workers=1, count=1)
+        ctx.runner.cancel()
+        ctx.storage_factory = storage = Mock()
+        with patch.object(strategy, 'compress') as compress:
+            with self.assertRaises(Interrupted):
+                strategy.upload_batch(ctx, pending[0])
+        compress.assert_not_called()
+        storage.return_value.put.assert_not_called()

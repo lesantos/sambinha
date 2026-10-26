@@ -35,7 +35,7 @@ Registering a new strategy or backend (extension checklist):
    ``BackupError`` before any I/O.
 4. Obtain storage only through ``ctx.storage_factory``/``ctx.storage``, never ``Storage(...)``.
    A new destination implements ``storage.StorageBackend`` and is injected as the factory.
-5. Cover it with a conformance test (see tests/test_storage_contract.py) and update the docs.
+5. Cover it with a conformance test (see tests/unit/test_storage_contract.py) and update the docs.
 """
 
 

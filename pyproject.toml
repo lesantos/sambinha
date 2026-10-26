@@ -105,6 +105,10 @@ disable_error_code = ["assignment", "attr-defined", "has-type", "no-redef", "arg
 testpaths = ["tests"]
 python_files = "test_*.py"
 addopts = "-q"
+markers = [
+    "unit: needs neither rclone, 7z nor network (tests/unit; applied by tests/conftest.py)",
+    "integration: real rclone/7z, real CLI subprocess or HTTP S3 (tests/integration; applied by tests/conftest.py)",
+]
 
 [tool.coverage.run]
 branch = true
