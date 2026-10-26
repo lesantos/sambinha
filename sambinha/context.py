@@ -1,4 +1,6 @@
 """Execution context shared by backup strategies."""
+import threading
+
 from .errors import BackupError
 from .filtering import Selection, retired_paths
 from .metadata import control_directory, prepare_controls, write_manifest
@@ -41,6 +43,9 @@ class Context:
         self.inventory_changed = False
         self.max_delete = -1
         self.batch_progress = {}
+        # Upload journal (see journal.py): entries still believed valid, shared by worker threads.
+        self.journal = {}
+        self.journal_lock = threading.Lock()
         # Local control mirrors of expired history, removed only after the
         # state without those entries is durable (see expire/save).
         self.expired_mirrors = []
