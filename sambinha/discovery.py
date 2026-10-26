@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from .errors import BackupError
 from .inventory import safe_relative
 from .process import child_environment
+from .tempdirs import prefix
 
 
 class Discovery:
@@ -28,7 +29,7 @@ class Discovery:
         self.authorization = None
 
     def __enter__(self):
-        self.directory = tempfile.TemporaryDirectory(prefix="sambinha-discovery-",
+        self.directory = tempfile.TemporaryDirectory(prefix=prefix("discovery"),
                                                      dir=self.config.temp_dir)
         try:
             self.log_path = Path(self.directory.name) / "rclone.log"

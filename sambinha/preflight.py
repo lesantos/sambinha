@@ -8,6 +8,7 @@ from typing import NamedTuple
 from .disks import check_disks
 from .errors import BackupError, job_errors
 from .filtering import Selection
+from .fresh import discard_journals, drop_caches, requested
 from .index_generations import backup_state
 from .inventory import File, scan
 from .mounts import check_mounts, uses_mountpoint_command
@@ -50,7 +51,14 @@ def _check_destination(config, job, runner, checking):
 
 
 def _read_inventory(config, job, runner, now, reading, log=None):
+    fresh = requested(job)
+    # Journals go first: a stale publication.json would make backup_state re-reconcile from the destination.
+    discarded = discard_journals(config, job) if fresh else []
     previous = backup_state(config, job, runner, log=log)
+    if fresh:
+        discarded += drop_caches(previous)
+        if log is not None:
+            log.event("fresh_start", job=job.name, discarded=discarded, dry_run=job.dry_run)
     force = (not job.fingerprint_cache or "last_full_scan" not in previous or
              now < previous["last_full_scan"] or
              now - previous["last_full_scan"] >= job.fingerprint_full_scan_days * DAY)

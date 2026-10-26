@@ -53,6 +53,15 @@ The bypass applies only to that invocation; review the source and logs before us
 
 `--adopt-identity` (backup only) is the equivalent one-invocation switch for backup identity: it lets a renamed job, or a pre-0.16 state whose paths differ, take over an existing backup instead of failing with `Destino pertence ao job X`. See [the same backup from several machines](configuration.md#same-backup-from-several-machines).
 
+`--fresh-start` (backup only) makes this run ignore every resume hint: the fingerprint cache, last full scan and the upload/publication journals are discarded (confirmed backup state is kept), and leftover temporary directories of dead processes are swept at once. The TOML job option `resume = "fresh"` does the same on every run; the default `resume = "auto"` resumes interrupted batch uploads. `--prune-orphans` (backup only) deletes destination archives and recovery generations that no confirmed state references and that are over one day old, under the same mass-deletion guard (`--allow-mass-deletion` overrides it); without the flag orphans are only reported in an `orphans` event.
+
+```bash
+sambinha --job documents --fresh-start
+sambinha --job documents --prune-orphans
+```
+
+See [interruption and resume](batch-lifecycle.md#interruption-and-resume) for the journal, orphan and sweep rules.
+
 ## Disk and mount monitoring
 
 Source disks, local destination disks and batch staging disks fail above 95% occupancy, including filesystem space unavailable to the current user. Exactly 95% is allowed. A not-yet-created destination uses its nearest existing ancestor for measurement. Checks run before backup and before destination changes; `disk_usage` events record the percentage and free bytes. For S3 only local source/staging disks have a measurable occupancy percentage. Restore also checks its output filesystem.

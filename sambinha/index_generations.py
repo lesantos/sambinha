@@ -27,6 +27,7 @@ from .state import (
     validate_controls,
 )
 from .storage import Storage
+from .tempdirs import prefix
 
 PREFIX = INDEXES + '/'
 GENERATION = re.compile(r'[0-9]{20}-[0-9a-f]{32}\Z')
@@ -196,7 +197,7 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         except BackupError:
             invalid = True
     storage = Storage(job, config, runner)
-    with tempfile.TemporaryDirectory(prefix='sambinha-bootstrap-', dir=config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix('bootstrap'), dir=config.temp_dir) as temp:
         work = Path(temp)
         if previous is not None and not journal.exists():
             if not superseded(job, storage, work, previous, log):
@@ -263,7 +264,7 @@ def publish(ctx, state):
     state['generation'] = generation
     journal = ctx.directory / 'publication.json'
     atomic_json(journal, {'identity': ctx.identity, 'generation': generation})
-    with tempfile.TemporaryDirectory(prefix='sambinha-index-', dir=ctx.config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix('index'), dir=ctx.config.temp_dir) as temp:
         work = Path(temp)
         controls = {**state.get('excluded', {}), **state['active']}
         for entry in state['retired']:
@@ -312,6 +313,10 @@ def finish(ctx):
         # Remove confirmation first; an interrupted prune never exposes a bad candidate.
         ctx.storage.delete(PREFIX + generation + '.commit.json')
         ctx.storage.delete(PREFIX + generation + '.tar.gz')
+        entries.pop(PREFIX + generation + '.commit.json', None)
+        entries.pop(PREFIX + generation + '.tar.gz', None)
+    # The orphan report reuses this listing instead of asking the destination again.
+    ctx.listing = entries
 
     (ctx.directory / 'publication.json').unlink(missing_ok=True)
     (ctx.directory / 'initialization.json').unlink(missing_ok=True)

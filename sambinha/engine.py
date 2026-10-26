@@ -9,6 +9,7 @@ from .batch_alerts import collect as collect_batch_alerts
 from .config import Config
 from .context import Context as Context
 from .errors import BackupError, JobError
+from .fresh import requested as fresh_requested
 from .jobs import JobExecution
 from .notify import notify
 from .preflight import preflight as preflight
@@ -21,6 +22,7 @@ from .state import lock
 from .strategies.batch import batch
 from .strategies.batch import upload_batch as upload_batch
 from .strategies.batch import upload_index as upload_index
+from .tempdirs import MIN_AGE, sweep_and_log
 from .versions import check_rclone_version
 
 STRATEGIES = {"batch": batch}
@@ -30,7 +32,11 @@ STRATEGIES = {"batch": batch}
 # directories, children), exactly like Ctrl+C; see process.handle_termination.
 @handle_termination()
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False,
-        action='backup', adopt_identity=False) -> int:
+        action='backup', adopt_identity=False, prune_orphans=False, fresh_start=False) -> int:
+    if fresh_start:
+        config = replace(config, jobs=tuple(replace(job, fresh_start=True) for job in config.jobs))
+    if prune_orphans:
+        config = replace(config, jobs=tuple(replace(job, prune_orphans=True) for job in config.jobs))
     if adopt_identity:
         # Identity adoption is per invocation; the jobs carry it to state/index checks.
         config = replace(config, jobs=tuple(replace(job, adopt_identity=True) for job in config.jobs))
@@ -66,6 +72,9 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
             runner.load_config_secrets(config.rclone_config)
             with nullcontext() if all_dry_run else lock(config.state_dir):
                 session.prune_logs()
+                if not all_dry_run:
+                    # A clean restart also clears recent leftovers of dead processes.
+                    sweep_and_log(config, log, min_age=0 if any(map(fresh_requested, config.jobs)) else MIN_AGE)
                 telemetry("run")
                 runner.require([config.rclone])
                 check_rclone_version(runner, config.rclone)

@@ -72,6 +72,24 @@ Agrupe apenas os membros dos lotes afetados, na ordem registrada dos grupos/memb
 
 Lotes GLACIER/DEEP_ARCHIVE precisam estar disponíveis após restore pela AWS; o rebalanceamento não o solicita automaticamente. Somente os compactados afetados são baixados/extraídos com validação do conteúdo; seus membros são preparados e recomprimidos. Falta de espaço ou erro de disco interrompe a publicação. A simulação informa o planejamento sem extrair lotes, alterar backup/estado ou enviar telemetria. `rebalance_summary` informa quantos lotes foram afetados/preservados. O comando não é uma reorganização completa para reduzir lotes antigos já conformes.
 
+## Interrupção e retomada
+
+Um backup em lotes que morre após alguns envios (rede, Ctrl+C, SIGKILL) não recomeça do zero. Após cada upload bem-sucedido o job acrescenta uma entrada a `state/<job>/uploads.json` (`key`, `batch_id`, `archive_size`, `archive_md5`, metadados dos membros, `uploaded_at`), gravada de forma atômica sob trava porque os workers são threads. A execução seguinte entrega essas entradas ao planejador como associação anterior adicional, de modo que os mesmos membros formam o mesmo lote, e só pula o envio quando o destino ainda lista o objeto com o tamanho do journal **e** todos os membros ainda coincidem exatamente com a origem (caminho, tamanho, mtime, modo e, no modo hash, checksums). Caso contrário a entrada é descartada (`journal_entry_discarded` com `reason` `changed`, `confirmed`, `overlap` ou `missing`) e o lote é refeito. Entradas reaproveitadas registram `journal_reused`. O journal é apagado após o commit que publica o índice de recuperação e salva o estado; simulações o leem, mas nunca o gravam. Ele é só uma dica: arquivo ausente, corrompido ou estranho é ignorado.
+
+## Relato de órfãos e `--prune-orphans`
+
+Entradas descartadas, interrupções superadas e publicações interrompidas deixam objetos que nenhum estado confirmado referencia. Após um commit bem-sucedido o job calcula, a partir da listagem do destino que já possui (sem nova listagem completa), todo artefato de lote (`batch-<digest>.<ext>`, `.versions/<digest>/<nome>` e seus controles `.json`) não referenciado por `active`, `excluded`, `retired` ou um journal vivo, além de `.sambinha/indexes/<geração>.tar.gz` sem o `.commit.json`. Nada em `.sambinha/history`, o marcador, o índice de compatibilidade e chaves que não tenham forma de artefato de lote são considerados. Havendo ao menos um órfão, o evento `orphans` (nível summary) informa `count`, `bytes`, `oldest_age_days` e até 20 chaves de exemplo; com zero, nada é registrado. As idades vêm de uma listagem restrita às chaves órfãs.
+
+O relato nunca apaga. `--prune-orphans` (só backup) remove órfãos com mais de um dia, registrando `orphan_removed` por chave, e respeita o guard de remoção em massa: mais que `max_delete_percent` dos objetos de lote do job (com pelo menos `deletion_min_files`) registra `mass_deletion_blocked` e falha o job, salvo com `--allow-mass-deletion`. Também roda num backup sem alterações e nunca em simulações.
+
+## Reinício limpo
+
+`--fresh-start` (ou `resume = "fresh"` no job) descarta o cache de fingerprints e o último scan completo (forçando novo scan e rehash completos), `uploads.json` e `publication.json`, e registra `fresh_start` listando o que existia. Mantém `active`, `retired` e `excluded`: arquivos alterados continuam sendo detectados pela comparação com os controles confirmados e nada já armazenado é reenviado. A execução também varre, sem limite de idade, temporários deixados por processos mortos.
+
+## Varredura de temporários
+
+Os diretórios de staging se chamam `sambinha-<etapa>-<pid>-<aleatório>`. Após obter a trava de escritor, cada execução remove no diretório temporário efetivo os que tiverem pid inexistente (`ProcessLookupError`; pid que não podemos sinalizar conta como vivo), pertençam ao usuário, sejam diretórios reais (symlinks nunca são seguidos) e tenham sido modificados há mais de uma hora, e registra `temp_cleanup` com `removed` e `bytes`. Simulações não varrem nada.
+
 ## Restauração e perda da máquina
 
 Restore confere o destino e sua montagem, saída e capacidade dos temporários, sem exigir caminho, montagem ou disco da origem. Preserve/recrie configuração do job e credenciais em outra máquina; nome, tipo e lógica do job (e destino S3) precisam coincidir; pontos de montagem podem diferir. A saída continua nova/vazia, separada dos caminhos protegidos, com proteção contra links/sobrescrita. A restauração simples usa rclone e não exige índice batch.

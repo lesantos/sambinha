@@ -72,6 +72,24 @@ Pool only members of affected groups in their recorded group/member order, diver
 
 Only affected archives are downloaded/extracted, with content validation. GLACIER/DEEP_ARCHIVE archives must first be made readable through AWS restore; rebalance never initiates it. Stage their members, then rebuild the new archives. Disk/temporary failures abort publication. Dry runs list planned changes without extracting archives, changing backup/state or sending telemetry. `rebalance_summary` records affected/preserved counts. Rebalance is not a full repack command for consolidating legacy healthy archives.
 
+## Interruption and resume
+
+A batch backup that dies after some uploads (network loss, Ctrl+C, SIGKILL) does not start over. After each successful archive upload the job appends an entry to `state/<job>/uploads.json` (`key`, `batch_id`, `archive_size`, `archive_md5`, member metadata, `uploaded_at`), written atomically under a lock because workers are threads. The next run feeds those entries to the planner as extra previous membership, so the same members form the same batch, and skips an entry's upload only when the destination still lists the object with the journaled size **and** every member still matches the source exactly (path, size, mtime, mode and, in hash mode, checksums). Otherwise the entry is discarded (`journal_entry_discarded` with `reason` `changed`, `confirmed`, `overlap` or `missing`) and the batch is rebuilt. Reused entries log `journal_reused`. The journal is deleted after the commit that publishes the recovery index and saves the state; dry runs read it but never write it. It is only a hint: a missing, corrupt or foreign file is ignored.
+
+## Orphan report and `--prune-orphans`
+
+Discarded entries, superseded interruptions and killed publications leave objects no confirmed state references. After a successful commit the job computes, from the destination listing it already holds (no extra full listing), every batch artifact (`batch-<digest>.<ext>`, `.versions/<digest>/<name>` and their `.json` controls) not referenced by `active`, `excluded`, `retired` or a live journal, plus `.sambinha/indexes/<generation>.tar.gz` without its `.commit.json`. Anything under `.sambinha/history`, the marker, the compatibility index and keys not shaped like batch artifacts are never considered. When at least one orphan exists a summary-level `orphans` event reports `count`, `bytes`, `oldest_age_days` and up to 20 example keys; nothing is logged for zero. Ages come from one listing restricted to the orphan keys.
+
+Reporting never deletes. `--prune-orphans` (backup only) removes orphans older than one day, logging `orphan_removed` per key, and respects the mass-deletion guard: more than `max_delete_percent` of the job's batch objects (when there are at least `deletion_min_files`) logs `mass_deletion_blocked` and fails the job unless `--allow-mass-deletion` is given. It also runs on an otherwise unchanged backup and never in dry runs.
+
+## Clean restart
+
+`--fresh-start` (or `resume = "fresh"` in the job) discards the fingerprint cache and last full scan (forcing a complete rescan and rehash), `uploads.json` and `publication.json`, and logs `fresh_start` with the list of what existed. It keeps `active`, `retired` and `excluded`: changed files are still detected against the confirmed controls and nothing already stored is uploaded again. The run also sweeps leftover temporary directories of dead processes regardless of age.
+
+## Temporary directory sweep
+
+Staging directories are named `sambinha-<stage>-<pid>-<random>`. After taking the writer lock, each run removes such directories in the effective temporary directory when that pid is gone (`ProcessLookupError`; a pid we may not signal counts as alive), they belong to the current user, are real directories (symlinks are never followed) and were last modified over one hour ago, then logs `temp_cleanup` with `removed` and `bytes`. Dry runs sweep nothing.
+
 ## Restore and machine loss
 
 Restore checks the backup destination and its mounted volume, output directory and temporary capacity, without requiring the original source path, mount or disk. Preserve/recreate the job configuration and credentials on another machine; the job name, type and logic (and S3 destination) must match, mount points may differ. Output remains new/empty, separate from protected paths, with link/overwrite protection. Current simple-tree restores use rclone and need no batch index.

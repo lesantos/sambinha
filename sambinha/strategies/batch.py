@@ -6,11 +6,13 @@ import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
+from .. import journal, orphans
 from ..archives import compress, temporary_bytes
 from ..batches import plan
 from ..context import Context
 from ..disks import check_disk, check_disks, get_temporary_path
 from ..errors import BackupError
+from ..fresh import requested
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
 from ..names import CONTROL
@@ -20,6 +22,7 @@ from ..protection import protect_newer
 from ..retention import retirement
 from ..state import atomic_json
 from ..storage import Storage
+from ..tempdirs import prefix
 
 
 def upload_index(ctx, state):
@@ -40,7 +43,7 @@ def upload_batch(ctx, item):
     worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
     show_progress(worker.runner, worker.progress)
     worker.storage = Storage(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
-    with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix("batch"), dir=ctx.config.temp_dir) as temp:
         check_disks(ctx.job, config=ctx.config, check_source=not ctx.rebalancing)
         # After an interruption, never start compression or an upload whose
         # result would be discarded: each would leave an orphan at the destination.
@@ -63,6 +66,8 @@ def upload_batch(ctx, item):
         transferred = worker.storage.put(control_path, item.key + ".json", standard="control")
         events.append(("transferred" if transferred else "identical", {"path": item.key + ".json"}))
         write_control(ctx.config, ctx.job, item.key, control)
+        if not ctx.rebalancing:
+            journal.record(ctx, item, control)
         return control, events
 
 
@@ -83,10 +88,14 @@ def _plan_batches(ctx):
             ctx.event("excluded_batch", archive=key, files=[f["path"] for f in control["files"]])
         else:
             old[key] = control
-    batches = plan(ctx.files, ctx.job.max_bytes, extension=ctx.job.archive_format, previous=old,
+    current_files = {f.path: f.metadata() for f in ctx.files}
+    # Archives stored by an interrupted earlier run come first, so the same
+    # members form the same batch again and its upload is skipped (_pending_uploads).
+    ctx.journal = {} if ctx.rebalancing or requested(ctx.job) else journal.usable(ctx, confirmed, current_files)
+    previous = {**{key: journal.entry_control(entry) for key, entry in ctx.journal.items()}, **old}
+    batches = plan(ctx.files, ctx.job.max_bytes, extension=ctx.job.archive_format, previous=previous,
                    individual_percent=ctx.job.individual_batch_percent, rebalance=ctx.rebalancing)
     active = {b.key: b.control() for b in batches}
-    current_files = {f.path: f.metadata() for f in ctx.files}
     # Content-addressed archive keys allow old lots to remain in place, avoiding
     # server-side copies/restores of GLACIER and DEEP_ARCHIVE objects.
     for key, control in old.items():
@@ -127,7 +136,7 @@ def _available(ctx, item, control, entries=None):
     if not has_control:
         ctx.event('would_repair_control' if ctx.job.dry_run else 'repair_control', path=item.key + '.json')
         if not ctx.job.dry_run:
-            with tempfile.TemporaryDirectory(prefix='sambinha-control-', dir=ctx.config.temp_dir) as temp:
+            with tempfile.TemporaryDirectory(prefix=prefix('control'), dir=ctx.config.temp_dir) as temp:
                 path = Path(temp) / 'control.json'
                 atomic_json(path, control)
                 ctx.storage.put(path, item.key + '.json', standard="control")
@@ -138,7 +147,7 @@ def _pending_uploads(ctx, batches, old, active):
     retired_keys = {entry["key"] for entry in ctx.state["retired"]}
     pending = []
     from ..index_generations import listing
-    entries = listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys) else None
+    entries = listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys or ctx.journal) else None
     for item in batches:
         mirror = ctx.controls_directory / (item.key + ".json")
         saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None
@@ -146,7 +155,15 @@ def _pending_uploads(ctx, batches, old, active):
                                                      for k in ("schema", "archive", "files"))
         if reusable:
             active[item.key] = saved_control
-        available = (item.key in old or reusable) and _available(ctx, item, active[item.key], entries)
+        journaled = item.key in ctx.journal and item.key not in old and not reusable
+        available = (item.key in old or reusable or journaled) and _available(ctx, item, active[item.key], entries)
+        if journaled:
+            # Trust the journal only while the destination still holds the archive.
+            if available:
+                ctx.event("journal_reused", archive=item.key)
+            else:
+                journal.discard(ctx, item.key)
+                ctx.event("journal_entry_discarded", archive=item.key, reason="missing")
         if available:
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
@@ -246,6 +263,8 @@ def batch(ctx: Context):
     next_state["active"] = active
     if (ctx.state_path.exists() and next_state == ctx.state and not pending and not ctx.inventory_changed
             and not next_state.get("index_pending") and not any(r["expires"] <= ctx.now for r in next_state["retired"])):
+        if ctx.job.prune_orphans:
+            orphans.report(ctx)
         return
     if ctx.job.dry_run:
         ctx.state = next_state
@@ -263,6 +282,7 @@ def batch(ctx: Context):
     next_state.pop("index_pending", None)
     ctx.state = next_state
     ctx.save()
+    journal.clear(ctx)
     from ..index_generations import finish
     finish(ctx)
     before_cleanup = copy.deepcopy(ctx.state)
@@ -276,3 +296,4 @@ def batch(ctx: Context):
         ctx.state.pop("index_pending", None)
         ctx.save()
         finish(ctx)
+    orphans.report(ctx)

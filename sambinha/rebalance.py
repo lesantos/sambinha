@@ -15,6 +15,7 @@ from .index_generations import backup_state
 from .inventory import File
 from .mounts import check_mounts
 from .strategies.batch import batch
+from .tempdirs import prefix
 from .versions import check_compressor_version
 
 
@@ -43,7 +44,7 @@ def execute(config, job, runner, log, progress, forecast, now, *, on_context=Non
         if state.get("index_pending"):
             batch(ctx)
         return ctx
-    with tempfile.TemporaryDirectory(prefix='sambinha-rebalance-', dir=config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix('rebalance'), dir=config.temp_dir) as temp:
         work = Path(temp)
         ctx.source = work / 'source'
         ctx.source.mkdir()

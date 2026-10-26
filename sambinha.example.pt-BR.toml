@@ -59,6 +59,7 @@ fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
 dry_run = false
+resume = "auto" # "fresh" descarta caches/journals de retomada a cada execução (jobs batch).
 source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
@@ -110,6 +111,7 @@ fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
 dry_run = false
+resume = "auto"
 source = "~/Documents"
 # aws é o remote de rclone.example.conf; crie o bucket primeiro.
 # Prefira prefixos separados: jobs sobrepostos podem substituir dados/controles.
