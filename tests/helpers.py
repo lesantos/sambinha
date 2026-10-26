@@ -19,7 +19,7 @@ from sambinha.config_validation import validate
 from sambinha.context import Context
 from sambinha.engine import run
 from sambinha.inventory import scan
-from sambinha.process import Runner
+from sambinha.process import Interrupted, Runner
 
 
 def override(config, **values):
@@ -168,3 +168,65 @@ class BatchContext:
         pending = plan(files, 1)
         active = {item.key: item.control() for item in pending}
         return ctx, pending, active
+
+
+class Reply(namedtuple('Reply', 'stdout stderr')):
+    """Scripted result carrying the child's stderr (exposed as ``FakeRunner.last_stderr``)."""
+
+
+class FakeRunner:
+    """Scripted stand-in for ``sambinha.process.Runner``: records commands, never spawns anything.
+
+    ``script`` maps a command prefix (a string split on spaces, or a tuple of arguments) to a reply;
+    the longest matching prefix wins and unmatched commands return ``default``. A reply is a string
+    (stdout), a ``Reply`` (stdout + stderr), an exception instance (raised), a callable
+    ``(args, **options) -> reply`` or a list consumed one item per call (the last one repeats).
+    """
+
+    def __init__(self, script=None, *, default=""):
+        self.script = {tuple(k.split()) if isinstance(k, str) else tuple(k): v for k, v in (script or {}).items()}
+        self.default = default
+        self.commands = []   # every argument list, as strings
+        self.options = []    # keyword options of each run() call, parallel to commands
+        self.required = []
+        self.last_stderr = None
+        self.progress = None
+        self.env = None
+        self._cancelled = False
+
+    @property
+    def cancelled(self):
+        return self._cancelled
+
+    def cancel(self):
+        self._cancelled = True
+
+    def check_cancelled(self):
+        if self._cancelled:
+            raise Interrupted()
+
+    def require(self, programs):
+        self.required.append(tuple(programs))
+
+    def safe_error(self, message):
+        return message
+
+    def calls(self, *prefix):
+        """Recorded commands starting with ``prefix`` (e.g. ``calls('rclone', 'lsjson')``)."""
+        return [c for c in self.commands if tuple(c[:len(prefix)]) == prefix]
+
+    def run(self, args, **options):
+        self.check_cancelled()
+        command = [str(a) for a in args]
+        self.commands.append(command)
+        self.options.append(options)
+        matches = [k for k in self.script if tuple(command[:len(k)]) == k]
+        reply = self.script[max(matches, key=len)] if matches else self.default
+        if isinstance(reply, list):
+            reply = reply.pop(0) if len(reply) > 1 else reply[0]
+        if callable(reply):
+            reply = reply(command, **options)
+        if isinstance(reply, BaseException):
+            raise reply
+        self.last_stderr = reply.stderr if isinstance(reply, Reply) else None
+        return reply.stdout if isinstance(reply, Reply) else reply
