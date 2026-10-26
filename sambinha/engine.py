@@ -1,8 +1,10 @@
 """Backup orchestration and independent, sequential job lifecycles."""
 import time
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from .archives import compress as compress
 from .batch_alerts import collect as collect_batch_alerts
@@ -11,6 +13,7 @@ from .context import Context as Context
 from .errors import BackupError, JobError
 from .fresh import requested as fresh_requested
 from .jobs import JobExecution
+from .names import Logic
 from .notify import notify
 from .preflight import preflight as preflight
 from .process import handle_termination
@@ -22,10 +25,25 @@ from .state import lock
 from .strategies.batch import batch
 from .strategies.batch import upload_batch as upload_batch
 from .strategies.batch import upload_index as upload_index
+from .strategies.simple import simple
 from .tempdirs import MIN_AGE, sweep_and_log
 from .versions import check_rclone_version
 
-STRATEGIES = {"batch": batch}
+STRATEGIES: dict[Logic, Callable[[Any], None]] = {"simple": simple, "batch": batch}
+"""Strategy registry keyed by ``Job.logic``; ``JobExecution`` dispatches through it.
+
+Registering a new strategy or backend (extension checklist):
+1. Add the name to ``names.Logic`` (and ``Job.type`` values if it is a new destination kind) and
+   extend ``config.validate`` so only the new combinations are accepted.
+2. Write ``strategies/<name>.py`` exposing ``def strategy(ctx)``. It receives ``Context`` (full job
+   state, as ``batch`` does) or ``SimpleContext`` (stateless, as ``simple`` does); both expose
+   ``config/job/runner/log/now/progress/allow_mass_deletion/storage_factory`` (``StrategyContext``).
+3. Register it here: ``STRATEGIES["name"] = strategy``. An unregistered logic fails with a
+   ``BackupError`` before any I/O.
+4. Obtain storage only through ``ctx.storage_factory``/``ctx.storage``, never ``Storage(...)``.
+   A new destination implements ``storage.StorageBackend`` and is injected as the factory.
+5. Cover it with a conformance test (see tests/test_storage_contract.py) and update the docs.
+"""
 
 
 # SIGTERM unwinds through every finally below (end event, lock, temporary
