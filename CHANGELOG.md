@@ -2,7 +2,7 @@
 
 ## 0.15.0 — 2026-10-26
 
-Run on macOS in addition to Linux. Read the mount table from the BSD `mount` command when `/proc/self/mountinfo` is unavailable, classify APFS and HFS+ as POSIX volumes and `msdos` as FAT, and verify `source_mount`/`destination_mount` by comparing devices with the parent directory where util-linux `mountpoint` does not exist. Fall back from `O_PATH` to a non-blocking read-only descriptor for metadata-only inventories. Add `tests/test_macos.py` with simulated-platform tests that run everywhere and live tests that run only on a Mac. Document Homebrew installation, `/Volumes` mount points, case-insensitive APFS, Full Disk Access and `launchd` scheduling. Linux behavior is unchanged.
+Run on macOS in addition to Linux. Read the mount table from the BSD `mount` command when `/proc/self/mountinfo` is unavailable, classify APFS and HFS+ as POSIX volumes and `msdos` as FAT, and verify `source_mount`/`destination_mount` by comparing devices with the parent directory where util-linux `mountpoint` does not exist. Fall back from `O_PATH` to a non-blocking read-only descriptor for metadata-only inventories. Resolve the default temporary directory once per invocation, because macOS places it under `/var` (a symlink to `/private/var`) and metadata work directories refuse symlinked ancestors. Add `tests/test_macos.py` with simulated-platform tests that run everywhere and live tests that run only on a Mac, plus an informative macOS job in GitHub Actions; the live tests, including end-to-end simple and batch backups, pass on the `macos-latest` runner. Document Homebrew installation, `/Volumes` mount points, case-insensitive APFS, Full Disk Access and `launchd` scheduling. Linux behavior is unchanged.
 
 ## 0.14.9 — 2026-10-26
 
