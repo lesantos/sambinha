@@ -81,7 +81,8 @@ def _plan_batches(ctx):
     protect_newer(ctx.files, destination_times, ctx.event)
     next_state = copy.deepcopy(ctx.state)
     old = {}
-    selected = ctx.selection.include_paths(f["path"] for c in confirmed.values() for f in c["files"])
+    selected = ctx.selection.include_paths((f["path"] for c in confirmed.values() for f in c["files"]),
+                                           ctx.selected_paths())
     next_state["excluded"] = {} if not ctx.rebalancing else next_state.get("excluded", {})
     for key, control in (ctx.state["active"] if ctx.rebalancing else confirmed).items():
         if not ctx.rebalancing and any(f["path"] not in selected for f in control["files"]):

@@ -137,3 +137,9 @@ Publicar uma geração de recuperação não lista mais o destino inteiro para p
 ## Opções do rclone para S3 (0.17.0)
 
 `fast_list`, `s3_chunk_size` e `s3_upload_concurrency` são opções opcionais por job ([configuração](configuration.pt-BR.md)). Só alteram a linha de comando do rclone (apenas jobs S3); por isso não houve benchmark: o efeito depende do tamanho do bucket, dos objetos e da banda, e os padrões não mudam. Lembre que `verification_mode = "hash"` faz o rclone calcular o MD5 de toda a origem a cada sync simples.
+
+## Reclassificação de filtros dos arquivos indexados (0.17.0)
+
+Com `exclude_files`, toda execução montava uma árvore temporária com N arquivos vazios e rodava `rclone lsjson --recursive` para reclassificar *todos* os caminhos indexados (guarda de remoção em massa, previsão/expiração do histórico, detecção de lotes excluídos). Arquivos do inventário atual já foram selecionados pelas mesmas regras congeladas na descoberta, então passam a ser incluídos por construção; só os caminhos fora do inventário atual (removidos, excluídos por uma regra nova, membros de histórico retirado) passam pela árvore. A semântica não muda: um arquivo que saiu do inventário porque uma regra nova o exclui continua sendo classificado como excluído (o lote vai para `state.excluded`), não como removido. O cache por execução continua (chave = conjunto classificado). O `rebalance` não usa o atalho: seu "inventário" é reconstruído dos controles, não descoberto.
+
+Medido com 20.000 caminhos indexados e 3 regras ([dados](benchmarks/state-2026-10-26.json)): execução sem mudanças 5,15 s -> 0,03 s; 10 arquivos removidos 5,41 s -> 0,23 s.

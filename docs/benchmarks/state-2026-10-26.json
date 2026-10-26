@@ -1,0 +1,36 @@
+{
+  "after": {
+    "deepcopy_with_fingerprints_embedded_s": 0.95,
+    "deepcopy_without_s": 0.455,
+    "files": 20000,
+    "fingerprints_json_bytes": 13133562,
+    "fingerprints_json_load_s": 1.978,
+    "fingerprints_json_save_s": 1.636,
+    "include_paths_10_removed_s": 0.226,
+    "include_paths_all_unchanged_s": 0.026,
+    "load_state_with_fingerprints_embedded_s": 5.153,
+    "load_state_without_s": 2.921,
+    "snapshot_without_s": 0.0,
+    "state_files": 50000,
+    "state_json_with_fingerprints_embedded_bytes": 35405829,
+    "state_json_without_bytes": 14522245,
+    "state_save_with_fingerprints_embedded_s": 2.845,
+    "state_save_without_s": 1.063
+  },
+  "before": {
+    "deepcopy_with_fingerprints_embedded_s": 0.892,
+    "deepcopy_without_s": 0.448,
+    "files": 20000,
+    "fingerprints_json_save_s": null,
+    "include_paths_10_removed_s": 5.407,
+    "include_paths_all_unchanged_s": 5.145,
+    "load_state_with_fingerprints_embedded_s": 4.928,
+    "load_state_without_s": 3.419,
+    "state_files": 50000,
+    "state_json_with_fingerprints_embedded_bytes": 35405829,
+    "state_json_without_bytes": 14522245,
+    "state_save_with_fingerprints_embedded_s": 2.928,
+    "state_save_without_s": 0.986
+  },
+  "note": "scripts: synthetic. include_paths: 20,000 indexed paths, exclude file with 3 rules, real rclone. State: 50,000 indexed files in 50 controls, best of 3, local disk (fsync on)."
+}

@@ -135,16 +135,26 @@ class Selection:
             included_dirs.update("/".join(parts[:index]) for index in range(1, len(parts)))
         return included_files, included_dirs
 
-    def include_paths(self, paths):
+    def include_paths(self, paths, current=()):
+        """Subset of ``paths`` selected by the frozen rules.
+
+        ``current`` are paths of the present inventory: discovery already applied the
+        same rules to them, so they are included by construction and never reach the
+        dummy tree. Only the rest (removed or newly excluded files) is classified.
+        """
         paths = set(paths)
         cache = {}
         paths = {p for p in paths if not any(path_has_symlink(root, p, cache)
                                             for root in self.ignored_roots)}
         if not self.exclude_file or not paths:
             return paths
+        known = paths.intersection(current)
+        paths -= known
+        if not paths:
+            return known
         cache_key = frozenset(paths)
         if cache_key in self._included:
-            return set(self._included[cache_key])
+            return known | self._included[cache_key]
         included = set()
         # Zero-byte local names let rclone classify paths no longer present in
         # the source, using identical glob semantics and no remote downloads.
@@ -157,7 +167,7 @@ class Selection:
                     target.touch()
                 included.update(item["Path"] for item in self.listing(root, files_only=True))
         self._included[cache_key] = frozenset(included)
-        return included
+        return known | included
 
     def include_directories(self, paths):
         """Match empty source directories using rclone's native directory rules."""

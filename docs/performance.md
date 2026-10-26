@@ -137,3 +137,9 @@ Publishing a recovery generation no longer lists the whole destination to prune 
 ## rclone options for S3 (0.17.0)
 
 `fast_list`, `s3_chunk_size` and `s3_upload_concurrency` are optional per-job settings ([configuration](configuration.md#optional-rclone-tuning-for-s3-0170)). They only change the rclone command line (S3 jobs only), so no benchmark was run: the effect depends on bucket size, object sizes and bandwidth, and defaults are unchanged. Note that `verification_mode = "hash"` makes rclone MD5 the whole source on every simple sync.
+
+## Filter reclassification of indexed files (0.17.0)
+
+With `exclude_files`, every run used to rebuild a temporary tree of N empty files and run `rclone lsjson --recursive` over it to re-classify *every* indexed path (mass-deletion guard, history forecast/expiry, excluded-batch detection). Files in the current inventory were already selected by the same frozen rules during discovery, so they are now included by construction; only paths that are not in the current inventory (removed files, files a changed rule now excludes, retired members) go through the dummy tree. Semantics are unchanged: a file that left the inventory because a new rule excludes it is still classified as excluded (its batch moves to `state.excluded`), not as removed. The per-run cache is kept (keyed by the classified set). `rebalance` does not use the shortcut: its "inventory" is rebuilt from controls, not discovered.
+
+Measured with 20,000 indexed paths and a 3-rule exclude file ([data](benchmarks/state-2026-10-26.json)): unchanged run 5.15 s -> 0.03 s; 10 removed files 5.41 s -> 0.23 s.

@@ -70,9 +70,14 @@ class Context:
             self.metrics["bytes_transferred"] += values.get("bytes", 0)
         self.log.event(event, job=self.job.name, **values)
 
+    def selected_paths(self):
+        """Inventory paths already selected by the frozen rules during discovery (none when rebalancing,
+        whose "inventory" is rebuilt from controls and was never filtered)."""
+        return () if self.rebalancing else self.file_sizes.keys()
+
     def protect_deletions(self, allowed=False):
-        included = self.selection.include_paths(self.before_files)
-        self.removed = sorted(included - self.file_sizes.keys())
+        included = self.selection.include_paths(self.before_files, self.selected_paths())
+        self.removed = sorted(included - self.selected_paths())
         if not allowed and len(included) >= self.job.deletion_min_files:
             self.max_delete = int(len(included) * self.job.max_delete_percent / 100)
         if not allowed and self.max_delete >= 0 and len(self.removed) > self.max_delete:
@@ -107,7 +112,7 @@ class Context:
             return
         paths = {entry["key"]: retired_paths(entry, self.directory, controls_directory=self.controls_directory)
                  for entry in self.state["retired"]}
-        included = self.selection.include_paths(p for members in paths.values() for p in members)
+        included = self.selection.include_paths((p for members in paths.values() for p in members), self.selected_paths())
         candidates = [(entry, paths[entry["key"]]) for entry in self.state["retired"]
                       if alert_time(entry, self.job.deleted_days, self.job.version_days) <= self.now
                       and all(p in included for p in paths[entry["key"]])]
@@ -122,7 +127,7 @@ class Context:
         self.forecast_deletions()
         paths = {entry["key"]: retired_paths(entry, self.directory, controls_directory=self.controls_directory)
                  for entry in self.state["retired"]}
-        included = self.selection.include_paths(p for members in paths.values() for p in members)
+        included = self.selection.include_paths((p for members in paths.values() for p in members), self.selected_paths())
         remaining = []
         for entry in self.state["retired"]:
             if any(p not in included for p in paths[entry["key"]]):
