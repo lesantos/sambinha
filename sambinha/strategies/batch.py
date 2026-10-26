@@ -21,6 +21,7 @@ from ..protection import protect_newer
 from ..retention import retirement
 from ..state import atomic_json
 from ..storage import Storage
+from ..tempdirs import prefix
 
 
 def upload_index(ctx, state):
@@ -41,7 +42,7 @@ def upload_batch(ctx, item):
     worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
     show_progress(worker.runner, worker.progress)
     worker.storage = Storage(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
-    with tempfile.TemporaryDirectory(prefix="sambinha-batch-", dir=ctx.config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix("batch"), dir=ctx.config.temp_dir) as temp:
         check_disks(ctx.job, config=ctx.config, check_source=not ctx.rebalancing)
         # After an interruption, never start compression or an upload whose
         # result would be discarded: each would leave an orphan at the destination.
@@ -134,7 +135,7 @@ def _available(ctx, item, control, entries=None):
     if not has_control:
         ctx.event('would_repair_control' if ctx.job.dry_run else 'repair_control', path=item.key + '.json')
         if not ctx.job.dry_run:
-            with tempfile.TemporaryDirectory(prefix='sambinha-control-', dir=ctx.config.temp_dir) as temp:
+            with tempfile.TemporaryDirectory(prefix=prefix('control'), dir=ctx.config.temp_dir) as temp:
                 path = Path(temp) / 'control.json'
                 atomic_json(path, control)
                 ctx.storage.put(path, item.key + '.json', standard="control")

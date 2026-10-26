@@ -21,6 +21,7 @@ from .state import lock
 from .strategies.batch import batch
 from .strategies.batch import upload_batch as upload_batch
 from .strategies.batch import upload_index as upload_index
+from .tempdirs import sweep_and_log
 from .versions import check_rclone_version
 
 STRATEGIES = {"batch": batch}
@@ -68,6 +69,8 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
             runner.load_config_secrets(config.rclone_config)
             with nullcontext() if all_dry_run else lock(config.state_dir):
                 session.prune_logs()
+                if not all_dry_run:
+                    sweep_and_log(config, log)
                 telemetry("run")
                 runner.require([config.rclone])
                 check_rclone_version(runner, config.rclone)

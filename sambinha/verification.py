@@ -15,6 +15,7 @@ from .names import STATE_FILE
 from .recovery_index import read_index
 from .state import indexed_files
 from .storage import Storage
+from .tempdirs import prefix
 
 
 def verify_local_metadata_job(config, job, runner, log, state=None, *, progress=None):
@@ -71,7 +72,7 @@ def verify_destination_metadata_job(config, job, runner, log, state=None, *, pro
     if job.logic != 'batch':
         raise BackupError('verify-destination-metadata exige logic=batch')
     storage = Storage(job, config, runner)
-    with tempfile.TemporaryDirectory(prefix='sambinha-metadata-', dir=config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix('metadata'), dir=config.temp_dir) as temp:
         work = Path(temp)
         storage.temporary_directory = work
         state = _reference(config, job, storage, work, state)
@@ -108,7 +109,7 @@ def verify_destination_integrity_job(config, job, runner, log, state=None, *, pr
     if job.logic != 'batch':
         raise BackupError('verify-destination-integrity exige logic=batch')
     storage = Storage(job, config, runner)
-    with tempfile.TemporaryDirectory(prefix='sambinha-integrity-', dir=config.temp_dir) as temp:
+    with tempfile.TemporaryDirectory(prefix=prefix('integrity'), dir=config.temp_dir) as temp:
         work = Path(temp)
         storage.temporary_directory = work
         state = _reference(config, job, storage, work, state)

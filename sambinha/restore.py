@@ -16,6 +16,7 @@ from .paths import overlap
 from .recovery_index import read_index
 from .state import indexed_files, private_directory
 from .storage import Storage
+from .tempdirs import prefix
 
 
 def matches(path, selectors):
@@ -53,7 +54,7 @@ def restore_workspace(output, *, dry_run=False):
     else:
         private_directory(output, preserve_permissions=supports_posix_metadata(output))
     try:
-        with tempfile.TemporaryDirectory(prefix=".sambinha-restore-", dir=parent) as temp:
+        with tempfile.TemporaryDirectory(prefix="." + prefix("restore"), dir=parent) as temp:
             yield Path(temp)
     except BaseException:
         if created and not dry_run:
