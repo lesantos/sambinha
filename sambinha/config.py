@@ -7,6 +7,7 @@ from pathlib import Path
 from .config_locations import key_lines
 from .config_validation import validate
 from .errors import ConfigError
+from .extensions import DEFAULT_COMPRESSED_EXTENSIONS, DEFAULT_TEXT_EXTENSIONS, normalize_extensions
 from .names import Logic, StorageType, VerificationMode
 from .secrets import expand, read_environment
 
@@ -16,6 +17,7 @@ JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "vers
                                 "fingerprint_full_scan_days", "verify_source_changes",
                                 "transfer_workers", "batch_workers", "dry_run"})
 JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
+EXTENSION_OPTIONS = ("compression_text_extensions", "compression_compressed_extensions")
 # Job fields set per invocation by the CLI, never read from TOML.
 RUN_SCOPED_FIELDS = frozenset({"adopt_identity", "prune_orphans", "fresh_start"})
 
@@ -50,7 +52,13 @@ class Job:
     check_source_disk: bool = True
     check_destination_disk: bool = True
     continue_on_job_error: bool = True
-    compression_level: int = 3
+    # Three tiers by file extension (see profiles.py): text, already compressed, everything else.
+    compression_level: int = 1  # level of the "other" tier (extensions in neither list)
+    compression_text_level: int = 1
+    compression_compressed_level: int = 0
+    # Normalized (lower-case, no dots) tuples; "<none>" stands for files without an extension.
+    compression_text_extensions: tuple[str, ...] = DEFAULT_TEXT_EXTENSIONS
+    compression_compressed_extensions: tuple[str, ...] = DEFAULT_COMPRESSED_EXTENSIONS
     compression_threads: int = 2
     recovery_index_versions: int = 3
     deleted_days: int = 10
@@ -192,6 +200,9 @@ def load(path: Path, overrides: dict | None = None) -> Config:
                 raw["destination"] = str(local_path(raw["destination"], base, environment))
             else:
                 raw["destination"] = raw["destination"].rstrip("/")
+            for name in EXTENSION_OPTIONS:
+                if name in raw:
+                    raw[name] = normalize_extensions(raw[name], name)
             jobs.append(Job(**raw))
         if any(k in overrides for k in {"source", "destination", "type", "logic"}) and len(jobs) != 1:
             raise ConfigError("Overrides de origem/destino/tipo/lógica exigem um único job (--job)")

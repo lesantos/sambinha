@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from .errors import ConfigError
+from .extensions import check_extension_lists, normalize_extensions
 from .paths import destinations_overlap, overlap
 
 if TYPE_CHECKING:
@@ -105,8 +106,15 @@ def _validate_job(job: Job, seen: set[str]):
             raise ConfigError("max_delete_percent deve estar entre 0 e 100")
         if type(job.deletion_min_files) is not int or job.deletion_min_files < 1:
             raise ConfigError("deletion_min_files deve ser pelo menos 1")
-    if type(job.compression_level) is not int or not 0 <= job.compression_level <= 9:
-        raise ConfigError("compression_level deve estar entre 0 e 9")
+    for name in ("compression_level", "compression_text_level", "compression_compressed_level"):
+        if type(getattr(job, name)) is not int or not 0 <= getattr(job, name) <= 9:
+            raise ConfigError(f"{name} deve ser um inteiro entre 0 e 9")
+    for name in ("compression_text_extensions", "compression_compressed_extensions"):
+        value = getattr(job, name)
+        # The frozen Job holds the normalized tuple (config.load builds it); a hand-built Job must too.
+        if not isinstance(value, tuple) or normalize_extensions(value, name) != value:
+            raise ConfigError(f"{name} deve ser uma tupla de extensões normalizadas (minúsculas, sem ponto)")
+    check_extension_lists(job.compression_text_extensions, job.compression_compressed_extensions)
     if type(job.compression_threads) is not int or not 1 <= job.compression_threads <= 64:
         raise ConfigError("compression_threads deve estar entre 1 e 64")
 

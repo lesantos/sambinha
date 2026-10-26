@@ -7,16 +7,26 @@ from .disks import check_disk
 from .errors import BackupError, SourceChangedError
 from .inventory import verify
 from .process import show_progress
-from .profiles import settings
+from .profiles import plan_groups
 
 
-def temporary_bytes(batch):
-    """Estimate one incompressible archive plus staging overhead."""
+def temporary_bytes(batch, job=None):
+    """Estimate the archive(s) held on disk at once plus staging overhead.
+
+    One group: a single incompressible archive. Several groups (``job`` given): every command after the
+    first appends, and 7-Zip copies the existing archive while it writes the new one, so the last append
+    holds the previous groups' archive plus a new archive of everything. Bound, assuming no compression
+    at all: ``2 * total - last_group_bytes``.
+    """
     metadata = len(json.dumps(batch.control(), ensure_ascii=False).encode("utf-8"))
     overhead = max(1024 ** 2, 16384 * len(batch.files) + 2 * metadata)
     if batch.passthrough:
         return overhead
-    return sum(item.size for item in batch.files) + overhead
+    total = sum(item.size for item in batch.files)
+    groups = plan_groups(job, batch.files) if job is not None else []
+    if len(groups) > 1:
+        total += total - groups[-1].bytes
+    return total + overhead
 
 
 # Linux accepts 2 MiB of arguments plus environment and macOS 1 MiB; stay far
@@ -59,15 +69,24 @@ def compress(ctx, batch, work: Path):
            progress=ctx.progress.scope(0, 0.1) if ctx.progress else None,
            verify_source_changes=ctx.job.verify_source_changes, signatures=ctx.signatures)
     archive = work / ("archive." + ctx.job.archive_format)
-    members = member_arguments(batch.files, work / "files.txt")
     # -spd prevents wildcard interpretation of filenames; "--" ends switch
     # parsing so names starting with "-" or "@" are taken literally.
-    _kind, level, threads = settings(ctx.job, batch.files)
     directory = (ctx.job.source / batch.files[0].path).parent
-    show_progress(ctx.runner, ctx.progress.scope(0.1, 0.7) if ctx.progress else None)
-    ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,
-                    "-scsUTF-8", "-spd", "-spf", f"-mx={level}", f"-mmt={threads}",
-                    str(archive), *members], cwd=ctx.source, progress_directory=directory)
+    # One command per non-empty tier, all on the same archive: the first creates it, the others append
+    # without recompressing what is there. The 0.1-0.7 progress scope is split by group bytes.
+    groups = plan_groups(ctx.job, batch.files)
+    weights = [group.bytes for group in groups]
+    if not any(weights):
+        weights = [len(group.files) for group in groups]
+    done = 0
+    for index, group in enumerate(groups):
+        members = member_arguments(group.files, work / f"files-{index}.txt")
+        start = 0.1 + 0.6 * done / sum(weights)
+        done += weights[index]
+        show_progress(ctx.runner, ctx.progress.scope(start, 0.1 + 0.6 * done / sum(weights)) if ctx.progress else None)
+        ctx.runner.run([ctx.job.compressor, "a", "-t" + ctx.job.archive_format,
+                        "-scsUTF-8", "-spd", "-spf", f"-mx={group.level}", f"-mmt={ctx.job.compression_threads}",
+                        str(archive), *members], cwd=ctx.source, progress_directory=directory)
     verify(ctx.source, list(batch.files), mode=ctx.job.verification_mode,
            progress=ctx.progress.scope(0.7, 0.8) if ctx.progress else None,
            verify_source_changes=ctx.job.verify_source_changes, signatures=ctx.signatures)

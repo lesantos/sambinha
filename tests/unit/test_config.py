@@ -21,7 +21,7 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(config.jobs[0].version_days, 2)
         self.assertEqual(config.jobs[0].max_megabytes, 1024)
         self.assertEqual(config.jobs[0].max_bytes, 1024**3)
-        self.assertEqual(config.jobs[0].compression_level, 3)
+        self.assertEqual(config.jobs[0].compression_level, 1)
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
         self.assertIsNone(config.temp_dir)

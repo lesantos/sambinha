@@ -64,7 +64,13 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
-compression_level = 3
+# Compressão dos lotes (só vale se este job virar logic = "batch"): três faixas escolhidas pela extensão
+# do arquivo, cada uma com seu nível 0-9 do 7-Zip (0 = armazenar). As listas estão no job batch abaixo.
+compression_text_level = 1        # texto: muito compressível, nível barato
+compression_compressed_level = 0  # já compactados (jpg, mp4, zip...): armazenados
+compression_level = 1             # qualquer outra extensão (executáveis, bancos, imagens...)
+# compression_text_extensions = [...]        # padrões listados no job batch abaixo
+# compression_compressed_extensions = [...]
 compression_threads = 2
 # Individual a partir deste % do max_megabytes; mantém o lote normal aberto.
 individual_batch_percent = 100
@@ -96,7 +102,6 @@ exclude_files = "./excludes.example.txt"
 # destination_mount = "/mnt/backup"
 # Limite absoluto de remoções do rclone nesta tarefa; versões antigas vão ao backup-dir.
 max_delete = 100
-# Compressão única, padrões para lotes criados/recriados.
 
 [[jobs]]
 name = "documents-s3"
@@ -123,8 +128,59 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
-compression_level = 3
+# Três faixas de compressão dentro de cada arquivo de lote, escolhidas pela ÚLTIMA extensão do arquivo
+# (sem distinguir maiúsculas; "a.tar.gz" -> "gz"; ".bashrc" e "Makefile" não têm extensão). Níveis do 7-Zip 0-9
+# (0 = armazenar). O texto vai primeiro (mais barato), depois "outros", depois os já compactados, armazenados.
+compression_text_level = 1        # faixa 1: extensões em compression_text_extensions
+compression_level = 1             # faixa 2 "outros": toda extensão que não está em nenhuma lista
+compression_compressed_level = 0  # faixa 3: extensões em compression_compressed_extensions
 compression_threads = 2
+# As entradas são extensões simples (sem ponto nem espaços; maiúsculas e ponto inicial são ignorados). Uma extensão
+# não pode se repetir nem estar nas duas listas. A palavra-chave "<none>" representa arquivos SEM extensão; use-a
+# em no máximo uma lista (texto, por padrão); em nenhuma, esses arquivos caem na faixa "outros". Edite à vontade:
+compression_text_extensions = [
+    "<none>", "txt", "text", "md", "markdown", "rst", "adoc", "asciidoc", "org",
+    "tex", "latex", "bib", "log", "out", "err", "csv", "tsv", "psv",
+    "json", "jsonl", "ndjson", "geojson", "xml", "xsd", "xsl", "xslt", "dtd",
+    "plist", "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties",
+    "env", "lock", "gradle", "cmake", "mk", "html", "htm", "xhtml", "css",
+    "scss", "sass", "less", "js", "mjs", "cjs", "jsx", "ts", "tsx",
+    "vue", "svelte", "php", "py", "pyi", "pyw", "rb", "erb", "pl",
+    "pm", "tcl", "lua", "r", "jl", "sh", "bash", "zsh", "fish",
+    "ps1", "psm1", "psd1", "bat", "cmd", "awk", "sed", "c", "h",
+    "cc", "cpp", "cxx", "hpp", "hh", "hxx", "cs", "java", "kt",
+    "kts", "scala", "groovy", "swift", "m", "mm", "go", "rs", "zig",
+    "nim", "dart", "ex", "exs", "erl", "hrl", "hs", "ml", "mli",
+    "fs", "fsx", "clj", "cljs", "lisp", "el", "scm", "sql", "ddl",
+    "graphql", "gql", "proto", "thrift", "tf", "tfvars", "hcl", "nix", "vcf",
+    "ics", "srt", "vtt", "ass", "svg", "rtf", "diff", "patch", "eml",
+    "mbox", "ldif", "po", "pot", "qss", "ui", "qml", "asm", "s",
+    "v", "vhd", "vhdl", "sv", "ipynb", "sln", "csproj", "vbproj", "xaml",
+    "resx", "tmpl", "tpl", "j2", "jinja", "hbs", "mustache", "ejs", "pug",
+    "haml", "reg", "inf", "service", "timer", "desktop", "rules", "cnf", "gitignore",
+    "gitattributes", "editorconfig", "dockerignore", "mod", "sum", "cabal", "gemspec", "podspec", "rake",
+    "bzl", "bazel", "ninja", "sbt", "pro", "pri", "wsdl", "rss", "atom",
+    "opml", "kml", "gpx", "tei", "bas", "vb", "vbs", "pas", "pp",
+    "dpr", "f", "f90", "for", "cob", "cbl", "ada", "adb", "ads",
+    "d", "di", "ps", "eps", "sty", "cls", "bst", "md5", "sha1",
+    "sha256", "sha512", "cue", "nfo", "lrc", "m3u", "m3u8", "pls", "xpm",
+    "pbm", "pgm", "ppm",
+]
+compression_compressed_extensions = [
+    "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif",
+    "heic", "heif", "jxl", "jp2", "j2k", "mp4", "m4v", "mov", "mkv",
+    "webm", "avi", "wmv", "flv", "f4v", "mpg", "mpeg", "m2ts", "mts",
+    "3gp", "3g2", "ogv", "vob", "mp3", "aac", "m4a", "m4b", "ogg",
+    "oga", "opus", "wma", "flac", "amr", "mka", "ape", "wv", "zip",
+    "zipx", "7z", "rar", "gz", "tgz", "bz2", "tbz2", "tbz", "xz",
+    "txz", "zst", "tzst", "lz", "lz4", "lzma", "z", "cab", "arj",
+    "lzh", "lha", "ace", "br", "jar", "war", "ear", "apk", "aab",
+    "ipa", "xpi", "crx", "whl", "egg", "nupkg", "vsix", "deb", "rpm",
+    "snap", "appimage", "dmg", "docx", "xlsx", "pptx", "docm", "xlsm", "pptm",
+    "odt", "ods", "odp", "odg", "odf", "epub", "pages", "numbers", "key",
+    "kmz", "vsdx", "pdf", "woff", "woff2", "gpg", "pgp", "age", "kdbx",
+    "kdb", "aes", "enc",
+]
 # Individual a partir deste % do max_megabytes; mantém o lote normal aberto.
 individual_batch_percent = 100
 # Falha Cronitor só no final; 0 desativa; não interrompe jobs.
