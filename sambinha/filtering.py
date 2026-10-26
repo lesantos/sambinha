@@ -41,8 +41,14 @@ def retired_paths(entry, directory, *, controls_directory=None):
         return [safe_relative(p) for p in entry["files"]]
     if entry.get("control"):
         root = directory / "controls" if controls_directory is None else controls_directory
-        control = json.loads((root / safe_relative(entry["control"])).read_text())
-        return [safe_relative(item["path"]) for item in control["files"]]
+        try:
+            control = json.loads((root / safe_relative(entry["control"])).read_text())
+        except FileNotFoundError:
+            # Legacy entry whose mirror is gone: fall back to the key-derived path
+            # rather than blocking every later run on a missing local file.
+            control = None
+        if control is not None:
+            return [safe_relative(item["path"]) for item in control["files"]]
     parts = entry["key"].split("/", 4)
     return [safe_relative(parts[4] if len(parts) == 5 and parts[0] == ".sambinha" and parts[1] == "history" else entry["key"])]
 

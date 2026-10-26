@@ -180,15 +180,21 @@ def publish(ctx, state):
     atomic_json(journal, {'identity': ctx.identity, 'generation': generation})
     with tempfile.TemporaryDirectory(prefix='sambinha-index-', dir=ctx.config.temp_dir) as temp:
         work = Path(temp)
-        recovery_state = {k: v for k, v in state.items() if k != 'index_pending'}
-        atomic_json(work / 'state.json', recovery_state)
-        if (work / 'state.json').stat().st_size > MAX_METADATA:
-            raise BackupError('Índice excede limite de metadados (state.json)')
         controls = {**state.get('excluded', {}), **state['active']}
         for entry in state['retired']:
             if entry.get('control'):
                 path = ctx.controls_directory / entry['control']
+                if not path.exists() and not path.is_symlink():
+                    # An interrupted earlier cleanup (or a purged metadata_dir) can
+                    # leave a retired entry without its mirror; the destination copy
+                    # and the member list in the entry are enough to expire it.
+                    ctx.event('retired_control_missing', path=entry['key'], control=entry.pop('control'))
+                    continue
                 controls[entry['key']] = read_control(path, entry['key'])
+        recovery_state = {k: v for k, v in state.items() if k != 'index_pending'}
+        atomic_json(work / 'state.json', recovery_state)
+        if (work / 'state.json').stat().st_size > MAX_METADATA:
+            raise BackupError('Índice excede limite de metadados (state.json)')
         archive = work / 'control.tar.gz'
         control_bytes = 0
         with tarfile.open(archive, 'w:gz') as tar:

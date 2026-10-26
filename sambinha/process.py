@@ -17,9 +17,15 @@ from .errors import BackupError
 _CREDENTIAL = re.compile(r"SECRET|TOKEN|PASSWORD|(?:^|_)PASS(?:$|_)|ACCESS_KEY|(?:^|_)KEY(?:$|_)|CREDENTIAL|AUTHORIZATION|CRONITOR_URL", re.I)
 
 
+# Values shorter than this are not redacted: variables such as GPG_KEY_ID=1 or
+# PASSWORD_STORE_DIR=/ would otherwise erase digits and separators from every
+# message and path, destroying the error instead of protecting a secret.
+MIN_CREDENTIAL_LENGTH = 6
+
+
 def credential_values(environment):
     return {value for key, value in environment.items()
-            if isinstance(value, str) and value and _CREDENTIAL.search(key)}
+            if isinstance(value, str) and len(value) >= MIN_CREDENTIAL_LENGTH and _CREDENTIAL.search(key)}
 
 
 def rclone_progress(stats):

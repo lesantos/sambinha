@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from sambinha.config import load
 from sambinha.engine import DAY
-from sambinha.filtering import Selection, path_groups
+from sambinha.filtering import Selection, path_groups, retired_paths
 from sambinha.process import Runner
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 
@@ -18,6 +18,17 @@ class GroupingTests(unittest.TestCase):
         groups = path_groups(['a', 'a/b', 'a/b/c', 'other', 'a/b'])
         self.assertEqual(set().union(*groups), {'a', 'a/b', 'a/b/c', 'other'})
         self.assertEqual(len(groups), 3)
+
+    def test_legacy_retired_entry_with_missing_mirror_falls_back_to_key_path(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            controls = Path(temp) / 'controls'
+            controls.mkdir()
+            entry = {'key': 'batch-1.7z', 'control': 'batch-1.7z.json', 'expires': 0}
+            self.assertEqual(retired_paths(entry, Path(temp)), ['batch-1.7z'])
+            (controls / 'batch-1.7z.json').write_text(json.dumps({'files': [{'path': 'dir/a'}]}))
+            self.assertEqual(retired_paths(entry, Path(temp)), ['dir/a'])
+            self.assertEqual(retired_paths({**entry, 'files': ['b']}, Path(temp)), ['b'])
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')

@@ -265,3 +265,12 @@ class SecretsConfigurationTests(Sandbox):
     def test_inherited_credentials_are_also_redacted_without_secrets_file(self):
         with patch.dict(os.environ, {'API_TOKEN': 'PRIVATE-TOKEN'}):
             self.assertEqual(Runner().safe_error('failure: PRIVATE-TOKEN'), 'failure: [REDACTED]')
+
+    def test_short_credential_like_values_do_not_destroy_error_messages(self):
+        environment = {'GPG_KEY_ID': '1', 'PASSWORD_STORE_DIR': '/', 'EMPTY_TOKEN': '',
+                       'SHORT_KEY': 'abcde', 'API_TOKEN': 'PRIVATE-TOKEN'}
+        message = Runner(env=environment).safe_error(
+            'rclone: /home/user1/backup/part-1.7z: 401 abcde PRIVATE-TOKEN')
+        self.assertEqual(message, 'rclone: /home/user1/backup/part-1.7z: 401 abcde [REDACTED]')
+        with patch.dict(os.environ, {'GPG_KEY_ID': '1', 'API_TOKEN': 'SECRET-6'}):
+            self.assertEqual(Runner().safe_error('path /tmp/1/x: SECRET-6'), 'path /tmp/1/x: [REDACTED]')

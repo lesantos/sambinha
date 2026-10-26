@@ -1,5 +1,6 @@
 """Validate and unpack archive members into private staging directories."""
 from datetime import datetime, timezone
+from pathlib import Path
 import re
 import shutil
 
@@ -63,7 +64,8 @@ def archive_date_matches(fields, metadata, archive_format):
 
 def check_archive(storage, runner, key, control, *, archive=None):
     """Verify paths, sizes, dates and 7-Zip integrity without disk extraction or hashes."""
-    archive = storage.path(key) if archive is None else archive
+    # storage.path returns an rclone-style string; local in-place checks need a Path.
+    archive = Path(storage.path(key) if archive is None else archive)
     if control.get('passthrough'):
         actual = fingerprint(archive.parent, archive.name)
         item = control['files'][0]
