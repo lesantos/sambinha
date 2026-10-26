@@ -171,6 +171,35 @@ class DarwinMountCheckTests(Sandbox):
             self.assertNotIn("mountpoint", call.args[0])
 
 
+class SymlinkedTemporaryDirectoryTests(Sandbox):
+    """macOS /var -> /private/var: default work directories must resolve."""
+
+    def test_default_temporary_directory_is_resolved_and_metadata_dirs_accept_it(self):
+        import tempfile
+        from sambinha.disks import use_real_temporary_directory
+        from sambinha.state import private_directory
+        real = self.root / "real-tmp"
+        real.mkdir()
+        link = self.root / "var"
+        link.symlink_to(real, target_is_directory=True)
+        with patch.object(tempfile, "tempdir", str(link)):
+            with self.assertRaises(BackupError):
+                private_directory(Path(tempfile.gettempdir()) / "sambinha-work" / "state")
+            use_real_temporary_directory(self.config)
+            self.assertEqual(Path(tempfile.gettempdir()), real)
+            private_directory(Path(tempfile.gettempdir()) / "sambinha-work" / "state")
+        self.assertTrue((real / "sambinha-work" / "state").is_dir())
+
+    def test_configured_temp_dir_is_left_alone(self):
+        import tempfile
+        from sambinha.disks import use_real_temporary_directory
+        link = self.root / "var"
+        link.symlink_to(self.root / "source", target_is_directory=True)
+        with patch.object(tempfile, "tempdir", str(link)):
+            use_real_temporary_directory(replace(self.config, temp_dir=self.root))
+            self.assertEqual(tempfile.gettempdir(), str(link))
+
+
 class PortableMountPointTests(unittest.TestCase):
     def test_root_and_proc_style_mounts_are_detected_and_plain_directories_are_not(self):
         self.assertTrue(is_mount_point(Path("/")))

@@ -3,7 +3,7 @@ from contextlib import nullcontext
 import tarfile
 
 from .archive_recovery import check_content as check_content, unpack as unpack
-from .disks import check_disks
+from .disks import check_disks, use_real_temporary_directory
 from .errors import BackupError, JobError
 from .logging import RunLog
 from .process import Runner
@@ -17,6 +17,7 @@ from .versions import check_compressor_version, check_rclone_version
 
 
 def recover(config, action, *, output=None, selectors=(), runner=None, notifier=None):
+    use_real_temporary_directory(config)
     runner = runner or Runner(config.timeout, env=config.environment)
     redactor = Runner(env=config.environment, secrets=(config.cronitor_url,)).safe_error
     progress = Progress(redact=redactor)

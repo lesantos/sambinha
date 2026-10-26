@@ -6,6 +6,7 @@ import time
 from .archives import compress as compress
 from .batch_alerts import collect as collect_batch_alerts
 from .config import Config
+from .disks import use_real_temporary_directory
 from .context import Context as Context
 from .errors import BackupError, JobError
 from .jobs import JobExecution
@@ -27,6 +28,7 @@ STRATEGIES = {"batch": batch}
 
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False,
         action='backup') -> int:
+    use_real_temporary_directory(config)
     runner = runner or Runner(config.timeout, env=config.environment)
     redactor = Runner(env=config.environment, secrets=(config.cronitor_url,)).safe_error
     progress = Progress(redact=redactor)

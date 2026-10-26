@@ -7,6 +7,18 @@ import tempfile
 from .errors import BackupError
 
 
+def use_real_temporary_directory(config):
+    """Point the process default temporary directory at its real path.
+
+    macOS resolves the default temporary directory through /var, a symlink to
+    /private/var. Metadata work directories refuse symlinks in their ancestry,
+    so the default is resolved once per invocation; a configured temp_dir is
+    already resolved by config.load and is left alone.
+    """
+    if config.temp_dir is None:
+        tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
+
+
 def get_temporary_path(config):
     if config.temp_dir is None:
         return tempfile.gettempdir()

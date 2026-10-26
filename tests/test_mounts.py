@@ -81,8 +81,8 @@ class MountUnitTests(Sandbox):
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
+@unittest.skipUnless(shutil.which('mountpoint'), 'util-linux mountpoint required')
 class MountIntegrationTests(Sandbox):
-    @unittest.skipUnless(shutil.which('mountpoint'), 'util-linux mountpoint required')
     def test_real_mountpoint_refuses_ordinary_directory_and_notifies(self):
         self.file('file')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], source_mount=self.source),))
