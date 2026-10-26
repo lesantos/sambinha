@@ -13,6 +13,7 @@ from ..disks import check_disk, check_disks, get_temporary_path
 from ..errors import BackupError
 from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
+from ..names import CONTROL
 from ..process import Runner, show_progress
 from ..profiles import settings
 from ..protection import protect_newer
@@ -249,7 +250,7 @@ def batch(ctx: Context):
     if ctx.job.dry_run:
         ctx.state = next_state
         ctx.expire()
-        ctx.event("would_transfer", path=".sambinha/control.tar.gz")
+        ctx.event("would_transfer", path=CONTROL)
         return
     verifying = [f for item in pending for f in item.files] if ctx.rebalancing else ctx.files
     verify(ctx.source, verifying, mode=ctx.job.verification_mode,

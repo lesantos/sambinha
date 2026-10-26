@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from sambinha.batches import plan
 from sambinha.errors import BackupError
 from sambinha.inventory import scan, safe_relative
+from sambinha.local_paths import reject_symlinks
 from sambinha.logging import RunLog
 from sambinha.process import Runner
 from sambinha.recovery import identity, unpack
@@ -36,6 +37,25 @@ class SecurityTests(Sandbox):
         self.assertEqual(log.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(log.path.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(state.stat().st_mode & 0o777, 0o600)
+
+    def test_reject_symlinks_checks_path_and_optionally_parents(self):
+        clean = self.root / 'clean' / 'state.json'
+        clean.parent.mkdir()
+        clean.write_text('{}')
+        reject_symlinks(clean, label='Estado')
+        reject_symlinks(self.root / 'missing' / 'state.json', label='Estado')
+        linked = self.root / 'linked'
+        linked.symlink_to(clean.parent, target_is_directory=True)
+        with self.assertRaises(BackupError) as caught:
+            reject_symlinks(linked / 'state.json', label='Estado')
+        self.assertEqual(str(caught.exception), 'Estado contém link simbólico')
+        reject_symlinks(linked / 'state.json', label='Estado', include_parents=False)
+        link = self.root / 'clean' / 'link.json'
+        link.symlink_to(clean)
+        for include_parents in (True, False):
+            with self.assertRaises(BackupError) as caught:
+                reject_symlinks(link, label='Controle de lote', include_parents=include_parents, show_path=True)
+            self.assertEqual(str(caught.exception), f'Controle de lote contém link simbólico: {link}')
 
     def test_state_directory_and_lock_symlinks_do_not_redirect_writes(self):
         outside = self.root / 'outside'

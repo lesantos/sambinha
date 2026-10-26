@@ -1,9 +1,11 @@
 """Local mirrors of batch controls, kept separately from archive data."""
 import json
 
-from .errors import BackupError
+from .errors import BackupError, ForeignStateError
 from .filesystems import supports_posix_metadata
-from .inventory import path_has_symlink, safe_relative
+from .inventory import safe_relative
+from .local_paths import reject_symlinks
+from .names import STATE_FILE
 from .state import atomic_json, identity, load_state, validate_controls
 
 
@@ -22,8 +24,7 @@ def write_control(config, job, key, control):
 
 
 def read_control(path, key):
-    if any(parent.is_symlink() for parent in (path, *path.parents)):
-        raise BackupError(f"Controle de lote contém link simbólico: {path}")
+    reject_symlinks(path, label="Controle de lote", show_path=True)
     try:
         control = json.loads(path.read_text(encoding="utf-8"))
         validate_controls({key: control}, True)
@@ -35,8 +36,7 @@ def read_control(path, key):
 def cached_control(config, job, key, expected, *, write_missing=True):
     root = control_directory(config, job)
     path = root / (key + ".json")
-    if path_has_symlink(root, key + ".json"):
-        raise BackupError(f"Controle de lote contém link simbólico: {path}")
+    reject_symlinks(path, label="Controle de lote", show_path=True)
     if not path.exists():
         # The committed local index already contains the exact control. This
         # also seeds a newly configured mirror without remote daily reads.
@@ -53,14 +53,13 @@ def cached_control(config, job, key, expected, *, write_missing=True):
 def write_manifest(config, job, state):
     root = control_directory(config, job)
     path = root / '.index.json'
-    if any(parent.is_symlink() for parent in (path, *path.parents)):
-        raise BackupError(f'Índice de metadados contém link simbólico: {path}')
+    reject_symlinks(path, label='Índice de metadados', show_path=True)
     data = {'schema': 1, 'identity': identity(job), 'active': sorted(state['active'])}
     if path.exists():
         try:
             previous = json.loads(path.read_text(encoding='utf-8'))
             if previous.get('identity') != data['identity']:
-                raise BackupError(f'Cache de metadados pertence a outro job: {path}')
+                raise ForeignStateError(f'Cache de metadados pertence a outro job: {path}')
             if previous == data:
                 return
         except (OSError, ValueError, TypeError, AttributeError) as exc:
@@ -85,13 +84,12 @@ def prepare_controls(config, job, state, *, write_missing=True):
 
 
 def local_state(config, job):
-    path = config.state_dir / job.name / 'state.json'
+    path = config.state_dir / job.name / STATE_FILE
     if path.exists() or path.is_symlink():
         return load_state(path, identity(job))
     manifest = control_directory(config, job) / '.index.json'
     if manifest.exists() or manifest.is_symlink():
-        if any(parent.is_symlink() for parent in (manifest, *manifest.parents)):
-            raise BackupError(f'Índice de metadados contém link simbólico: {manifest}')
+        reject_symlinks(manifest, label='Índice de metadados', show_path=True)
         try:
             data = json.loads(manifest.read_text(encoding='utf-8'))
             if data.get('schema') != 1 or data.get('identity') != identity(job) or not isinstance(data.get('active'), list):

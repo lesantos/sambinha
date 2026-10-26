@@ -8,14 +8,16 @@ import tempfile
 import math
 import re
 
-from .errors import BackupError
+from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .inventory import safe_relative
+from .local_paths import reject_symlinks
+from .names import NAMESPACE
 
 
 def identity(job):
     """Describe the job that owns an index without depending on recovery."""
     return {"source": str(job.source), "destination": job.destination,
-            "type": job.type, "logic": job.logic, "namespace": ".sambinha"}
+            "type": job.type, "logic": job.logic, "namespace": NAMESPACE}
 
 
 def indexed_files(state, logic):
@@ -26,8 +28,7 @@ def indexed_files(state, logic):
 
 def private_directory(path: Path, *, preserve_permissions=True):
     # Metadata roots are private, and must not redirect writes through links.
-    if any(p.is_symlink() for p in (path, *path.parents)):
-        raise BackupError("Diretório de metadados contém link simbólico")
+    reject_symlinks(path, label="Diretório de metadados")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     if preserve_permissions:
         path.chmod(0o700)
@@ -106,16 +107,15 @@ def atomic_json(path: Path, data, *, preserve_permissions=True):
 
 
 def load_state(path: Path, identity: dict):
-    if path.is_symlink():
-        raise BackupError("Estado contém link simbólico")
+    reject_symlinks(path, label="Estado", include_parents=False)
     if not path.exists():
         return {"schema": 1, "identity": identity, "active": {}, "retired": []}
     try:
         data = json.loads(path.read_text())
         if type(data["schema"]) is not int or data["schema"] not in {1, 2}:
-            raise BackupError("Versão de estado não suportada")
+            raise UnsupportedStateError("Versão de estado não suportada")
         if data["identity"] != identity:
-            raise BackupError("Estado pertence a outra origem/destino/lógica; use outro nome de job")
+            raise ForeignStateError("Estado pertence a outra origem/destino/lógica; use outro nome de job")
         if not isinstance(data["active"], dict) or not isinstance(data["retired"], list):
             raise ValueError("estrutura")
         if 'generation' in data and (not isinstance(data['generation'], str) or

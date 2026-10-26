@@ -2,6 +2,7 @@
 from .errors import BackupError
 from .filtering import Selection, retired_paths
 from .metadata import control_directory, prepare_controls, write_manifest
+from .names import STATE_FILE
 from .retention import alert_time, date
 from .state import atomic_json, identity, indexed_files, load_state
 from .storage import Storage
@@ -24,7 +25,7 @@ class Context:
         self.storage = Storage(job, config, runner, source_required=not rebalancing)
         self.directory = config.state_dir / job.name
         self.controls_directory = control_directory(config, job)
-        self.state_path = self.directory / "state.json"
+        self.state_path = self.directory / STATE_FILE
         self.identity = identity(job)
         self.state = load_state(self.state_path, self.identity) if state is None else state
         if not job.dry_run:

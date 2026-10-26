@@ -11,7 +11,7 @@ from .disks import check_disk
 from .errors import BackupError
 from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
-from .local_paths import directory
+from .local_paths import directory, reject_symlinks
 from .paths import overlap
 from .recovery_index import read_index
 from .state import indexed_files, private_directory
@@ -24,8 +24,7 @@ def matches(path, selectors):
 
 def validate_output(config, output, *, check_space=True, workspace=None):
     output = Path(output).absolute()
-    if any(p.is_symlink() for p in (output, *output.parents)):
-        raise BackupError("Destino de restauração contém link simbólico")
+    reject_symlinks(output, label="Destino de restauração")
     output = output.resolve()
     protected = [config.state_dir, config.log_dir, *(j.source for j in config.jobs)]
     if config.metadata_dir:

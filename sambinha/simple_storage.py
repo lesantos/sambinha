@@ -11,6 +11,8 @@ from .filtering import Selection
 from .inventory import safe_relative
 from .local_paths import conflicting_links, directory, prepare_write
 from .mounts import check_mounts
+from .names import HISTORY, NAMESPACE, NAMESPACE_EXCLUDE
+from .retention import DAY
 
 
 class SimpleStorageMixin:
@@ -18,7 +20,7 @@ class SimpleStorageMixin:
 
     def sync_simple(self, root, backup_dir, *, max_delete, dry_run=False):
         """Delegate synchronization, conflict replacement and history to rclone."""
-        filters = ["--exclude", "/.sambinha/**"]
+        filters = [*NAMESPACE_EXCLUDE]
         if self.job.exclude_files:
             filters += ["--exclude-from", str(self.job.exclude_files)]
         if dry_run:
@@ -76,7 +78,7 @@ class SimpleStorageMixin:
 
     def expire_simple_history(self, now, retention_days, *, dry_run=False):
         """Purge run-scoped --backup-dir trees after the conservative retention window."""
-        history = ".sambinha/history"
+        history = HISTORY
         if self.job.type == "local" and not Path(self.path(history)).is_dir():
             return []
         raw = self.command("lsjson", self.path(history), "--dirs-only")
@@ -92,7 +94,7 @@ class SimpleStorageMixin:
             if not isinstance(name, str) or not re.fullmatch(r"\d{8}T\d{6}-[0-9a-f]{32}", name):
                 continue
             started = datetime.strptime(name[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc).timestamp()
-            if started + retention_days * 86400 > now:
+            if started + retention_days * DAY > now:
                 continue
             expired.append(name)
             if not dry_run:
@@ -101,14 +103,14 @@ class SimpleStorageMixin:
 
 
     def check_simple(self):
-        filters = ["--exclude", "/.sambinha/**"]
+        filters = [*NAMESPACE_EXCLUDE]
         if self.job.exclude_files:
             filters += ["--exclude-from", str(self.job.exclude_files)]
         self.command("check", self.job.source, self.job.destination, *filters)
 
 
     def restore_simple(self, output, selectors=(), *, dry_run=False):
-        filters = ["--exclude", "/.sambinha/**"]
+        filters = [*NAMESPACE_EXCLUDE]
         if self.job.exclude_files:
             filters += ["--exclude-from", str(self.job.exclude_files)]
         if dry_run:
@@ -121,7 +123,7 @@ class SimpleStorageMixin:
         chosen = []
         for selector in sorted({safe_relative(value.rstrip("/")) for value in selectors},
                                key=lambda value: (value.count("/"), value)):
-            if selector == ".sambinha" or selector.startswith(".sambinha/"):
+            if selector == NAMESPACE or selector.startswith(NAMESPACE + "/"):
                 raise BackupError("O caminho .sambinha é reservado e não pode ser restaurado como arquivo")
             if any(selector == parent or selector.startswith(parent + "/") for parent in chosen):
                 continue

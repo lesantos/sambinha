@@ -9,6 +9,7 @@ import stat
 
 from .errors import BackupError, SourceChangedError
 from .filesystems import volatile_inode_devices
+from .names import NAMESPACE
 
 # O_PATH (Linux) pins a file's identity without opening it for reading, so
 # metadata-only inventories never block on FIFOs or trigger reads. macOS has
@@ -255,7 +256,7 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
                 finally:
                     os.close(child)
             else:
-                if relative.split("/")[0] == ".sambinha":
+                if relative.split("/")[0] == NAMESPACE:
                     raise BackupError(".sambinha é reservado para metadados")
                 if included_files is not None and relative not in included_files:
                     continue

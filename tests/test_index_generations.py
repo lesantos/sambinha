@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
-from sambinha.errors import BackupError
+from sambinha.errors import BackupError, ForeignStateError, UnsupportedStateError
 from sambinha.index_generations import listing, remote_index
 from sambinha.inventory import File, scan
 from sambinha.state import identity
@@ -101,6 +101,19 @@ class RecoveryGenerationValidationTests(Sandbox):
         self.add_generation(2, state=future)
         with self.assertRaisesRegex(BackupError, 'não suportada'):
             self.recover()
+
+    def test_identity_and_schema_errors_are_dispatched_by_type_not_message(self):
+        self.add_generation(1)
+        for error in (ForeignStateError('mensagem arbitrária'), UnsupportedStateError('outra mensagem')):
+            with self.subTest(error=type(error).__name__):
+                with patch('sambinha.index_generations.load_state', side_effect=error):
+                    with self.assertRaises(type(error)) as caught:
+                        self.recover()
+                    self.assertIs(caught.exception, error)
+        # A plain BackupError mentioning the old substrings is still a recoverable failure.
+        with patch('sambinha.index_generations.load_state', side_effect=BackupError('pertence a outra; não suportada')):
+            with self.assertRaisesRegex(BackupError, 'Nenhuma geração confirmada'):
+                self.recover()
 
     def test_new_empty_destination_and_invalid_listing_are_distinguished(self):
         work=self.root/'work';work.mkdir()

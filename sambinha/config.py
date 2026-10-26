@@ -10,6 +10,7 @@ from .config_locations import key_lines
 from .errors import ConfigError
 from .paths import destinations_overlap as destinations_overlap, overlap as overlap
 from .secrets import expand, read_environment
+from .names import Logic, StorageType, VerificationMode
 
 JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "version_days", "log_retention_days",
                                 "log_file_level", "log_terminal_level", "deletion_alert_threshold",
@@ -24,8 +25,8 @@ class Job:
     name: str
     source: Path
     destination: str
-    type: str = "local"
-    logic: str = "simple"
+    type: StorageType = "local"
+    logic: Logic = "simple"
     storage_class: str = "GLACIER_IR"
     control_storage_class: str = "STANDARD"
     max_megabytes: int | float = 1024
@@ -52,7 +53,7 @@ class Job:
     log_terminal_level: str = "summary"
     deletion_alert_threshold: int = 1000
     verify_interval_days: int = 0
-    verification_mode: str = "simple"
+    verification_mode: VerificationMode = "simple"
     fingerprint_cache: bool = True
     fingerprint_full_scan_days: int = 7
     verify_source_changes: bool = True
