@@ -4,8 +4,16 @@ import json
 from dataclasses import replace
 
 from sambinha.errors import BackupError, ForeignStateError, UnsupportedStateError
-from sambinha.state import (STATE_SCHEMA, atomic_json, identity, identity_options, load_state, validate_controls,
-                            validate_file, validate_origins)
+from sambinha.state import (
+    STATE_SCHEMA,
+    atomic_json,
+    identity,
+    identity_options,
+    load_state,
+    validate_controls,
+    validate_file,
+    validate_origins,
+)
 from tests.helpers import Sandbox
 
 HEX64, HEX32 = 'a' * 64, 'b' * 32
