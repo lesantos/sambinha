@@ -397,13 +397,29 @@ fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
 
-compression_level = 3
+compression_text_level = 1
+compression_other_level = 1
+compression_compressed_level = 0
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
 ```
 
-No modo hash, o cache exige dispositivo/inode/tamanho/mtime/ctime/permissões iguais, com leitura completa periódica. O modo simples usa tamanho/data. Compressão única (`compression_level`, `compression_threads`) se aplica a todos os tipos e somente a arquivos compactados criados/recriados. Lotes confirmados mantêm membros mesmo ao crescer; veja [planejamento, alertas e rebalanceamento manual](batch-lifecycle.pt-BR.md).
+### Compressão em três faixas (0.18.0)
+
+Cada arquivo de lote é compactado em até três faixas, escolhidas pela **última extensão** do arquivo (sem distinguir maiúsculas; `a.tar.gz` -> `gz`; `.bashrc`, `Makefile` e `nome.` não têm extensão; pontos em nomes de diretório são ignorados):
+
+| Faixa | Arquivos | Opção de nível | Padrão |
+|---|---|---|---|
+| texto | extensões de `compression_text_extensions` | `compression_text_level` | 1 |
+| outros | toda extensão fora das duas listas | `compression_other_level` | 1 |
+| já compactados | extensões de `compression_compressed_extensions` | `compression_compressed_level` | 0 (armazenar) |
+
+Os níveis são inteiros 0-9 (booleanos são rejeitados); `compression_threads` (1-64) vale para todos os comandos. As duas listas são arrays TOML de extensões simples (sem ponto, espaços ou separadores; maiúsculas e um ponto inicial são ignorados). Repetições na mesma lista e extensão nas duas listas são rejeitadas. A palavra-chave `"<none>"` representa arquivos sem extensão; pode estar em no máximo uma lista (padrão: texto); em nenhuma, esses arquivos usam a faixa "outros". Os padrões (cerca de 230 extensões de texto e 110 de compactados, definidos em `sambinha/extensions.py`) estão listados por inteiro em `sambinha.example.pt-BR.toml`; definir uma lista substitui o padrão, não o amplia. Os níveis também podem ser sobrepostos na linha de comando (`--compression-text-level`, `--compression-other-level`, `--compression-compressed-level`); as listas só existem no TOML. As opções valem apenas por job, como as demais de lote.
+
+`compression_level` foi **removido na 0.18.0** (sem alias): um TOML que ainda o defina é rejeitado com o parâmetro, a linha e o substituto. Use `compression_other_level` (mesmo sentido para extensões não listadas; o padrão passou de 3 para 1). Arquivos já existentes não mudam; as novas configurações valem para arquivos criados ou recriados.
+
+No modo hash, o cache exige dispositivo/inode/tamanho/mtime/ctime/permissões iguais, com leitura completa periódica. O modo simples usa tamanho/data. Os níveis de compressão por faixa (`compression_text_level`, `compression_other_level`, `compression_compressed_level`, veja abaixo) e `compression_threads` se aplicam somente a arquivos compactados criados/recriados. Lotes confirmados mantêm membros mesmo ao crescer; veja [planejamento, alertas e rebalanceamento manual](batch-lifecycle.pt-BR.md).
 
 Metadados e logs têm permissões privadas. O índice é validado antes da retenção e restauração; caminhos inseguros, links e conflitos entre dados ativos e histórico são rejeitados. Credenciais conhecidas são ocultadas em erros, logs e telemetria. Consulte [segurança](../SECURITY.pt-BR.md).
 

@@ -14,7 +14,7 @@ P1–P6 were implemented in the requested order; 0.9.0 replaces P3 cross-job sha
 | P3 | Independent per-job inventories (0.9.0) | Each job scans its source when it starts using its own persistent cache. Cross-job scan sharing was removed so later jobs observe earlier changes. |
 | P4 | Batch concurrency | `batch_workers = 2`; each worker compresses and uploads in private staging. The main thread publishes the index only after every new batch finishes successfully. |
 | P5 | Filter cache | Repeated historical-name selections reuse immutable results within one execution. Rules are still evaluated by rclone and frozen before work. |
-| P6 | Uniform compression | One per-job level/thread count for every file; no category boundaries. |
+| P6 | Three-tier compression | Per-job levels for text, other and already-compressed files (chosen by extension) appended to one archive; one thread count; batch boundaries ignore types. |
 
 ## Bounded source discovery
 
@@ -63,7 +63,7 @@ Cache signatures include `st_dev` and `st_ino`, so a cache built on one machine 
 
 ## Uniform compression defaults
 
-Every file uses `compression_level = 3` and `compression_threads = 2`, configurable per job. Levels range from 0–9 and threads from 1–64; actual parallelism depends on the 7-Zip format/algorithm. Extensions do not choose compression or batch boundaries. Replace obsolete category settings; intact groups retain their archive revisions.
+Defaults are `compression_text_level = 1`, `compression_other_level = 1`, `compression_compressed_level = 0` and `compression_threads = 2`, configurable per job (see [three-tier compression](configuration.md#three-tier-compression-0180)). Levels range from 0–9 and threads from 1–64; actual parallelism depends on the 7-Zip format/algorithm. Extensions choose the compression tier but never batch boundaries. Replace obsolete category settings; intact groups retain their archive revisions.
 
 ```toml
 [[jobs]]
@@ -76,7 +76,9 @@ fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
-compression_level = 3
+compression_text_level = 1
+compression_other_level = 1
+compression_compressed_level = 0
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
@@ -100,6 +102,18 @@ References: [restic change detection](https://restic.readthedocs.io/en/stable/04
 
 
 ## Batches and recovery in 0.13.0
+
+## Three-tier compression (0.18.0)
+
+Appending to an existing 7z archive does not recompress what is already inside, so a batch is compressed as text, then other, then already-compressed members, each with its own `-mx` ([how](batch-lifecycle.md#how-a-batch-is-compressed-0180)). One synthetic measurement with 7z 23.01 on a mixed 117 MB data set (text, executables and already-compressed media; not a general benchmark, your mix will differ):
+
+| Configuration | Time | Archive size |
+|---|---|---|
+| Uniform `-mx=3` (previous default) | 16.3 s | 62.2 MB |
+| Text `-mx=1`, everything else `-mx=0` | 3.9 s | 85.5 MB (executables stored: bad) |
+| Three tiers: text 1, other 1, compressed 0 (new defaults) | 5.5 s | 62.7 MB |
+
+The three-tier defaults take about a third of the time for 0.8% more space. Migration: `compression_level` (default 3) was removed in 0.18.0; its successor for unlisted extensions is `compression_other_level` (default 1). Existing archives are unaffected.
 
 See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.
 

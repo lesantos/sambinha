@@ -223,7 +223,7 @@ For batch jobs, `verify-local-metadata` uses the current source and local JSON m
 
 ## Performance settings and separate file profiles
 
-Performance settings provide fingerprint caching for batch inventories, native simple-job syncs with bounded rclone transfers, limited concurrent batch compression/uploads and a uniform compression level and thread count. Simple jobs do not build a separate recursive inventory.
+Performance settings provide fingerprint caching for batch inventories, native simple-job syncs with bounded rclone transfers, limited concurrent batch compression/uploads and per-tier compression levels (see below) and a thread count. Simple jobs do not build a separate recursive inventory.
 
 ```toml
 [[jobs]]
@@ -236,11 +236,27 @@ fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
 
-compression_level = 3
+compression_text_level = 1
+compression_other_level = 1
+compression_compressed_level = 0
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
 ```
+
+### Three-tier compression (0.18.0)
+
+Each batch archive is compressed in up to three tiers, chosen by the file's **last extension** (case-insensitive; `a.tar.gz` -> `gz`; `.bashrc`, `Makefile` and `name.` have none; dots in directory names are ignored):
+
+| Tier | Files | Level option | Default |
+|---|---|---|---|
+| text | extensions in `compression_text_extensions` | `compression_text_level` | 1 |
+| other | every extension in neither list | `compression_other_level` | 1 |
+| already compressed | extensions in `compression_compressed_extensions` | `compression_compressed_level` | 0 (store) |
+
+Levels are integers 0-9 (booleans rejected); `compression_threads` (1-64) applies to every command. Both extension lists are TOML arrays of bare extensions (no dot, spaces or separators; case and one leading dot are ignored). Duplicates inside a list and an extension in both lists are rejected. The keyword `"<none>"` stands for files without an extension; it may be in at most one list (default: text); in neither, such files use the "other" tier. The defaults (about 230 text and 110 compressed extensions, defined in `sambinha/extensions.py`) are listed in full in `sambinha.example.toml`; setting a list replaces the default, it does not extend it. The levels can also be overridden on the command line (`--compression-text-level`, `--compression-other-level`, `--compression-compressed-level`); the lists are TOML-only. These options are job-level only, like the other batch settings.
+
+`compression_level` was **removed in 0.18.0** (no alias): a TOML that still sets it is rejected with the parameter, its line and the replacement. Use `compression_other_level` (same meaning for unlisted extensions; the default changed from 3 to 1). Existing archives are unaffected; new settings apply to newly created or rebuilt archives.
 
 Fingerprint settings apply to batch inventories. `transfer_workers` controls concurrent rclone transfers in simple jobs. `max_delete` is an absolute per-job cap; `--allow-mass-deletion` bypasses it for one run. Level 0 stores content without compression; levels 1–9 spend progressively more effort. Threads are limited to 1–64 per archive. Existing intact archives keep their settings; the new settings apply when archives are rebuilt. [Performance guide](performance.md).
 
