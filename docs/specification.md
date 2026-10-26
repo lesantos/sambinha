@@ -6,7 +6,7 @@ This document consolidates the original backup requirements and all product chan
 
 ## 1. Platform, architecture and configuration
 
-- Run on Linux, including Linux Mint, with Python 3.12 or newer. Runtime backups must not require root privileges.
+- Run on Linux, including Linux Mint, and on macOS, with Python 3.12 or newer. Platform-specific probes (mount tables, mount point checks, metadata-only descriptors) must degrade conservatively when unavailable. Runtime backups must not require root privileges.
 - Keep readable code organized into separate domains, with comments explaining relevant behavior. Use existing Linux tools such as rclone and a 7-Zip-compatible compressor where they simplify the implementation.
 - Maintain the project in the private `lesantos/sambinha` GitHub repository, with a README, usage/recovery guides, public configuration examples, tests and release notes.
 - Validate dependencies, configured sources, mounts and local disk occupancy before transfers. Independent jobs must continue after a per-job failure; a global preflight failure can stop the invocation before transfers.

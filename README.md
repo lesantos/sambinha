@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.14.9** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
+Sambinha **0.15.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
 
 Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
@@ -17,6 +17,8 @@ cd sambinha
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 ```
+
+On macOS, install the tools with Homebrew instead of apt (`brew install git python@3.12 rclone sevenzip`; the compressor is also `7zz`), then run the same `git clone`, `venv` and `pip install` steps. See [macOS notes](docs/configuration.md#macos) before scheduling backups.
 
 The repository is private. Installable packages are also available in [releases](https://github.com/lesantos/sambinha/releases).
 

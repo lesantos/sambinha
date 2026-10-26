@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.15.0 — 2026-10-26
+
+Executar também no macOS, além do Linux. Ler a tabela de montagens pelo comando BSD `mount` quando `/proc/self/mountinfo` não existe, classificar APFS e HFS+ como volumes POSIX e `msdos` como FAT, e conferir `source_mount`/`destination_mount` comparando dispositivos com o diretório pai onde o `mountpoint` do util-linux não existe. Usar um descritor somente leitura e não bloqueante no lugar de `O_PATH` nos inventários só de metadados. Adicionar `tests/test_macos.py` com testes de plataforma simulada, que rodam em qualquer sistema, e testes reais, que rodam apenas em um Mac. Documentar instalação pelo Homebrew, pontos de montagem em `/Volumes`, APFS sem distinção de caixa, Acesso Total ao Disco e agendamento por `launchd`. O comportamento no Linux não muda.
+
 ## 0.14.9 — 2026-10-26
 
 Verificar as versões dos programas externos antes de usá-los. Backups, restaurações e verificações agora param com um erro claro quando o rclone é anterior à 1.60, e as operações em lotes param quando o compressor é anterior ao 7-Zip 22.00 (a primeira versão cuja listagem mantém frações de segundo nas datas; 21.07 e p7zip 16.02/17.x não mantêm). Versões que não puderem ser lidas são aceitas. Corrigir o mínimo documentado de 7-Zip 21 para 22.00, informar os dois mínimos nos READMEs e nos guias de instalação e deixar de recomendar os pacotes antigos `rclone`/`p7zip-full` do apt no Ubuntu 22.04. Adicionar testes unitários e de integração com executáveis falsos.

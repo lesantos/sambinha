@@ -30,3 +30,16 @@ jobs:
         env:
           SAMBINHA_HTTP_S3_TESTS: '1'
       - run: python -m coverage report --include='sambinha/*' --fail-under=85
+  macos:
+    # Informative until validated on real hardware: exercises the Darwin code
+    # paths (mount table, mount point check, O_PATH fallback) with live tools.
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: brew install rclone sevenzip
+      - run: python -m pip install -e . -r requirements-test.txt
+      - run: python -m unittest tests.test_macos tests.test_filesystems tests.test_mounts tests.test_inventory -v

@@ -6,7 +6,7 @@ Este documento consolida os requisitos originais de backup e todas as alteraçõ
 
 ## 1. Plataforma, arquitetura e configuração
 
-- Executar em Linux, incluindo Linux Mint, com Python 3.12 ou mais recente. Os backups não devem exigir privilégios de root.
+- Executar em Linux, incluindo Linux Mint, e em macOS, com Python 3.12 ou mais recente. Sondagens específicas de plataforma (tabela de montagens, verificação de ponto de montagem, descritores somente de metadados) devem degradar de forma conservadora quando indisponíveis. Os backups não devem exigir privilégios de root.
 - Manter código legível, organizado em domínios separados, com comentários explicando comportamentos relevantes. Usar ferramentas Linux existentes, como rclone e um compactador compatível com 7-Zip, quando simplificarem a implementação.
 - Manter o projeto no repositório privado `lesantos/sambinha` do GitHub, com README, guias de uso/recuperação, exemplos públicos de configuração, testes e notas de release.
 - Validar dependências, origens configuradas, montagens e ocupação dos discos locais antes das transferências. Tarefas independentes devem continuar após uma falha por tarefa; uma falha global de preflight pode interromper a execução antes dos envios.

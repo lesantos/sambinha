@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.15.0 — 2026-10-26
+
+Run on macOS in addition to Linux. Read the mount table from the BSD `mount` command when `/proc/self/mountinfo` is unavailable, classify APFS and HFS+ as POSIX volumes and `msdos` as FAT, and verify `source_mount`/`destination_mount` by comparing devices with the parent directory where util-linux `mountpoint` does not exist. Fall back from `O_PATH` to a non-blocking read-only descriptor for metadata-only inventories. Add `tests/test_macos.py` with simulated-platform tests that run everywhere and live tests that run only on a Mac. Document Homebrew installation, `/Volumes` mount points, case-insensitive APFS, Full Disk Access and `launchd` scheduling. Linux behavior is unchanged.
+
 ## 0.14.9 — 2026-10-26
 
 Check the versions of the external programs before using them. Backups, restores and verifications now stop with a clear error when rclone is older than 1.60, and batch operations stop when the compressor is older than 7-Zip 22.00 (the first release whose listing keeps sub-second modification times; 21.07 and p7zip 16.02/17.x do not). Versions that cannot be read are accepted. Correct the documented minimum from 7-Zip 21 to 22.00, state both minimums in the READMEs and installation guides, and stop recommending the outdated `rclone`/`p7zip-full` apt packages on Ubuntu 22.04. Add unit and integration tests with fake executables.

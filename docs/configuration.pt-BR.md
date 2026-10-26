@@ -33,7 +33,7 @@ Antes de começar, o Sambinha verifica se as ferramentas necessárias estão dis
 
 ## Prepare o computador
 
-O programa funciona no Linux com **Python 3.12 ou mais recente**. No Linux Mint, você pode usar o Python disponível nos pacotes do sistema. Ele utiliza duas ferramentas conhecidas: o **rclone**, para comparar e copiar arquivos, e o **7-Zip**, para compactar os lotes.
+O programa funciona no Linux e no macOS com **Python 3.12 ou mais recente**. No Linux Mint, você pode usar o Python disponível nos pacotes do sistema; no macOS, veja as [observações sobre macOS](#macos) abaixo. Ele utiliza duas ferramentas conhecidas: o **rclone**, para comparar e copiar arquivos, e o **7-Zip**, para compactar os lotes.
 
 Abra um terminal e instale as ferramentas. O `sudo` é necessário nesta etapa de instalação; os backups depois são executados pela sua conta normal:
 
@@ -54,6 +54,20 @@ python3 -m venv .venv
 ```
 
 A versão atual é **0.14.9**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+
+### macOS
+
+Instale as ferramentas com o [Homebrew](https://brew.sh): `brew install git python@3.12 rclone sevenzip`. O compactador se chama `7zz`; configure `compressor = "7zz"` nos jobs em lotes. Depois siga os mesmos passos de `git clone`, `python3 -m venv .venv` e `pip install .` acima.
+
+O que muda em relação ao Linux:
+
+- `source_mount` e `destination_mount` são conferidos comparando o dispositivo do ponto de montagem com o do diretório pai, pois o macOS não tem o comando `mountpoint`. Discos externos aparecem em `/Volumes/NOME`; use `destination_mount = "/Volumes/NOME"`.
+- A detecção do sistema de arquivos lê a tabela do comando `mount` em vez de `/proc/self/mountinfo`. Volumes APFS e HFS+ recebem metadados POSIX completos (`--metadata`); volumes FAT (`msdos`) e exFAT mantêm o mesmo tratamento conservador do Linux. Montagens SMB, AFP e outras de rede nunca pedem metadados estendidos.
+- O APFS não diferencia maiúsculas de minúsculas por padrão. Dois arquivos de origem que diferem só pela caixa das letras não coexistem nesse volume; backups feitos no Linux que contenham ambos vão colidir ao serem restaurados em um APFS padrão. O HFS+ também normaliza nomes acentuados para NFD; o APFS preserva a forma original. Sempre que possível, mantenha estado e destino no mesmo tipo de volume da origem.
+- Ler `~/Documents`, `~/Desktop`, `~/Downloads`, Mail e pastas semelhantes exige **Acesso Total ao Disco** (Ajustes do Sistema, Privacidade e Segurança). Quando os backups rodam pelo `cron` ou `launchd`, conceda essa permissão ao interpretador Python do ambiente virtual (ou ao `/usr/sbin/cron`); caso contrário o inventário falha com erros de permissão.
+- Agende com `cron` ou com um agente `launchd` em `~/Library/LaunchAgents`; o comando é o mesmo `.venv/bin/sambinha backup`.
+
+Os testes marcados como `RealMacOSTests` em `tests/test_macos.py` rodam somente em um Mac e conferem esses comportamentos no sistema real; os demais testes de macOS simulam a plataforma e rodam também no CI Linux.
 
 ## Faça seu primeiro backup
 
@@ -176,9 +190,9 @@ Os arquivos excluídos não são enviados e não são tratados como arquivos apa
 
 ## Confirme que os discos estão disponíveis
 
-Para um backup em discos montados, informe na tarefa `source_mount` e `destination_mount`: são os pontos onde os discos aparecem no Linux, não necessariamente as subpastas copiadas. Por exemplo, um destino `/mnt/capsule/LLLD/linux` usa `destination_mount = "/mnt/capsule/LLLD"`.
+Para um backup em discos montados, informe na tarefa `source_mount` e `destination_mount`: são os pontos onde os discos aparecem no sistema (`/mnt/...` ou `/media/...` no Linux, `/Volumes/NOME` no macOS), não necessariamente as subpastas copiadas. Por exemplo, um destino `/mnt/capsule/LLLD/linux` usa `destination_mount = "/mnt/capsule/LLLD"`.
 
-O Sambinha aplica a mesma estratégia do seu comando `mounted_nonempty`: o ponto precisa passar em `mountpoint -q` e conter pelo menos uma entrada. Se ele estiver ausente, desmontado, vazio ou ilegível, a execução para antes de copiar e envia erro ao Cronitor. A conferência se repete antes das cópias e exclusões. Configure o ponto da origem e, para destinos locais, o do destino; o S3 tem somente a origem local.
+O Sambinha aplica a mesma estratégia do seu comando `mounted_nonempty`: o ponto precisa passar em `mountpoint -q` (no macOS, o dispositivo do ponto precisa diferir do diretório pai) e conter pelo menos uma entrada. Se ele estiver ausente, desmontado, vazio ou ilegível, a execução para antes de copiar e envia erro ao Cronitor. A conferência se repete antes das cópias e exclusões. Configure o ponto da origem e, para destinos locais, o do destino; o S3 tem somente a origem local.
 
 Para pastas comuns que não dependem de um disco montado específico, as opções podem ficar ausentes. O [guia de montagem](usage.pt-BR.md#verificação-dos-discos-montados) mostra a configuração completa e como localizar o ponto correto.
 

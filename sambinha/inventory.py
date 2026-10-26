@@ -10,6 +10,11 @@ import stat
 from .errors import BackupError, SourceChangedError
 from .filesystems import volatile_inode_devices
 
+# O_PATH (Linux) pins a file's identity without opening it for reading, so
+# metadata-only inventories never block on FIFOs or trigger reads. macOS has
+# no O_PATH; a non-blocking read-only descriptor is the closest equivalent.
+_METADATA_FLAGS = getattr(os, "O_PATH", os.O_RDONLY | os.O_NONBLOCK)
+
 
 @dataclass(frozen=True)
 class File:
@@ -72,7 +77,7 @@ def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=Fals
     before = before if before is not None else os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode):
         raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
-    flags = os.O_PATH if metadata_only else os.O_RDONLY | os.O_NONBLOCK
+    flags = _METADATA_FLAGS if metadata_only else os.O_RDONLY | os.O_NONBLOCK
     fd = os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
     try:
         opened = os.fstat(fd)

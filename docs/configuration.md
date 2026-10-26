@@ -28,7 +28,7 @@ Metadata and logs use private permissions. Relative paths and indexes are valida
 
 ## Install
 
-Use Linux and **Python 3.12 or newer**, with rclone and 7-Zip. Backups run under your normal account.
+Use Linux or macOS and **Python 3.12 or newer**, with rclone and 7-Zip. Backups run under your normal account.
 
 **rclone 1.60 or newer** and **7-Zip 22.00 or newer** (`7zz`) are required; Sambinha refuses to run with older versions. Ubuntu 22.04 and Linux Mint 21 ship rclone 1.53 and p7zip 16.02, which are too old: install the official binaries from <https://rclone.org/downloads/> and <https://www.7-zip.org/download.html> (Linux x64 `7zz`) into `/usr/local/bin`, or on Ubuntu 24.04/Debian 13 use `sudo apt install rclone 7zip`. Then set `compressor = "7zz"` in batch jobs and check with `rclone version` and `7zz`.
 
@@ -42,6 +42,20 @@ python3 -m venv .venv
 ```
 
 The repository is private, so your GitHub account needs access. Installable artifacts are available from the [releases page](https://github.com/lesantos/sambinha/releases). From a source checkout, `.venv/bin/python -m sambinha` also works.
+
+### macOS
+
+Install the tools with [Homebrew](https://brew.sh): `brew install git python@3.12 rclone sevenzip`. The compressor is `7zz`, so set `compressor = "7zz"` in batch jobs. Then follow the same `git clone`, `python3 -m venv .venv` and `pip install .` steps above.
+
+Behavior that differs from Linux:
+
+- `source_mount` and `destination_mount` are verified by comparing the device of the mount point with its parent directory, because macOS has no `mountpoint` command. External disks appear under `/Volumes/NAME`, so use `destination_mount = "/Volumes/NAME"`.
+- Filesystem detection reads the `mount` table instead of `/proc/self/mountinfo`. APFS and HFS+ volumes receive full POSIX metadata (`--metadata`); FAT (`msdos`) and exFAT volumes keep the same conservative handling as on Linux. SMB, AFP and other network mounts never request extended metadata.
+- APFS is case-insensitive by default. Two source files that differ only by letter case cannot coexist on such a volume; backups made on Linux that contain both will collide when restored to a default APFS volume. HFS+ also normalizes accented names to NFD; APFS preserves the original form. Keep state and destination on the same kind of volume as the source whenever possible.
+- Reading `~/Documents`, `~/Desktop`, `~/Downloads`, Mail and similar folders requires **Full Disk Access** (System Settings, Privacy and Security). When backups run from `cron` or `launchd`, grant that permission to the Python interpreter of the virtual environment (or to `/usr/sbin/cron`), otherwise the inventory fails with permission errors.
+- Schedule with `cron` or a `launchd` agent in `~/Library/LaunchAgents`; the command is the same `.venv/bin/sambinha backup`.
+
+Tests marked `RealMacOSTests` in `tests/test_macos.py` run only on a Mac and check these behaviors against the live system; the remaining macOS tests simulate the platform and run on Linux CI as well.
 
 ## First backup
 

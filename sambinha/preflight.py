@@ -10,7 +10,7 @@ from .errors import BackupError, job_errors
 from .filtering import Selection
 from .inventory import File, scan
 from .index_generations import backup_state
-from .mounts import check_mounts
+from .mounts import check_mounts, uses_mountpoint_command
 from .process import credential_values, show_progress
 from .retention import DAY
 from .versions import check_compressor_version
@@ -72,7 +72,8 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
     for index, job in enumerate(config.jobs):
         with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
             runner.require(([job.compressor] if job.logic == "batch" else [])
-                           + (["mountpoint"] if job.source_mount or job.destination_mount else []))
+                           + (["mountpoint"] if (job.source_mount or job.destination_mount)
+                              and uses_mountpoint_command() else []))
             if job.logic == "batch":
                 check_compressor_version(runner, job.compressor)
             checking = progress.scope(0.2 * index / len(config.jobs), 0.2 * (index + 1) / len(config.jobs)) if progress else None
