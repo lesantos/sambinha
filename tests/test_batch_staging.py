@@ -277,13 +277,21 @@ class UploadInterruptionTests(BatchContext, Sandbox):
         with patch.object(strategy, 'Storage', BlockingStorage), patch.object(strategy, 'compress', compress):
             # Both workers are blocked inside put() when Ctrl+C reaches the main
             # thread. A real signal is needed: only it wakes a blocked wait().
-            timer = threading.Timer(0.5, signal.pthread_kill, (main_thread, signal.SIGINT))
+            def interrupt_when_blocked():
+                # Fire only once both workers are inside put(); a fixed delay
+                # races with slow thread startup on loaded machines.
+                deadline = time.monotonic() + 10
+                while len(BlockingStorage.puts) < 2 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                signal.pthread_kill(main_thread, signal.SIGINT)
+
+            timer = threading.Thread(target=interrupt_when_blocked, daemon=True)
             timer.start()
             try:
                 with self.assertRaises(KeyboardInterrupt):
                     strategy._upload_pending(ctx, pending, active)
             finally:
-                timer.cancel()
+                timer.join(15)
         elapsed = time.monotonic() - started
         self.assertLess(elapsed, 2.5, f'_upload_pending blocked for {elapsed:.1f}s')
         self.assertTrue(ctx.runner.cancelled)
