@@ -1,5 +1,7 @@
 """Execution context shared by backup strategies."""
 import threading
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from .errors import BackupError
 from .filtering import Selection, retired_paths
@@ -7,14 +9,41 @@ from .metadata import control_directory, prepare_controls, write_manifest
 from .names import STATE_FILE
 from .retention import alert_time, date
 from .state import atomic_json, identity, identity_options, indexed_files, load_state, migrate_identity, record_origin
-from .storage import Storage
+from .storage import Storage, StorageBackend, StorageFactory
+
+
+class StrategyContext(Protocol):
+    """What every registered strategy may rely on (see ``engine.STRATEGIES``)."""
+
+    config: Any
+    job: Any
+    runner: Any
+    log: Any
+    now: float
+    progress: Any
+    allow_mass_deletion: bool
+    storage_factory: StorageFactory
+
+
+@dataclass
+class SimpleContext:
+    """Minimal context of ``logic = "simple"`` jobs: no index state, controls or batch metrics."""
+
+    config: Any
+    job: Any
+    runner: Any
+    log: Any
+    now: float
+    progress: Any
+    allow_mass_deletion: bool = False
+    storage_factory: StorageFactory = Storage
 
 
 class Context:
     """Per-job state, metrics, deletion guards and retention for batch strategies."""
 
     def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None, progress=None,
-                 state=None, rebalancing=False):
+                 state=None, rebalancing=False, storage_factory: StorageFactory = Storage):
         self.config, self.job, self.runner, self.log = config, job, runner, log
         self.files, self.now = files, now
         self.selection = Selection(job.exclude_files, config, runner,
@@ -24,7 +53,9 @@ class Context:
         self.progress = progress
         self.rebalancing = rebalancing
         self.source = job.source
-        self.storage = Storage(job, config, runner, source_required=not rebalancing)
+        # Overridable seam: tests and alternate backends inject a StorageBackend here.
+        self.storage_factory = storage_factory
+        self.storage: StorageBackend = storage_factory(job, config, runner, source_required=not rebalancing)
         self.directory = config.state_dir / job.name
         self.controls_directory = control_directory(config, job)
         self.state_path = self.directory / STATE_FILE
@@ -44,7 +75,7 @@ class Context:
         self.removed = []
         self.inventory_changed = False
         # Scan-time stat signatures for verify (hash mode, fingerprint cache, no full scan due).
-        self.signatures = None
+        self.signatures: Any = None
         self.max_delete = -1
         self.batch_progress = {}
         # Upload journal (see journal.py): entries still believed valid, shared by worker threads.

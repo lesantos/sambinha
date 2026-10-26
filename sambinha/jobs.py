@@ -1,18 +1,21 @@
 """One job's frozen rules, strategy execution, verification and summary."""
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from .config import Config, Job
-from .context import Context
+from .context import Context, SimpleContext
 from .disks import check_disks
+from .errors import BackupError
 from .filtering import frozen_rules
 from .logging import RunLog
+from .names import Logic
 from .preflight import JobInventory, preflight
 from .process import Runner, show_progress
 from .progress import Progress
 from .retention import DAY, DeletionForecast
 from .state import drop_fingerprints, save_fingerprints
-from .strategies.simple import simple
+from .storage import Storage, StorageFactory
 
 
 @dataclass
@@ -25,8 +28,9 @@ class JobExecution:
     forecast: DeletionForecast
     clock: Callable[[], float]
     allow_mass_deletion: bool
-    strategies: Mapping[str, Callable[[Context], None]]
+    strategies: Mapping[Logic, Callable[[Any], None]]
     rebalancing: bool = False
+    storage_factory: StorageFactory = Storage
     context: Context | None = field(default=None, init=False)
 
     def execute(self):
@@ -39,18 +43,26 @@ class JobExecution:
                                        self.forecast, self.clock(),
                                        on_context=lambda ctx: setattr(self, "context", ctx))
                 return
+            strategy = self._strategy()
             inventories = preflight(effective, self.runner, self.clock(), progress=self.progress.scope(0, 0.2),
                                     log=self.log)
             if self.job.logic == "simple":
-                simple(effective, self.job, self.runner, self.log, self.clock(), self.progress,
-                       allow_mass_deletion=self.allow_mass_deletion)
+                strategy(SimpleContext(effective, self.job, self.runner, self.log, self.clock(),
+                                       self.progress, self.allow_mass_deletion, self.storage_factory))
             else:
-                self._execute_batch(effective, inventories[self.job.name])
+                self._execute_batch(effective, inventories[self.job.name], strategy)
 
-    def _execute_batch(self, effective: Config, inventory: JobInventory):
+    def _strategy(self) -> Callable[[Any], None]:
+        """Registry lookup keyed by ``Job.logic``; fails before any I/O for an unregistered logic."""
+        try:
+            return self.strategies[self.job.logic]
+        except KeyError:
+            raise BackupError(f"Lógica de backup sem estratégia registrada: {self.job.logic}") from None
+
+    def _execute_batch(self, effective: Config, inventory: JobInventory, strategy: Callable[[Any], None]):
         ctx = Context(effective, self.job, self.runner, self.log, inventory.files, self.clock(),
                       selected_dirs=inventory.selected_dirs, forecast=self.forecast, state=inventory.previous,
-                      progress=self.progress.scope(0.2, 0.9))
+                      progress=self.progress.scope(0.2, 0.9), storage_factory=self.storage_factory)
         self.context = ctx
         ctx.allow_mass_deletion = self.allow_mass_deletion
         cached_inventory = inventory.fingerprints
@@ -72,7 +84,7 @@ class JobExecution:
         ctx.forecast_deletions()
         check_disks(ctx.job, ctx.event, config=ctx.config)
         ctx.protect_deletions(self.allow_mass_deletion)
-        self.strategies[ctx.job.logic](ctx)
+        strategy(ctx)
         check_disks(ctx.job, ctx.event, config=ctx.config)
         self._verify_if_due(effective)
 

@@ -309,7 +309,8 @@ class UploadInterruptionTests(BatchContext, Sandbox):
 
         started = time.monotonic()
         main_thread = threading.main_thread().ident
-        with patch.object(strategy, 'Storage', BlockingStorage), patch.object(strategy, 'compress', compress):
+        ctx.storage_factory = BlockingStorage
+        with patch.object(strategy, 'compress', compress):
             # Both workers are blocked inside put() when Ctrl+C reaches the main
             # thread. A real signal is needed: only it wakes a blocked wait().
             def interrupt_when_blocked():
@@ -347,7 +348,8 @@ class UploadInterruptionTests(BatchContext, Sandbox):
     def test_workers_stop_before_compressing_or_uploading_after_cancellation(self):
         ctx, pending, _active = self.context(workers=1, count=1)
         ctx.runner.cancel()
-        with patch.object(strategy, 'compress') as compress, patch.object(strategy, 'Storage') as storage:
+        ctx.storage_factory = storage = Mock()
+        with patch.object(strategy, 'compress') as compress:
             with self.assertRaises(Interrupted):
                 strategy.upload_batch(ctx, pending[0])
         compress.assert_not_called()
