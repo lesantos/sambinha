@@ -1,11 +1,24 @@
 from dataclasses import replace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from sambinha.config import load
 from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.mounts import check_mounts
 from tests.helpers import Sandbox
+
+
+def setUpModule():
+    # These tests drive the util-linux `mountpoint` path (mocked or real);
+    # pin the Linux backend so they also run on macOS. tests/*/test_macos.py
+    # covers the Darwin backend.
+    global _platform
+    _platform = patch("sambinha.mounts._PLATFORM", "linux")
+    _platform.start()
+
+
+def tearDownModule():
+    _platform.stop()
 
 
 class MountUnitTests(Sandbox):

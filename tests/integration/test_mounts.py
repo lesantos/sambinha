@@ -11,6 +11,19 @@ from tests.helpers import REAL_TOOLS, Sandbox
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
 @unittest.skipUnless(shutil.which('mountpoint'), 'util-linux mountpoint required')
+def setUpModule():
+    # These tests drive the util-linux `mountpoint` path (mocked or real);
+    # pin the Linux backend so they also run on macOS. tests/*/test_macos.py
+    # covers the Darwin backend.
+    global _platform
+    _platform = patch("sambinha.mounts._PLATFORM", "linux")
+    _platform.start()
+
+
+def tearDownModule():
+    _platform.stop()
+
+
 class MountIntegrationTests(Sandbox):
     def test_real_mountpoint_refuses_ordinary_directory_and_notifies(self):
         self.file('file')
