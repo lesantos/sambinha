@@ -245,6 +245,36 @@ class RecoveryIntegrationTests(Sandbox):
         self.assertIn('temporários', error['error'])
         self.assertFalse((self.root / 'full-temp').exists())
 
+    def test_local_integrity_check_accepts_passthrough_archives(self):
+        self.file('dir/backup.zip', bytes(range(256)) * 4)
+        self.file('note.txt', b'note')
+        job = replace(self.config.jobs[0], logic='batch', max_megabytes=100 / 1024 ** 2, log_terminal_level='detailed')
+        self.config = replace(self.config, jobs=(job,))
+        self.assertEqual(self.execute(), 0)
+        state = self.state()
+        self.assertTrue(any(control.get('passthrough') for control in state['active'].values()))
+        self.assertEqual(self.recover('verify-destination-integrity'), 0)
+        tested = [e['path'] for e in self.recovery_events if e['event'] == 'tested_archive']
+        self.assertEqual(sorted(tested), sorted(state['active']))
+        archive = next(key for key, control in state['active'].items() if control.get('passthrough'))
+        (self.destination / archive).write_bytes(b'corrupt')
+        self.assertEqual(self.recover('verify-destination-integrity'), 1)
+        error = next(e for e in self.recovery_events if e['event'] == 'error')
+        self.assertIn('Arquivo compactado individual divergente', error['error'])
+
+    def test_unexpected_job_exception_is_logged_as_error_instead_of_traceback(self):
+        self.file('file')
+        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
+        self.assertEqual(self.execute(), 0)
+        with patch('sambinha.recovery.verify_destination_integrity_job',
+                   side_effect=AttributeError("'str' object has no attribute 'parent'")):
+            self.assertEqual(self.recover('verify-destination-integrity'), 1)
+        error = next(e for e in self.recovery_events if e['event'] == 'error')
+        self.assertEqual(error['job'], 'test')
+        self.assertIn("'parent'", error['error'])
+        self.assertEqual(self.recovery_events[-1]['event'], 'end')
+        self.assertFalse(self.recovery_events[-1]['success'])
+
     def test_disabling_output_disk_check_preserves_restore_path_validation(self):
         self.file('file')
         self.assertEqual(self.execute(), 0)

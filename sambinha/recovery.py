@@ -66,7 +66,10 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                                       "verify-destination-metadata": verify_destination_metadata_job,
                                       "verify-destination-integrity": verify_destination_integrity_job}
                         activities[action](config, job, runner, log, progress=progress)
-                except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
+                # Mirror engine.run: unexpected per-job errors become a logged event
+                # and exit 1 instead of a traceback that hides the job name.
+                except (BackupError, OSError, ValueError, KeyError, TypeError, AttributeError,
+                        tarfile.TarError) as exc:
                     failed = True
                     message = str(JobError(job.name, exc))
                     log.event("error", job=job.name, error=message)
