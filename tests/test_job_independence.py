@@ -8,11 +8,12 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.config import validate
-from sambinha.engine import DAY, Context
+from sambinha.config_validation import validate
+from sambinha.context import Context
 from sambinha.errors import ConfigError
 from sambinha.inventory import scan
 from sambinha.recovery import recover
+from sambinha.retention import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 

@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest.mock import patch
 
-from sambinha.config import validate
+from sambinha.config_validation import validate
 from sambinha.engine import run
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import scan

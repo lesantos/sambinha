@@ -103,7 +103,7 @@ class S3HTTPTests(suite.S3IntegrationTests):
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
         from unittest.mock import Mock, patch
 
-        from sambinha.recovery import verify_local_metadata_job
+        from sambinha.verification import verify_local_metadata_job
         self.file('file.txt', b'original')
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):

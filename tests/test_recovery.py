@@ -12,10 +12,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
-from sambinha.config import validate
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_destination_metadata_job, verify_local_metadata_job
+from sambinha.recovery import recover
+from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 

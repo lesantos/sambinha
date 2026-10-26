@@ -10,11 +10,12 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.config import load, validate
-from sambinha.engine import DAY
+from sambinha.config import load
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError
 from sambinha.process import Runner
 from sambinha.recovery import recover
+from sambinha.retention import DAY
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 

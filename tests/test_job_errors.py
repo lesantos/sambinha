@@ -8,8 +8,9 @@ from unittest.mock import Mock, patch
 
 from sambinha.errors import BackupError, JobError, job_errors
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_local_metadata_job
+from sambinha.recovery import recover
 from sambinha.storage import Storage
+from sambinha.verification import verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.test_disks import Usage
 

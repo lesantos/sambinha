@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from sambinha.config import load
-from sambinha.engine import DAY
 from sambinha.filtering import Selection, path_groups, retired_paths
 from sambinha.process import Runner
+from sambinha.retention import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, restore_batches
 
 

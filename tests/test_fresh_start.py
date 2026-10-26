@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 from sambinha import preflight
 from sambinha.cli import main, parser
-from sambinha.config import load, validate
+from sambinha.config import load
+from sambinha.config_validation import validate
 from sambinha.errors import ConfigError
 from tests.helpers import REAL_TOOLS, Sandbox, tick
 

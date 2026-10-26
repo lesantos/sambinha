@@ -5,10 +5,10 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
-from sambinha.config import validate
-from sambinha.engine import preflight
+from sambinha.config_validation import validate
 from sambinha.filtering import Selection
 from sambinha.inventory import fingerprint, scan
+from sambinha.preflight import preflight
 from sambinha.profiles import settings
 from tests.helpers import REAL_TOOLS, Sandbox, contents, tick
 
@@ -91,7 +91,7 @@ class PerformanceIntegrationTests(Sandbox):
             self.file(f'dir/file-{i}.txt', str(i).encode())
         self.config = replace(self.config, batch_workers=2,
                               jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
-        from sambinha.engine import upload_batch
+        from sambinha.strategies.batch import upload_batch
         gate = threading.Barrier(2)
         mutex = threading.Lock()
         running, peak, calls = 0, 0, 0

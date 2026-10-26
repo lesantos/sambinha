@@ -10,7 +10,8 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 
-from sambinha.config import Config, Job, validate
+from sambinha.config import Config, Job
+from sambinha.config_validation import validate
 from sambinha.engine import run
 
 

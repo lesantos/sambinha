@@ -2,7 +2,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from sambinha.cli import main, parser
-from sambinha.config import load, validate
+from sambinha.config import load
+from sambinha.config_validation import validate
 from sambinha.errors import ConfigError
 from tests.helpers import Sandbox
 

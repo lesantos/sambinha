@@ -7,9 +7,9 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from sambinha.config import validate
-from sambinha.engine import DAY
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
+from sambinha.retention import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.s3_support import MotoRunner
 
@@ -133,7 +133,7 @@ class S3IntegrationTests(Sandbox):
         self.assert_complete()
         from unittest.mock import Mock
 
-        from sambinha.recovery import verify_local_metadata_job
+        from sambinha.verification import verify_local_metadata_job
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
             result = verify_local_metadata_job(self.config, self.config.jobs[0], self.runner, Mock())
         self.assertEqual(result['mode'], 'rclone_check')
@@ -375,8 +375,8 @@ class S3IntegrationTests(Sandbox):
     def test_s3_simple_and_batch_verification_only_reads_metadata(self):
         from unittest.mock import Mock
 
-        from sambinha.recovery import verify_destination_metadata_job, verify_local_metadata_job
         from sambinha.storage import Storage
+        from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
         self.file('data.txt', bytes(range(256)))
         self.file('more.txt', b'original')
         original = self.runner.run

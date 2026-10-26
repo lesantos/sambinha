@@ -6,12 +6,14 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.cli import parser
-from sambinha.config import load, validate
+from sambinha.config import load
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import fingerprint, scan, verify
-from sambinha.recovery import recover, verify_local_metadata_job
+from sambinha.recovery import recover
 from sambinha.state import validate_file
 from sambinha.storage import Storage
+from sambinha.verification import verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents, tick
 
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import Mock, patch
 
-from sambinha.config import validate
+from sambinha.config_validation import validate
 from sambinha.engine import run
 from sambinha.errors import BackupError
 from sambinha.process import Interrupted, Runner, Terminated, handle_termination

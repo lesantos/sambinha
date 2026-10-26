@@ -121,7 +121,7 @@ class CrossMachineTests(Sandbox):
         import io
         from contextlib import redirect_stdout
 
-        from sambinha.config import validate
+        from sambinha.config_validation import validate
         from sambinha.recovery import recover
         with redirect_stdout(io.StringIO()):
             return recover(validate(config), 'restore', output=output)

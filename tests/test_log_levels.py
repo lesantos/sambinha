@@ -8,7 +8,8 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 from sambinha.cli import parser
-from sambinha.config import load, validate
+from sambinha.config import load
+from sambinha.config_validation import validate
 from sambinha.engine import run
 from sambinha.errors import ConfigError
 from sambinha.logging import RunLog

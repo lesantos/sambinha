@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
-from sambinha.config import validate
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError
 from sambinha.recovery import recover
 from sambinha.versions import (

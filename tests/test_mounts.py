@@ -3,7 +3,8 @@ import unittest
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
-from sambinha.config import load, validate
+from sambinha.config import load
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
 from sambinha.mounts import check_mounts
 from sambinha.process import Runner
