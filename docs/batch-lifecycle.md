@@ -13,19 +13,29 @@ type = "s3"
 logic = "batch"
 recovery_index_versions = 3
 max_megabytes = 1024
-compression_level = 3
+compression_text_level = 1
+compression_other_level = 1
+compression_compressed_level = 0
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
 ```
 
-`max_megabytes` limits the sum of original member sizes in MB (1 MB = 1,048,576 bytes), not the compressed .7z size. The default is 1024 MB (1 GiB). Positive finite integers and decimals equivalent to at least 1 byte are accepted; fractional bytes are truncated during internal conversion. There is no member-count limit. Compression uses a single level (0–9, default 3) and thread count (1–64, default 2), regardless of extension. New settings apply to newly created/rebuilt archives; intact archives are reused.
+`max_megabytes` limits the sum of original member sizes in MB (1 MB = 1,048,576 bytes), not the compressed .7z size. The default is 1024 MB (1 GiB). Positive finite integers and decimals equivalent to at least 1 byte are accepted; fractional bytes are truncated during internal conversion. There is no member-count limit. Compression uses three tiers by extension, each with its own level (0–9; text 1, other 1, already compressed 0) and a shared thread count (1–64, default 2); see [three-tier compression](configuration.md#three-tier-compression-0180). New settings apply to newly created/rebuilt archives; intact archives are reused.
 
 Replace `max_bytes` with `max_megabytes` in TOMLs and `--max-bytes` with `--max-megabytes` in commands, dividing the old value by 1,048,576. For example, `max_bytes = 1073741824` becomes `max_megabytes = 1024`. The old name is rejected; existing archives remain intact.
 
-Remove `max_files` and all `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` options from old TOML files and scheduled CLI invocations. These obsolete configuration options are rejected with parameter/line diagnostics. Replace category options with `compression_level`/`compression_threads`. Existing archive controls remain readable and their membership is preserved; migration does not automatically consolidate legacy small archives.
+Remove `max_files` and all `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` options from old TOML files and scheduled CLI invocations. These obsolete configuration options are rejected with parameter/line diagnostics. Replace category options with `compression_text_level`/`compression_other_level`/`compression_compressed_level` and `compression_threads` (0.18.0 removed the interim `compression_level`; use `compression_other_level`, default 1 instead of 3; existing archives are unaffected). Existing archive controls remain readable and their membership is preserved; migration does not automatically consolidate legacy small archives.
 
 Confirmed state migrates to schema 2 on the first 0.13.0 publication and to schema 3 (name-based identity, below) on the first publication after that change. Legacy schemas 1 and 2 remain readable; older executables reject new state rather than overwrite membership/generations they do not understand. Unsupported future schemas never silently fall back to an older writable state.
+
+## How a batch is compressed (0.18.0)
+
+Members are classified by extension into text, other and already-compressed groups ([options](configuration.md#three-tier-compression-0180)). `compress()` runs one `7z a -t<format> -scsUTF-8 -spd -spf -mx=<level> -mmt=<threads> <archive> -- <members>` per non-empty group, in the order **text, other, already compressed**, always on the same archive path: the first command creates it and each later one appends without recompressing what is already there (7-Zip copies the existing stream; appending 40 MB of stored members to a 13 MB archive took 0.2 s). Since every append copies everything written so far, the smallest and cheapest group goes first and the stored, large one last. Inside a group the batch's file order is kept. A batch whose files fall in one group runs exactly one command. The 7z/zip readers need no change: a mixed archive (LZMA2, Copy, BCJ+LZMA2) lists, tests, restores and verifies like any other.
+
+The argument-length budget and the listfile fallback (and its trailing-space rule) apply per command, with one listfile per group. The 0.1-0.7 progress range is split among groups by bytes. Source verification runs before the first command and after the last; the listing check, `7z t` and the CRC cross-check run once, on the final archive. If the source changes between commands the final verification fails exactly as before; an interruption between commands discards the temporary directory, so nothing is published. Passthrough batches (single large already-compressed file) skip compression; rebalance staging calls the same `compress()` and so uses the tiers too.
+
+Disk peak: during an append 7-Zip writes the new archive while the old one exists. `temporary_bytes()` therefore reserves, for multi-group batches, `2 * original_bytes - last_group_bytes` plus overhead (assuming no compression), against `original_bytes` plus overhead for a single group. The `batch_start`/`would_batch` event keeps its name and adds `compression_groups` (files, bytes and level per tier); `compression_profile` is now `"tiered"`.
 
 ## Identity by job name
 

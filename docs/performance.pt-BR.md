@@ -14,7 +14,7 @@ P1–P6 foram implementadas na ordem solicitada; 0.9.0 substitui o compartilhame
 | P3 | Inventários independentes por job (0.9.0) | Cada job inventaria a origem quando começa, com seu próprio cache persistente. A leitura compartilhada entre jobs foi retirada para observar as alterações dos anteriores. |
 | P4 | Lotes concorrentes | `batch_workers = 2`; staging separado por worker. A thread principal só confirma o índice depois de todos os uploads. |
 | P5 | Cache de filtros | Seleções repetidas de nomes históricos reaproveitam resultados imutáveis na execução; o rclone continua avaliando as regras congeladas. |
-| P6 | Compressão única | Um nível e quantidade de threads por job para todos os arquivos, sem fronteiras por categoria. |
+| P6 | Compressão em três faixas | Níveis por job para texto, outros e já compactados (escolhidos pela extensão) acrescentados a um mesmo arquivo; uma quantidade de threads; fronteiras de lote ignoram tipos. |
 
 ## Descoberta da origem com operações limitadas
 
@@ -63,7 +63,7 @@ As assinaturas do cache incluem `st_dev` e `st_ino`, então um cache construído
 
 ## Compressão única e padrões
 
-Todos os arquivos usam `compression_level = 3` e `compression_threads = 2`, configuráveis por job. Níveis válidos: 0–9; threads: 1–64. O algoritmo e o formato do 7-Zip determinam o uso real de threads. Não se classifica por extensão para definir compactação ou fronteiras de lotes. Configurações antigas por categoria devem ser substituídas; grupos intactos preservam suas revisões.
+Os padrões são `compression_text_level = 1`, `compression_other_level = 1`, `compression_compressed_level = 0` e `compression_threads = 2`, configuráveis por job (veja [compressão em três faixas](configuration.pt-BR.md#compressão-em-três-faixas-0180)). Níveis válidos: 0–9; threads: 1–64. O algoritmo e o formato do 7-Zip determinam o uso real de threads. A extensão escolhe a faixa de compressão, nunca as fronteiras dos lotes. Configurações antigas por categoria devem ser substituídas; grupos intactos preservam suas revisões.
 
 ```toml
 [[jobs]]
@@ -76,7 +76,9 @@ fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
-compression_level = 3
+compression_text_level = 1
+compression_other_level = 1
+compression_compressed_level = 0
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
@@ -156,3 +158,15 @@ O `state.json` embutia uma entrada em `fingerprints` para cada arquivo, mesmo em
 - Os dois `copy.deepcopy(ctx.state)` viraram um snapshot que copia só o que a execução altera (mapas `active`/`excluded`, entradas de `retired`, `origins`) e compartilha os controles imutáveis.
 
 Medido num estado sintético com 50.000 arquivos indexados ([dados](benchmarks/state-2026-10-26.json)): `state.json` 35,4 MB -> 14,5 MB; um salvamento do `state.json` 2,93 s -> 0,99 s (feito 2-3 vezes por execução); `load_state` 4,9 s -> 2,9 s; cópia do estado por snapshot 0,89 s -> menos de 1 ms. No modo hash o cache custa uma leitura por execução de um `fingerprints.json` de 13,1 MB (cerca de 2,0 s, quase tudo validação) e uma gravação (cerca de 1,6 s) só quando ele mudou. O índice publicado deixa de carregar esses 20,9 MB, então o mesmo job cabe com muito mais arquivos sob o limite de 64 MiB.
+
+## Compressão em três faixas (0.18.0)
+
+Acrescentar a um arquivo 7z existente não recompacta o que já está nele; por isso o lote é compactado como texto, depois outros, depois já compactados, cada um com seu `-mx` ([como](batch-lifecycle.pt-BR.md#como-um-lote-é-compactado-0180)). Uma medição sintética com 7z 23.01 sobre um conjunto misto de 117 MB (texto, executáveis e mídia já compactada; não é um benchmark geral, a sua mistura será diferente):
+
+| Configuração | Tempo | Tamanho do arquivo |
+|---|---|---|
+| Uniforme `-mx=3` (padrão anterior) | 16,3 s | 62,2 MB |
+| Texto `-mx=1`, todo o resto `-mx=0` | 3,9 s | 85,5 MB (executáveis armazenados: ruim) |
+| Três faixas: texto 1, outros 1, compactados 0 (novos padrões) | 5,5 s | 62,7 MB |
+
+Os padrões de três faixas levam cerca de um terço do tempo por 0,8% a mais de espaço. Migração: `compression_level` (padrão 3) foi removido na 0.18.0; o sucessor para extensões não listadas é `compression_other_level` (padrão 1). Arquivos existentes não mudam.

@@ -64,7 +64,13 @@ source = "~/Documents"
 destination = "~/Backups/documents-simple"
 type = "local"
 logic = "simple"
-compression_level = 3
+# Batch compression (only used if this job becomes logic = "batch"): three tiers chosen by file
+# extension, each at its own 7-Zip level 0-9 (0 = store). See the batch job below for the extension lists.
+compression_text_level = 1        # text: very compressible, cheap level
+compression_compressed_level = 0  # already compressed (jpg, mp4, zip...): stored
+compression_other_level = 1             # every other extension (executables, databases, images...)
+# compression_text_extensions = [...]        # defaults listed in the batch job below
+# compression_compressed_extensions = [...]
 compression_threads = 2
 # Dedicated archive at this % of max_megabytes; keep normal batch open.
 individual_batch_percent = 100
@@ -96,7 +102,6 @@ exclude_files = "./excludes.example.txt"
 # destination_mount = "/mnt/backup"
 # Absolute rclone deletion limit for this job; old versions go to backup-dir.
 max_delete = 100
-# Uniform compression, defaults for newly created/rebuilt archives.
 
 [[jobs]]
 name = "documents-s3"
@@ -123,8 +128,59 @@ source = "~/Documents"
 destination = "aws:YOUR-BUCKET/documents-batches"
 type = "s3"
 logic = "batch"
-compression_level = 3
+# Three compression tiers inside each batch archive, chosen by the file's LAST extension
+# (case-insensitive; "a.tar.gz" -> "gz"; ".bashrc" and "Makefile" have none). Levels are 7-Zip 0-9 (0 = store).
+# Text goes first (cheapest), then "other", then already compressed data, which is stored as is.
+compression_text_level = 1        # tier 1: extensions in compression_text_extensions
+compression_other_level = 1             # tier 2 "other": every extension in neither list
+compression_compressed_level = 0  # tier 3: extensions in compression_compressed_extensions
 compression_threads = 2
+# Entries are bare extensions (no dot, no spaces; case and a leading dot are ignored). An extension may not
+# appear twice or in both lists. The keyword "<none>" stands for files WITHOUT extension; put it in at most
+# one list (text by default); in neither, such files use the "other" tier. Edit the lists freely:
+compression_text_extensions = [
+    "<none>", "txt", "text", "md", "markdown", "rst", "adoc", "asciidoc", "org",
+    "tex", "latex", "bib", "log", "out", "err", "csv", "tsv", "psv",
+    "json", "jsonl", "ndjson", "geojson", "xml", "xsd", "xsl", "xslt", "dtd",
+    "plist", "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties",
+    "env", "lock", "gradle", "cmake", "mk", "html", "htm", "xhtml", "css",
+    "scss", "sass", "less", "js", "mjs", "cjs", "jsx", "ts", "tsx",
+    "vue", "svelte", "php", "py", "pyi", "pyw", "rb", "erb", "pl",
+    "pm", "tcl", "lua", "r", "jl", "sh", "bash", "zsh", "fish",
+    "ps1", "psm1", "psd1", "bat", "cmd", "awk", "sed", "c", "h",
+    "cc", "cpp", "cxx", "hpp", "hh", "hxx", "cs", "java", "kt",
+    "kts", "scala", "groovy", "swift", "m", "mm", "go", "rs", "zig",
+    "nim", "dart", "ex", "exs", "erl", "hrl", "hs", "ml", "mli",
+    "fs", "fsx", "clj", "cljs", "lisp", "el", "scm", "sql", "ddl",
+    "graphql", "gql", "proto", "thrift", "tf", "tfvars", "hcl", "nix", "vcf",
+    "ics", "srt", "vtt", "ass", "svg", "rtf", "diff", "patch", "eml",
+    "mbox", "ldif", "po", "pot", "qss", "ui", "qml", "asm", "s",
+    "v", "vhd", "vhdl", "sv", "ipynb", "sln", "csproj", "vbproj", "xaml",
+    "resx", "tmpl", "tpl", "j2", "jinja", "hbs", "mustache", "ejs", "pug",
+    "haml", "reg", "inf", "service", "timer", "desktop", "rules", "cnf", "gitignore",
+    "gitattributes", "editorconfig", "dockerignore", "mod", "sum", "cabal", "gemspec", "podspec", "rake",
+    "bzl", "bazel", "ninja", "sbt", "pro", "pri", "wsdl", "rss", "atom",
+    "opml", "kml", "gpx", "tei", "bas", "vb", "vbs", "pas", "pp",
+    "dpr", "f", "f90", "for", "cob", "cbl", "ada", "adb", "ads",
+    "d", "di", "ps", "eps", "sty", "cls", "bst", "md5", "sha1",
+    "sha256", "sha512", "cue", "nfo", "lrc", "m3u", "m3u8", "pls", "xpm",
+    "pbm", "pgm", "ppm",
+]
+compression_compressed_extensions = [
+    "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif",
+    "heic", "heif", "jxl", "jp2", "j2k", "mp4", "m4v", "mov", "mkv",
+    "webm", "avi", "wmv", "flv", "f4v", "mpg", "mpeg", "m2ts", "mts",
+    "3gp", "3g2", "ogv", "vob", "mp3", "aac", "m4a", "m4b", "ogg",
+    "oga", "opus", "wma", "flac", "amr", "mka", "ape", "wv", "zip",
+    "zipx", "7z", "rar", "gz", "tgz", "bz2", "tbz2", "tbz", "xz",
+    "txz", "zst", "tzst", "lz", "lz4", "lzma", "z", "cab", "arj",
+    "lzh", "lha", "ace", "br", "jar", "war", "ear", "apk", "aab",
+    "ipa", "xpi", "crx", "whl", "egg", "nupkg", "vsix", "deb", "rpm",
+    "snap", "appimage", "dmg", "docx", "xlsx", "pptx", "docm", "xlsm", "pptm",
+    "odt", "ods", "odp", "odg", "odf", "epub", "pages", "numbers", "key",
+    "kmz", "vsdx", "pdf", "woff", "woff2", "gpg", "pgp", "age", "kdbx",
+    "kdb", "aes", "enc",
+]
 # Dedicated archive at this % of max_megabytes; keep normal batch open.
 individual_batch_percent = 100
 # Final Cronitor failure only; 0 disables; does not interrupt jobs.

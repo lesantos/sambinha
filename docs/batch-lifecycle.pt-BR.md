@@ -13,19 +13,29 @@ type = "s3"
 logic = "batch"
 recovery_index_versions = 3
 max_megabytes = 1024
-compression_level = 3
+compression_text_level = 1
+compression_other_level = 1
+compression_compressed_level = 0
 compression_threads = 2
 individual_batch_percent = 100
 batch_size_alert_percent = 200
 ```
 
-`max_megabytes` limita a soma dos tamanhos originais, antes da compressão, em MB (1 MB = 1.048.576 bytes). O padrão é 1024 MB (1 GiB). Aceita inteiros e decimais positivos e finitos, equivalentes a pelo menos 1 byte; frações de byte são truncadas na conversão interna. Não existe limite de quantidade de arquivos. Todos os tipos usam o mesmo nível (0–9, padrão 3) e threads (1–64, padrão 2). Ajustes de compressão se aplicam aos arquivos compactados criados/recriados, preservando os intactos.
+`max_megabytes` limita a soma dos tamanhos originais, antes da compressão, em MB (1 MB = 1.048.576 bytes). O padrão é 1024 MB (1 GiB). Aceita inteiros e decimais positivos e finitos, equivalentes a pelo menos 1 byte; frações de byte são truncadas na conversão interna. Não existe limite de quantidade de arquivos. A compressão usa três faixas por extensão, cada uma com seu nível (0–9; texto 1, outros 1, já compactados 0) e threads compartilhadas (1–64, padrão 2); veja [compressão em três faixas](configuration.pt-BR.md#compressão-em-três-faixas-0180). Ajustes de compressão se aplicam aos arquivos compactados criados/recriados, preservando os intactos.
 
 Substitua `max_bytes` por `max_megabytes` nos TOMLs e `--max-bytes` por `--max-megabytes` nos comandos, dividindo o valor antigo por 1.048.576. Por exemplo, `max_bytes = 1073741824` passa a `max_megabytes = 1024`. O nome antigo é rejeitado; os lotes existentes permanecem intactos.
 
-Remova `max_files` e todas as opções `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` dos TOMLs e comandos agendados antigos; são rejeitadas com indicação do parâmetro/linha. Substitua os ajustes por categoria por `compression_level` e `compression_threads`. Controles antigos continuam legíveis e preservam seus membros. A migração não reúne automaticamente os pequenos lotes antigos.
+Remova `max_files` e todas as opções `compression_text_*`, `compression_video_*`, `compression_photo_*`, `compression_other_*` dos TOMLs e comandos agendados antigos; são rejeitadas com indicação do parâmetro/linha. Substitua os ajustes por categoria por `compression_text_level`, `compression_other_level`, `compression_compressed_level` e `compression_threads` (a 0.18.0 removeu o `compression_level` intermediário; use `compression_other_level`, padrão 1 em vez de 3; arquivos existentes não mudam). Controles antigos continuam legíveis e preservam seus membros. A migração não reúne automaticamente os pequenos lotes antigos.
 
 O estado confirmado passa ao schema 2 na primeira publicação 0.13.0 e ao schema 3 (identidade por nome, abaixo) na primeira publicação após essa mudança. Estados antigos nos schemas 1 e 2 continuam legíveis; executáveis antigos rejeitam o schema novo, evitando que gravem sobre associações/gerações que não entendem. Formatos futuros não suportados não são substituídos silenciosamente por um fallback antigo.
+
+## Como um lote é compactado (0.18.0)
+
+Os membros são classificados por extensão em grupos de texto, outros e já compactados ([opções](configuration.pt-BR.md#compressão-em-três-faixas-0180)). `compress()` executa um `7z a -t<formato> -scsUTF-8 -spd -spf -mx=<nível> -mmt=<threads> <arquivo> -- <membros>` por grupo não vazio, na ordem **texto, outros, já compactados**, sempre sobre o mesmo arquivo: o primeiro comando o cria e cada seguinte acrescenta sem recompactar o que já existe (o 7-Zip copia o fluxo existente; acrescentar 40 MB armazenados a um arquivo de 13 MB levou 0,2 s). Como cada acréscimo copia tudo o que já foi escrito, o grupo menor e mais barato vai primeiro e o grande, armazenado, por último. Dentro do grupo, a ordem dos arquivos do lote é mantida. Um lote cujos arquivos caem num só grupo executa exatamente um comando. Leitura, restauração e verificação não mudam: um arquivo misto (LZMA2, Copy, BCJ+LZMA2) é listado, testado e restaurado como qualquer outro.
+
+O limite de argumentos e o recurso de arquivo de lista (com a regra de espaço final) valem por comando, com um arquivo de lista por grupo. A faixa de progresso 0,1-0,7 é dividida entre os grupos por bytes. A verificação da origem roda antes do primeiro comando e depois do último; a conferência da listagem, o `7z t` e o cruzamento de CRC rodam uma vez, no arquivo final. Se a origem mudar entre comandos, a verificação final falha como antes; uma interrupção entre comandos descarta o diretório temporário e nada é publicado. Lotes passthrough (um único arquivo grande já compactado) não passam pela compressão; o rebalanceamento chama o mesmo `compress()` e também usa as faixas.
+
+Pico de disco: durante um acréscimo o 7-Zip grava o novo arquivo enquanto o antigo existe. Por isso `temporary_bytes()` reserva, em lotes de vários grupos, `2 * bytes_originais - bytes_do_último_grupo` mais a sobrecarga (supondo nenhuma compressão), contra `bytes_originais` mais a sobrecarga com um só grupo. O evento `batch_start`/`would_batch` mantém o nome e ganha `compression_groups` (arquivos, bytes e nível por faixa); `compression_profile` passou a ser `"tiered"`.
 
 ## Identidade pelo nome do job
 

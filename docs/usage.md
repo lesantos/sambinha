@@ -21,7 +21,7 @@ Exit codes: **0** success, **1** operation/notification failure, **2** configura
 2. New normal batches accumulate original bytes up to the `max_megabytes` limit in MB (default 1024; 1 MB = 1,048,576 bytes), with no member-count/category boundaries. Compressed overhead may exceed this limit.
 3. Divert files reaching `individual_batch_percent` (default 100%) without closing the open normal batch; never split files.
 4. Keep confirmed group membership and member order through growth/mtime changes; new files form new groups. Empty groups leave active state subject to history retention.
-5. All types use `compression_level = 3` and `compression_threads = 2` on create/rebuild. Immutable revision names, JSON controls and logical `batch_id` support history without active duplicates.
+5. Text, other and already-compressed files use `compression_text_level = 1`, `compression_other_level = 1`, `compression_compressed_level = 0` and `compression_threads = 2` on create/rebuild. Immutable revision names, JSON controls and logical `batch_id` support history without active duplicates.
 6. Aggregate nonindividual growth alerts at `batch_size_alert_percent` (200%; 0 disables), sending final Cronitor failure without interrupting jobs or changing successful operational exit 0.
 7. `rebalance` is manual and source independent; change only oversized groups, preserving conforming/individual archives. Do not consolidate every healthy small group.
 8. Validate snapshots/content before uploads, publish confirmed recovery generations after complete archives/controls and reconcile publication journals. Recover missing/invalid state from the destination before planning mutations. See [complete semantics and migration](batch-lifecycle.md).

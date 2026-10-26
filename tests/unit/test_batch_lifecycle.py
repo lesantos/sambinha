@@ -10,7 +10,8 @@ from tests.helpers import Sandbox
 class BatchOptionsAndTraversalTests(Sandbox):
     def test_threshold_validation_and_uniform_defaults(self):
         job = self.config.jobs[0]
-        self.assertEqual((job.compression_level, job.compression_threads), (3, 2))
+        self.assertEqual((job.compression_text_level, job.compression_compressed_level, job.compression_other_level,
+                          job.compression_threads), (1, 0, 1, 2))
         self.assertEqual((job.individual_batch_percent, job.batch_size_alert_percent), (100, 200))
         for name, values in {'individual_batch_percent': (0, -1, 101, True, float('nan'), float('inf')),
                              'batch_size_alert_percent': (-1, True, float('nan'), float('inf'))}.items():

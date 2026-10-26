@@ -7,7 +7,7 @@ from sambinha.config_validation import validate
 from sambinha.filtering import Selection
 from sambinha.inventory import fingerprint, scan
 from sambinha.preflight import preflight
-from sambinha.profiles import settings
+from sambinha.profiles import plan_groups
 from tests.helpers import Sandbox, tick
 
 
@@ -51,4 +51,6 @@ class InventoryPerformanceTests(Sandbox):
         files = scan(self.source)
         batches = plan(files, 100000)
         self.assertEqual(len(batches), 1)
-        self.assertEqual(settings(self.config.jobs[0], batches[0].files), ('uniform', 3, 2))
+        # One batch, three tiers; README is text by default, image.dng/blob.bin are 'other'.
+        self.assertEqual([(g.kind, g.level, len(g.files)) for g in plan_groups(self.config.jobs[0], batches[0].files)],
+                         [('text', 1, 2), ('other', 1, 2), ('compressed', 0, 2)])

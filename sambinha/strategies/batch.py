@@ -17,7 +17,7 @@ from ..inventory import fingerprint, path_has_symlink, verify
 from ..metadata import cached_control, write_control
 from ..names import CONTROL
 from ..process import Runner, show_progress
-from ..profiles import settings
+from ..profiles import plan_groups, summary
 from ..protection import protect_newer
 from ..retention import retirement
 from ..state import atomic_json
@@ -187,7 +187,7 @@ def _pending_uploads(ctx, batches, old, active):
             continue
         ctx.event("would_batch" if ctx.job.dry_run else "batch_start",
                   archive=item.key, files=[f.path for f in item.files], bytes=sum(f.size for f in item.files),
-                  compression_profile=settings(ctx.job, item.files)[0])
+                  compression_profile="tiered", compression_groups=summary(plan_groups(ctx.job, item.files)))
         if ctx.job.dry_run:
             continue
         pending.append(item)
@@ -202,7 +202,7 @@ def _upload_pending(ctx, pending, active):
         workers = 1 if oversized else min(ctx.job.batch_workers, len(pending))
         # Check the largest possible simultaneous staging demand, including
         # dedicated files and existing groups exceeding the configured limit.
-        largest = sorted(((temporary_bytes(item), item) for item in pending),
+        largest = sorted(((temporary_bytes(item, ctx.job), item) for item in pending),
                          key=lambda entry: entry[0], reverse=True)[:workers]
         required = sum(size for size, _ in largest)
         try:
