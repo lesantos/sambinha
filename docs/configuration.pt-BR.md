@@ -38,8 +38,10 @@ O programa funciona no Linux com **Python 3.12 ou mais recente**. No Linux Mint,
 Abra um terminal e instale as ferramentas. O `sudo` é necessário nesta etapa de instalação; os backups depois são executados pela sua conta normal:
 
 ```bash
-sudo apt install git python3 python3-venv rclone p7zip-full
+sudo apt install git python3 python3-venv
 ```
+
+São necessários **rclone 1.60 ou mais novo** e **7-Zip 22.00 ou mais novo** (`7zz`); o Sambinha se recusa a rodar com versões anteriores. Ubuntu 22.04 e Linux Mint 21 trazem rclone 1.53 e p7zip 16.02, que são antigos demais: instale os binários oficiais de <https://rclone.org/downloads/> e <https://www.7-zip.org/download.html> (`7zz` para Linux x64) em `/usr/local/bin`, ou, no Ubuntu 24.04/Debian 13, use `sudo apt install rclone 7zip`. Depois configure `compressor = "7zz"` nos jobs em lotes e confira com `rclone version` e `7zz`.
 
 Baixe o projeto e prepare um ambiente separado para ele. Isso evita misturar a instalação do Sambinha com outros programas Python do computador:
 
@@ -51,7 +53,7 @@ python3 -m venv .venv
 .venv/bin/sambinha --version
 ```
 
-A versão atual é **0.14.8**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
+A versão atual é **0.14.9**. O repositório é privado, então sua conta precisa ter acesso para baixá-lo. Você também pode baixar o código ou o arquivo de instalação na [página de versões](https://github.com/lesantos/sambinha/releases).
 
 ## Faça seu primeiro backup
 
@@ -310,7 +312,7 @@ Durante a execução interativa, o stderr exibe o percentual do backup inteiro, 
 
 ## Recursos adicionais
 
-A versão atual é **0.14.8**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
+A versão atual é **0.14.9**. A documentação padrão é em inglês; este arquivo e os guias `.pt-BR` mantêm o português do Brasil. Os exemplos públicos também têm versões comentadas nos dois idiomas.
 
 ### Restaurar arquivos ou pastas
 

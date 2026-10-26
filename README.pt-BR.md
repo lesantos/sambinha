@@ -2,14 +2,16 @@
 
 [English](README.md)
 
-O Sambinha **0.14.8** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone e 7-Zip.
+O Sambinha **0.14.9** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux, Python 3.12+, rclone 1.60+ e 7-Zip 22.00+.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
 ## Instalar
 
+São necessários **rclone 1.60 ou mais novo** e **7-Zip 22.00 ou mais novo** (`7zz`); o Sambinha se recusa a rodar com versões anteriores. Ubuntu 22.04 e Linux Mint 21 trazem rclone 1.53 e p7zip 16.02, que são antigos demais: instale os binários oficiais de <https://rclone.org/downloads/> e <https://www.7-zip.org/download.html> (`7zz` para Linux x64) em `/usr/local/bin`, ou, no Ubuntu 24.04/Debian 13, use `sudo apt install rclone 7zip`. Depois configure `compressor = "7zz"` nos jobs em lotes e confira com `rclone version` e `7zz`.
+
 ```bash
-sudo apt install git python3 python3-venv rclone p7zip-full
+sudo apt install git python3 python3-venv
 git clone https://github.com/lesantos/sambinha.git
 cd sambinha
 python3 -m venv .venv

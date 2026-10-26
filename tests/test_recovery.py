@@ -305,7 +305,9 @@ class RecoveryIntegrationTests(Sandbox):
                      patch('sambinha.storage.Storage.get', side_effect=AssertionError('archive download')), \
                      patch('sambinha.archive_recovery.fingerprint', side_effect=AssertionError('hash read')):
                     self.assertEqual(self.recover('verify-destination-integrity'), 0)
-                archive_calls = [args for args in commands if args[0] == job.compressor]
+                compressor_calls = [args for args in commands if args[0] == job.compressor]
+                self.assertEqual([args[1:] for args in compressor_calls if args[1] == '-h'], [['-h']])
+                archive_calls = [args for args in compressor_calls if args[1] != '-h']
                 self.assertEqual([args[1] for args in archive_calls], ['l', 't'])
                 self.assertTrue(all(Path(args[-1]).is_relative_to(job.destination) for args in archive_calls))
 

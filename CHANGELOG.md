@@ -1,8 +1,12 @@
 # Sambinha changes
 
+## 0.14.9 — 2026-10-26
+
+Check the versions of the external programs before using them. Backups, restores and verifications now stop with a clear error when rclone is older than 1.60, and batch operations stop when the compressor is older than 7-Zip 22.00 (the first release whose listing keeps sub-second modification times; 21.07 and p7zip 16.02/17.x do not). Versions that cannot be read are accepted. Correct the documented minimum from 7-Zip 21 to 22.00, state both minimums in the READMEs and installation guides, and stop recommending the outdated `rclone`/`p7zip-full` apt packages on Ubuntu 22.04. Add unit and integration tests with fake executables.
+
 ## 0.14.8 — 2026-10-26
 
-Make `verify_source_changes = false` also skip the directory identity checks during source inventory; on CIFS mounts with `serverino` a directory inode can change between listing and opening, which aborted backups with "Diretório mudou durante leitura". Force `RCLONE_LINKS`, `RCLONE_LOCAL_LINKS`, `RCLONE_COPY_LINKS` and `RCLONE_LOCAL_COPY_LINKS` to `false` in every subprocess, because rclone 1.75 lets these variables override `--links=false`/`--copy-links=false` and source symlinks could be copied. Make timestamp-sensitive tests wait for the filesystem clock to advance (Linux 5.15/ext4 stamps mtime/ctime coarsely). The full suite requires rclone 1.60+ and 7-Zip 21+ (`7zz`); the distribution packages rclone 1.53 and p7zip 16.02 fail unrelated tests.
+Make `verify_source_changes = false` also skip the directory identity checks during source inventory; on CIFS mounts with `serverino` a directory inode can change between listing and opening, which aborted backups with "Diretório mudou durante leitura". Force `RCLONE_LINKS`, `RCLONE_LOCAL_LINKS`, `RCLONE_COPY_LINKS` and `RCLONE_LOCAL_COPY_LINKS` to `false` in every subprocess, because rclone 1.75 lets these variables override `--links=false`/`--copy-links=false` and source symlinks could be copied. Make timestamp-sensitive tests wait for the filesystem clock to advance (Linux 5.15/ext4 stamps mtime/ctime coarsely). The full suite requires rclone 1.60+ and 7-Zip 22.00+ (`7zz`); the distribution packages rclone 1.53 and p7zip 16.02 fail unrelated tests.
 
 ## 0.14.7 — 2026-10-16
 

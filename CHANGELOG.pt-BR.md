@@ -1,8 +1,12 @@
 # Novidades do Sambinha
 
+## 0.14.9 — 2026-10-26
+
+Verificar as versões dos programas externos antes de usá-los. Backups, restaurações e verificações agora param com um erro claro quando o rclone é anterior à 1.60, e as operações em lotes param quando o compressor é anterior ao 7-Zip 22.00 (a primeira versão cuja listagem mantém frações de segundo nas datas; 21.07 e p7zip 16.02/17.x não mantêm). Versões que não puderem ser lidas são aceitas. Corrigir o mínimo documentado de 7-Zip 21 para 22.00, informar os dois mínimos nos READMEs e nos guias de instalação e deixar de recomendar os pacotes antigos `rclone`/`p7zip-full` do apt no Ubuntu 22.04. Adicionar testes unitários e de integração com executáveis falsos.
+
 ## 0.14.8 — 2026-10-26
 
-Fazer `verify_source_changes = false` também ignorar as checagens de identidade de diretórios no inventário da origem; em montagens CIFS com `serverino` o inode de um diretório pode mudar entre a listagem e a abertura, o que interrompia backups com "Diretório mudou durante leitura". Forçar `RCLONE_LINKS`, `RCLONE_LOCAL_LINKS`, `RCLONE_COPY_LINKS` e `RCLONE_LOCAL_COPY_LINKS` como `false` em todo subprocesso, pois o rclone 1.75 deixa essas variáveis sobrepor `--links=false`/`--copy-links=false` e links simbólicos da origem poderiam ser copiados. Fazer os testes sensíveis a timestamps esperarem o relógio do sistema de arquivos avançar (Linux 5.15/ext4 marca mtime/ctime de forma grosseira). A suíte completa exige rclone 1.60+ e 7-Zip 21+ (`7zz`); os pacotes da distribuição (rclone 1.53 e p7zip 16.02) falham em testes não relacionados.
+Fazer `verify_source_changes = false` também ignorar as checagens de identidade de diretórios no inventário da origem; em montagens CIFS com `serverino` o inode de um diretório pode mudar entre a listagem e a abertura, o que interrompia backups com "Diretório mudou durante leitura". Forçar `RCLONE_LINKS`, `RCLONE_LOCAL_LINKS`, `RCLONE_COPY_LINKS` e `RCLONE_LOCAL_COPY_LINKS` como `false` em todo subprocesso, pois o rclone 1.75 deixa essas variáveis sobrepor `--links=false`/`--copy-links=false` e links simbólicos da origem poderiam ser copiados. Fazer os testes sensíveis a timestamps esperarem o relógio do sistema de arquivos avançar (Linux 5.15/ext4 marca mtime/ctime de forma grosseira). A suíte completa exige rclone 1.60+ e 7-Zip 22.00+ (`7zz`); os pacotes da distribuição (rclone 1.53 e p7zip 16.02) falham em testes não relacionados.
 
 ## 0.14.7 — 2026-10-16
 

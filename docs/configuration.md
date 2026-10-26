@@ -2,7 +2,7 @@
 
 [Português do Brasil](configuration.pt-BR.md) · [README](../README.md)
 
-Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.8**.
+Sambinha backs up your files to a local folder, a mounted disk or Amazon S3, and records each run. Simple jobs delegate comparison, exclusions and synchronization to `rclone sync`; displaced and deleted destination files go to `--backup-dir`. Batch jobs keep the indexed archive workflow. The current version is **0.14.9**.
 
 ## How it protects your files
 
@@ -30,8 +30,10 @@ Metadata and logs use private permissions. Relative paths and indexes are valida
 
 Use Linux and **Python 3.12 or newer**, with rclone and 7-Zip. Backups run under your normal account.
 
+**rclone 1.60 or newer** and **7-Zip 22.00 or newer** (`7zz`) are required; Sambinha refuses to run with older versions. Ubuntu 22.04 and Linux Mint 21 ship rclone 1.53 and p7zip 16.02, which are too old: install the official binaries from <https://rclone.org/downloads/> and <https://www.7-zip.org/download.html> (Linux x64 `7zz`) into `/usr/local/bin`, or on Ubuntu 24.04/Debian 13 use `sudo apt install rclone 7zip`. Then set `compressor = "7zz"` in batch jobs and check with `rclone version` and `7zz`.
+
 ```bash
-sudo apt install git python3 python3-venv rclone p7zip-full
+sudo apt install git python3 python3-venv
 git clone https://github.com/lesantos/sambinha.git
 cd sambinha
 python3 -m venv .venv

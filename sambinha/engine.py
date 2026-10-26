@@ -20,6 +20,7 @@ from .retention import DeletionForecast
 from .state import lock
 from .strategies.batch import batch
 from .strategies.batch import upload_batch as upload_batch, upload_index as upload_index
+from .versions import check_rclone_version
 
 STRATEGIES = {"batch": batch}
 
@@ -73,7 +74,7 @@ def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_
                     log.event("log_cleanup", removed_logs=removed_logs, retention_days=log_retention_days)
             telemetry("run")
             runner.require([config.rclone])
-            runner.run([config.rclone, "version"])
+            check_rclone_version(runner, config.rclone)
             if config.rclone_config and not Path(config.rclone_config).is_file():
                 raise BackupError("Arquivo de configuração rclone não existe")
             # Each job owns its full lifecycle. Later jobs must see the files,

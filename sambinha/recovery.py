@@ -13,6 +13,7 @@ from .restore import matches as matches, restore_job as restore_job, validate_ou
 from .state import identity as identity, indexed_files as indexed_files, lock
 from .verification import (verify_destination_integrity_job, verify_destination_metadata_job,
                            verify_local_metadata_job)
+from .versions import check_compressor_version, check_rclone_version
 
 
 def recover(config, action, *, output=None, selectors=(), runner=None, notifier=None):
@@ -34,6 +35,7 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
     try:
         runner.load_config_secrets(config.rclone_config)
         runner.require([config.rclone])
+        check_rclone_version(runner, config.rclone)
         if action == "restore" and (len(config.jobs) != 1 or output is None):
             raise BackupError("Restauração exige --job com uma tarefa e --output")
         with lock(config.state_dir) if action != "restore" and not all_dry_run else nullcontext():
@@ -43,8 +45,10 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
                     log.event("log_cleanup", removed_logs=removed_logs, retention_days=log_retention_days)
             for job in config.jobs:
                 try:
-                    runner.require([job.compressor] if job.logic == "batch"
-                                   and action in {"restore", "verify-destination-integrity"} else [])
+                    needs_compressor = job.logic == "batch" and action in {"restore", "verify-destination-integrity"}
+                    runner.require([job.compressor] if needs_compressor else [])
+                    if needs_compressor:
+                        check_compressor_version(runner, job.compressor)
                     if action != "verify-local-metadata" or job.logic == "simple":
                         check_disks(job, lambda event, **values: log.event(event, job=job.name, **values),
                                     config=config,

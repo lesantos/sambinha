@@ -15,12 +15,14 @@ from .index_generations import backup_state
 from .inventory import File
 from .mounts import check_mounts
 from .strategies.batch import batch
+from .versions import check_compressor_version
 
 
 def execute(config, job, runner, log, progress, forecast, now, *, on_context=None):
     if job.logic != 'batch':
         raise BackupError('rebalance exige logic=batch')
     runner.require([job.compressor])
+    check_compressor_version(runner, job.compressor)
     check_mounts(job, runner, check_source=False)
     check_disks(job, config=config, check_source=False)
     state = backup_state(config, job, runner, allow_new=False, log=log)

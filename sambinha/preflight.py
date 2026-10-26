@@ -13,6 +13,7 @@ from .index_generations import backup_state
 from .mounts import check_mounts
 from .process import credential_values, show_progress
 from .retention import DAY
+from .versions import check_compressor_version
 
 
 class JobInventory(NamedTuple):
@@ -72,6 +73,8 @@ def preflight(config, runner, now=None, *, progress=None, on_job_error=None):
         with job_errors(job.name, on_job_error if job.continue_on_job_error else None):
             runner.require(([job.compressor] if job.logic == "batch" else [])
                            + (["mountpoint"] if job.source_mount or job.destination_mount else []))
+            if job.logic == "batch":
+                check_compressor_version(runner, job.compressor)
             checking = progress.scope(0.2 * index / len(config.jobs), 0.2 * (index + 1) / len(config.jobs)) if progress else None
             show_progress(runner, checking)
             if checking:
