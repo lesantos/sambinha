@@ -2,7 +2,7 @@
 PYTHON ?= .venv/bin/python
 PYTEST ?= SAMBINHA_HTTP_S3_TESTS=1 $(PYTHON) -m pytest -n auto
 
-.PHONY: lint typecheck test test-fast coverage
+.PHONY: lint typecheck test test-fast test-integration coverage
 
 lint:
 	$(PYTHON) -m ruff check .
@@ -10,13 +10,17 @@ lint:
 typecheck:
 	$(PYTHON) -m mypy sambinha
 
-## Full suite in parallel, including the local HTTP S3 server tests.
+## Everything (unit + integration) in parallel, including the local HTTP S3 server tests.
 test:
 	$(PYTEST)
 
-## Full suite without the HTTP S3 server tests.
+## Unit tests only (tests/unit): no rclone, 7z or network needed; seconds.
 test-fast:
-	$(PYTHON) -m pytest -n auto
+	$(PYTHON) -m pytest -n auto tests/unit
+
+## Integration tests only (tests/integration): real rclone/7z, CLI subprocess, Moto/HTTP S3.
+test-integration:
+	$(PYTEST) tests/integration
 
 ## Full suite with branch coverage; fails below 85%.
 coverage:

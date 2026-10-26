@@ -6,13 +6,20 @@ import subprocess
 import tempfile
 import time
 import unittest
+from collections import namedtuple
 from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
+from typing import ClassVar
+from unittest.mock import Mock
 
+from sambinha.batches import plan
 from sambinha.config import JOB_SCOPED_OPTIONS, Config, Job, with_job_overrides
 from sambinha.config_validation import validate
+from sambinha.context import Context
 from sambinha.engine import run
+from sambinha.inventory import scan
+from sambinha.process import Interrupted, Runner
 
 
 def override(config, **values):
@@ -66,6 +73,43 @@ class Sandbox(unittest.TestCase):
     def state(self):
         return json.loads((self.config.state_dir / "test" / "state.json").read_text())
 
+    # Canonical batch-job builders shared by the integration suites.
+    batch_defaults: ClassVar[dict] = {}
+
+    def job(self, **overrides):
+        """First configured job with ``overrides`` applied (the config is untouched)."""
+        return replace(self.config.jobs[0], **overrides)
+
+    def use_batch(self, **overrides):
+        """Switch the first job to batch logic; ``batch_defaults`` and ``overrides`` apply on top."""
+        self.config = replace(self.config, jobs=(self.job(logic="batch", **{**self.batch_defaults, **overrides}),))
+
+    def fixture(self):
+        """Copy the shared source tree and add edge-case names (spaces, leading @/-, wildcards)."""
+        shutil.copytree(Path(__file__).parent / "fixtures" / "source", self.source, dirs_exist_ok=True)
+        self.file("empty", b"")
+        self.file("ação/with spaces.txt", "Olá!".encode())
+        self.file("ação/@leading.txt", b"@file")
+        self.file("ação/-leading.txt", b"-file")
+        self.file("ação/[wildcard]*?.txt", b"literal wildcards")
+        self.file("binary.dat", bytes(range(256)) * 100)
+
+    def assert_complete(self, logic=None):
+        """Assert the local destination restores to exactly the source (simple copy or 7z batches)."""
+        logic = logic or self.config.jobs[0].logic
+        if logic == "simple":
+            self.assertEqual(contents(self.destination), contents(self.source))
+            return
+        restored = self.root / ("restored-" + str(len(list(self.root.glob("restored-*")))))
+        actual = restore_batches(self.state(), self.destination, restored)
+        self.assertEqual(actual, contents(self.source))
+        for key in set(self.state()["active"]):
+            self.assertTrue((self.destination / key).is_file())
+            self.assertTrue((self.destination / (key + ".json")).is_file())
+        self.assertFalse(set(contents(self.source)).intersection(contents(self.destination)))
+        for item in self.state()["active"].values():
+            self.assertTrue(item["files"])
+
 
 def contents(directory):
     return {p.relative_to(directory).as_posix(): p.read_bytes()
@@ -98,3 +142,91 @@ def restore_batches(state, destination, restore):
 
 
 REAL_TOOLS = bool(shutil.which("rclone") and shutil.which("7z"))
+
+
+Usage = namedtuple('Usage', 'total used free')
+
+
+class Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+class BatchContext:
+    def context(self, workers=2, count=9):
+        for index in range(count):
+            self.file(f'{index}.bin', b'contents')
+        job = replace(self.config.jobs[0], type='s3', logic='batch',
+                      destination='aws:fake-bucket/', max_megabytes=1,
+                      check_source_disk=False, check_destination_disk=False)
+        config = replace(self.config, jobs=(replace(job, batch_workers=workers),))
+        job = config.jobs[0]
+        files = scan(self.source)
+        ctx = Context(config, job, Runner(), Mock(), files, 1000)
+        # Keep one tiny file per test batch while the configured size limit is
+        # large enough that these batches are not treated as oversized.
+        pending = plan(files, 1)
+        active = {item.key: item.control() for item in pending}
+        return ctx, pending, active
+
+
+class Reply(namedtuple('Reply', 'stdout stderr')):
+    """Scripted result carrying the child's stderr (exposed as ``FakeRunner.last_stderr``)."""
+
+
+class FakeRunner:
+    """Scripted stand-in for ``sambinha.process.Runner``: records commands, never spawns anything.
+
+    ``script`` maps a command prefix (a string split on spaces, or a tuple of arguments) to a reply;
+    the longest matching prefix wins and unmatched commands return ``default``. A reply is a string
+    (stdout), a ``Reply`` (stdout + stderr), an exception instance (raised), a callable
+    ``(args, **options) -> reply`` or a list consumed one item per call (the last one repeats).
+    """
+
+    def __init__(self, script=None, *, default=""):
+        self.script = {tuple(k.split()) if isinstance(k, str) else tuple(k): v for k, v in (script or {}).items()}
+        self.default = default
+        self.commands = []   # every argument list, as strings
+        self.options = []    # keyword options of each run() call, parallel to commands
+        self.required = []
+        self.last_stderr = None
+        self.progress = None
+        self.env = None
+        self._cancelled = False
+
+    @property
+    def cancelled(self):
+        return self._cancelled
+
+    def cancel(self):
+        self._cancelled = True
+
+    def check_cancelled(self):
+        if self._cancelled:
+            raise Interrupted()
+
+    def require(self, programs):
+        self.required.append(tuple(programs))
+
+    def safe_error(self, message):
+        return message
+
+    def calls(self, *prefix):
+        """Recorded commands starting with ``prefix`` (e.g. ``calls('rclone', 'lsjson')``)."""
+        return [c for c in self.commands if tuple(c[:len(prefix)]) == prefix]
+
+    def run(self, args, **options):
+        self.check_cancelled()
+        command = [str(a) for a in args]
+        self.commands.append(command)
+        self.options.append(options)
+        matches = [k for k in self.script if tuple(command[:len(k)]) == k]
+        reply = self.script[max(matches, key=len)] if matches else self.default
+        if isinstance(reply, list):
+            reply = reply.pop(0) if len(reply) > 1 else reply[0]
+        if callable(reply):
+            reply = reply(command, **options)
+        if isinstance(reply, BaseException):
+            raise reply
+        self.last_stderr = reply.stderr if isinstance(reply, Reply) else None
+        return reply.stdout if isinstance(reply, Reply) else reply
