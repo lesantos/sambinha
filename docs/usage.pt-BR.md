@@ -16,9 +16,11 @@ Todos os parâmetros operacionais têm overrides CLI; opções omitidas herdam o
 .venv/bin/python -m sambinha --help
 ```
 
+As ações são subcomandos (`backup`, `restore`, `rebalance`, `verify-local-metadata`, `verify-destination-metadata`, `verify-destination-integrity`); sem ação, `sambinha` faz backup. Todas as opções vêm **depois** da ação: `sambinha restore --job documents --output /mnt/recovery` (a ordem antiga `sambinha --job documents restore` é recusada com uma sugestão). `--output`/`--path` existem só em `restore`; `--allow-mass-deletion` em `backup` e `rebalance`; `--adopt-identity`, `--prune-orphans` e `--fresh-start` só em `backup`. `sambinha restore --help` lista as opções de cada ação.
+
 `--source`, `--destination`, `--type` e `--logic` exigem um único job selecionado. `--no-dry-run` sobrepõe simulação habilitada no TOML. Tipos: `local`, `s3`. Lógicas: `simple`, `batch`. Compactação: `7z` ou `zip`; `compressor` aceita `7z`, `7zz` ou outro executável compatível com a CLI do 7-Zip.
 
-Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2** configuração inválida, **130** interrupção. Jobs independentes continuam após falha de um job; o resultado global registra falha. Cada job verifica suas origens e dependências somente depois que o anterior termina.
+Códigos de saída: **0** sucesso, **1** erro de execução/notificação, **2** configuração inválida, **130** SIGINT, **143** SIGTERM. Jobs independentes continuam após falha de um job; o resultado global registra falha. Cada job verifica suas origens e dependências somente depois que o anterior termina.
 
 ## Regras dos lotes
 

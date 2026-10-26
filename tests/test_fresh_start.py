@@ -32,8 +32,9 @@ class FreshStartOptionTests(Sandbox):
         args = parser().parse_args(['--fresh-start', '--prune-orphans'])
         self.assertTrue(args.fresh_start and args.prune_orphans)
         for flag in ('--fresh-start', '--prune-orphans'):
-            with self.subTest(flag=flag), patch('sys.stderr'):
-                self.assertEqual(main(['verify-local-metadata', flag, '--config', str(self.root / 'none.toml')]), 2)
+            with self.subTest(flag=flag), patch('sys.stderr'), self.assertRaises(SystemExit) as caught:
+                main(['verify-local-metadata', flag, '--config', str(self.root / 'none.toml')])
+            self.assertEqual(caught.exception.code, 2)
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')

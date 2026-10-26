@@ -4,7 +4,7 @@
 
 ## Commands and exit codes
 
-Omitted CLI options inherit the TOML. `backup` is optional and remains the default action. `--source`, `--destination`, `--type` and `--logic` require one selected job. `--no-dry-run` overrides simulation enabled in the file.
+Omitted CLI options inherit the TOML. `backup` is optional and remains the default action. Actions are subcommands (`backup`, `restore`, `rebalance`, `verify-local-metadata`, `verify-destination-metadata`, `verify-destination-integrity`) and every option goes **after** the action: `sambinha restore --job documents --output /mnt/recovery` (the old `sambinha --job documents restore` is rejected with a hint). `--output`/`--path` exist only on `restore`; `--allow-mass-deletion` on `backup` and `rebalance`; `--adopt-identity`, `--prune-orphans` and `--fresh-start` only on `backup`. `sambinha restore --help` lists each action's options. `--source`, `--destination`, `--type` and `--logic` require one selected job. `--no-dry-run` overrides simulation enabled in the file.
 
 ```bash
 sambinha --job documents-s3 --max-megabytes 100 --dry-run
@@ -13,7 +13,7 @@ sambinha --config /path/another.toml --job documents-local --destination /mnt/ba
 sambinha --help
 ```
 
-Exit codes: **0** success, **1** operation/notification failure, **2** configuration error, **130** interruption. Independent jobs continue after a job failure. Global preflight checks sources and dependencies before any transfer. Types: `local`, `s3`; strategies: `simple`, `batch`; archive formats: `7z`, `zip`. `compressor` accepts `7z`, `7zz` or another compatible CLI executable.
+Exit codes: **0** success, **1** operation/notification failure, **2** configuration error, **130** SIGINT, **143** SIGTERM. Independent jobs continue after a job failure. Global preflight checks sources and dependencies before any transfer. Types: `local`, `s3`; strategies: `simple`, `batch`; archive formats: `7z`, `zip`. `compressor` accepts `7z`, `7zz` or another compatible CLI executable.
 
 ## Batch rules
 
