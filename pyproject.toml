@@ -100,3 +100,15 @@ disable_error_code = ["union-attr"]
 # Locals re-bound with a different type; refactor before enabling.
 module = ["sambinha.config_locations", "sambinha.process", "sambinha.archive_recovery", "sambinha.progress", "sambinha.index_generations"]
 disable_error_code = ["assignment", "attr-defined", "has-type", "no-redef", "arg-type"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["sambinha"]
+
+[tool.coverage.report]
+fail_under = 85
