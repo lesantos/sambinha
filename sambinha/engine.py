@@ -13,7 +13,7 @@ from .jobs import JobExecution
 from .logging import RunLog
 from .notify import notify
 from .preflight import preflight as preflight
-from .process import Runner
+from .process import Runner, handle_termination
 from .process import show_progress as show_progress
 from .progress import Progress
 from .retention import DAY as DAY
@@ -26,6 +26,9 @@ from .versions import check_rclone_version
 STRATEGIES = {"batch": batch}
 
 
+# SIGTERM unwinds through every finally below (end event, lock, temporary
+# directories, children), exactly like Ctrl+C; see process.handle_termination.
+@handle_termination()
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False,
         action='backup') -> int:
     use_real_temporary_directory(config)

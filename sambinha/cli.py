@@ -8,6 +8,7 @@ from .config import load
 from .engine import run
 from .errors import BackupError
 from .notify import notify
+from .process import Terminated
 from .recovery import recover
 
 
@@ -63,6 +64,10 @@ def main(argv=None):
     except (BackupError, OSError) as exc:
         print(f"sambinha: {exc}", file=sys.stderr)
         return 2
+    except Terminated:
+        # 128 + SIGTERM(15), the shell convention for a process ended by SIGTERM.
+        print("sambinha: execução encerrada por SIGTERM", file=sys.stderr)
+        return 143
     except KeyboardInterrupt:
         print("sambinha: execução interrompida", file=sys.stderr)
         return 130

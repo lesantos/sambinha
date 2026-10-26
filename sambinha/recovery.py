@@ -6,7 +6,7 @@ from .archive_recovery import check_content as check_content, unpack as unpack
 from .disks import check_disks, use_real_temporary_directory
 from .errors import BackupError, JobError
 from .logging import RunLog
-from .process import Runner
+from .process import Runner, handle_termination
 from .progress import Progress
 from .recovery_index import read_index as read_index
 from .restore import matches as matches, restore_job as restore_job, validate_output as validate_output
@@ -16,6 +16,8 @@ from .verification import (verify_destination_integrity_job, verify_destination_
 from .versions import check_compressor_version, check_rclone_version
 
 
+# SIGTERM unwinds like Ctrl+C: the end event, lock and staging cleanup run.
+@handle_termination()
 def recover(config, action, *, output=None, selectors=(), runner=None, notifier=None):
     use_real_temporary_directory(config)
     runner = runner or Runner(config.timeout, env=config.environment)
@@ -77,6 +79,10 @@ def recover(config, action, *, output=None, selectors=(), runner=None, notifier=
     except (BackupError, OSError, ValueError) as exc:
         failed = True
         log.event("error", error=str(exc))
+    except BaseException:
+        # Interruptions (Ctrl+C, SIGTERM) still record an unsuccessful end.
+        failed = True
+        raise
     finally:
         log.event("end", action=action, success=not failed)
         if not failed:
