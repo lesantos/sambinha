@@ -95,7 +95,7 @@ class SecurityTests(Sandbox):
         runner = Runner(env={})
         runner.load_config_secrets(config)
         failure = subprocess.CompletedProcess([], 1, '', 'authentication failed: PRIVATE-ID PRIVATE-KEY')
-        with patch('subprocess.run', return_value=failure), self.assertRaises(BackupError) as error:
+        with patch.object(Runner, '_run_captured', return_value=failure), self.assertRaises(BackupError) as error:
             runner.run(['rclone'])
         self.assertNotIn('PRIVATE-', str(error.exception))
 

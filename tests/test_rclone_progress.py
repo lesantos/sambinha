@@ -96,6 +96,7 @@ class RcloneStreamingTests(unittest.TestCase):
 
     def test_timeout_terminates_and_joins_streaming_reader(self):
         process = Mock(stdout=io.StringIO('{"stats":{"checks":1}}\n'))
+        process.poll.return_value = None
         process.wait.side_effect = [subprocess.TimeoutExpired("rclone", 1), 0]
         with patch("sambinha.process.subprocess.Popen", return_value=process), \
              self.assertRaises(subprocess.TimeoutExpired):
@@ -106,6 +107,7 @@ class RcloneStreamingTests(unittest.TestCase):
 
     def test_interruption_does_not_leave_child_or_reader_running(self):
         process = Mock(stdout=io.StringIO('{"stats":{"checks":1}}\n'))
+        process.poll.return_value = None
         process.wait.side_effect = [KeyboardInterrupt, 0]
         with patch("sambinha.process.subprocess.Popen", return_value=process), \
              self.assertRaises(KeyboardInterrupt):

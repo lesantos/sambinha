@@ -2,6 +2,7 @@
 import shutil
 import os
 import re
+import signal
 import subprocess
 import time
 import json
@@ -9,10 +10,109 @@ import threading
 import math
 from collections import deque
 from configparser import ConfigParser, Error as ConfigParserError
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from .errors import BackupError
+
+
+class Interrupted(KeyboardInterrupt):
+    """Work cancelled through Runner.cancel(); unwinds exactly like Ctrl+C."""
+
+
+class Terminated(Interrupted):
+    """SIGTERM delivered to the main thread; the CLI maps it to exit 143."""
+
+
+@contextmanager
+def handle_termination():
+    """Turn SIGTERM into Terminated so every finally/__exit__ block runs.
+
+    Without a handler the interpreter dies at once: no final log event,
+    temporary directories stay behind and children keep running. Handlers can
+    only be installed from the main thread; elsewhere this is a no-op. The
+    previous handler is restored on exit, so a second SIGTERM received after
+    the run finished behaves as the caller configured it.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def interrupt(signum, frame):
+        raise Terminated()
+
+    try:
+        previous = signal.signal(signal.SIGTERM, interrupt)
+    except (ValueError, OSError):
+        # Not the interpreter's main thread (embedded interpreters), or a
+        # platform without SIGTERM handlers: keep the default behavior.
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+class Cancellation:
+    """Shared cancellation token and registry of live child processes.
+
+    Runners copied for worker threads share one instance, so cancelling the
+    job's runner reaches every child they spawned. Spawning and cancelling
+    hold the same lock: a child registered after cancel() can never be missed.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.event = threading.Event()
+        self.processes = set()
+
+    def cancelled(self):
+        return self.event.is_set()
+
+    def spawn(self, args, **options):
+        with self.lock:
+            if self.event.is_set():
+                raise Interrupted()
+            # A new session makes the child its own process group, so killing
+            # the group also reaches anything it spawned and keeps terminal
+            # Ctrl+C from racing our own orderly shutdown.
+            process = subprocess.Popen(args, start_new_session=True, **options)
+            self.processes.add(process)
+            return process
+
+    def release(self, process):
+        with self.lock:
+            self.processes.discard(process)
+
+    def cancel(self, grace=1.0):
+        """Terminate every registered child, then kill whatever survived."""
+        with self.lock:
+            self.event.set()
+            processes = list(self.processes)
+        for process in processes:
+            _signal_group(process, signal.SIGTERM)
+        deadline = time.monotonic() + grace
+        for process in processes:
+            try:
+                process.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                _signal_group(process, signal.SIGKILL)
+                process.wait()
+
+
+def _signal_group(process, signum):
+    """Signal the child's whole process group; fall back to the child alone."""
+    if process.poll() is not None:
+        return
+    try:
+        # start_new_session made the child a group leader: pid == pgid.
+        os.killpg(process.pid, signum)
+    except ProcessLookupError:
+        pass
+    except (OSError, TypeError):
+        # Not a group leader (or a stand-in process object): signal it directly.
+        process.kill() if signum == signal.SIGKILL else process.terminate()
 
 _CREDENTIAL = re.compile(r"SECRET|TOKEN|PASSWORD|(?:^|_)PASS(?:$|_)|ACCESS_KEY|(?:^|_)KEY(?:$|_)|CREDENTIAL|AUTHORIZATION|CRONITOR_URL", re.I)
 
@@ -77,6 +177,24 @@ class Runner:
         self.env = env
         self.secrets = tuple(value for value in secrets if value)
         self.progress = None
+        # Shared by copy.copy() worker runners, so one cancel() reaches all.
+        self.cancellation = Cancellation()
+
+    def cancel(self):
+        """Stop every live child of this runner and its worker copies.
+
+        Runs already blocked on a child see it exit and raise Interrupted
+        instead of retrying; runs started afterwards fail before spawning.
+        """
+        self.cancellation.cancel()
+
+    @property
+    def cancelled(self):
+        return self.cancellation.cancelled()
+
+    def check_cancelled(self):
+        if self.cancelled:
+            raise Interrupted()
 
     def require(self, programs):
         search_path = self.env.get("PATH", os.defpath) if self.env is not None else None
@@ -119,6 +237,7 @@ class Runner:
         child_env = child_environment(self.env, env)
         # One original attempt plus at most three retries, two seconds apart.
         for attempt in range(4 if retry else 1):
+            self.check_cancelled()
             try:
                 stages = {"lsjson": "Lendo destino", "lsf": "Lendo diretórios", "copy": "Copiando arquivos",
                           "sync": "Sincronizando arquivos",
@@ -139,24 +258,48 @@ class Runner:
                     if measured or on_output is not None:
                         result = self._run_with_progress(command, cwd, input, report, on_output=on_output, env=child_env)
                     else:
-                        result = subprocess.run(command, cwd=cwd, input=input, capture_output=True,
-                                                text=True, timeout=self.timeout, check=False, env=child_env)
+                        result = self._run_captured(command, cwd, input, child_env)
                 if result.returncode == 0:
                     self.last_stderr = result.stderr
                     return result.stdout
                 error = BackupError(f"{args[0]} falhou ({result.returncode}): {self.safe_error(result.stderr)[-2000:]}")
             except (OSError, subprocess.TimeoutExpired) as exc:
                 error = BackupError(f"{args[0]} não pôde concluir a operação: {type(exc).__name__}")
+            # A child killed by cancel() is an interruption, never a retry.
+            self.check_cancelled()
             if attempt == (3 if retry else 0):
                 raise error
             self.sleep(2)
 
+    def _run_captured(self, args, cwd, input, env):
+        """subprocess.run(capture_output=True) semantics with a tracked child."""
+        process = self.cancellation.spawn(args, cwd=cwd, env=env, text=True,
+                                          stdin=subprocess.PIPE if input is not None else None,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            try:
+                stdout, stderr = process.communicate(input, timeout=self.timeout)
+            except BaseException:
+                _signal_group(process, signal.SIGKILL)
+                process.wait()
+                raise
+        finally:
+            self.cancellation.release(process)
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
     def _run_with_progress(self, args, cwd, input, report, on_output=None, env=None):
         """Stream structured records and stats, retaining only an error tail when detailed."""
-        process = subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE if input is not None else None,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   text=True, bufsize=1,
-                                   env=child_environment(self.env) if env is None else env)
+        process = self.cancellation.spawn(args, cwd=cwd, stdin=subprocess.PIPE if input is not None else None,
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True, bufsize=1,
+                                          env=child_environment(self.env) if env is None else env)
+        try:
+            return self._stream(process, input, report, on_output)
+        finally:
+            self.cancellation.release(process)
+
+    def _stream(self, process, input, report, on_output):
+        args = process.args
         if input is not None:
             process.stdin.write(input)
             process.stdin.close()
@@ -200,7 +343,7 @@ class Runner:
             returncode = process.wait(timeout=self.timeout)
         except BaseException:
             # An interruption must also release the reader and child process.
-            process.kill()
+            _signal_group(process, signal.SIGKILL)
             process.wait()
             raise
         finally:
