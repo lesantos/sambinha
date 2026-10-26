@@ -5,6 +5,7 @@ import subprocess
 import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
+from typing import ClassVar
 from unittest.mock import Mock, patch
 
 from sambinha import archives
@@ -23,9 +24,7 @@ from tests.helpers import REAL_TOOLS, Sandbox, contents
 class SpecialNameBatchTests(Sandbox):
     """Names that 7-Zip listfiles or console tools mangle still round-trip."""
 
-    def use_batch(self, **values):
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch',
-                               max_megabytes=100 / 1024, **values),))
+    batch_defaults: ClassVar[dict] = {'max_megabytes': 100 / 1024}
 
     def roundtrip(self):
         self.assertEqual(self.execute(), 0, self.output.getvalue())

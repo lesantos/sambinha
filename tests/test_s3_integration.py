@@ -5,6 +5,7 @@ import os
 import tarfile
 import unittest
 from dataclasses import replace
+from typing import ClassVar
 from unittest.mock import patch
 
 from sambinha.config import with_job_overrides
@@ -19,6 +20,8 @@ MOTO_AVAILABLE = importlib.util.find_spec('moto') is not None
 
 @unittest.skipUnless(MOTO_AVAILABLE and REAL_TOOLS, 'Install requirements-test.txt, rclone and 7z')
 class S3IntegrationTests(Sandbox):
+    batch_defaults: ClassVar[dict] = {'storage_class': 'GLACIER_IR'}
+
     def setUp(self):
         super().setUp()
         import boto3
@@ -92,9 +95,6 @@ class S3IntegrationTests(Sandbox):
                 recovered = json.load(tar.extractfile('state.json'))
                 self.assertEqual(recovered, self.state())
                 self.assertTrue(all('controls/' + key + '.json' in tar.getnames() for key in recovered['active']))
-
-    def use_batch(self, storage_class='GLACIER_IR'):
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', storage_class=storage_class),))
 
     def test_simple_full_roundtrip_and_default_storage(self):
         self.fixture()
@@ -196,7 +196,7 @@ class S3IntegrationTests(Sandbox):
             with self.subTest(storage_class=storage_class):
                 self.file('a', b'first')
                 self.file('b', b'second')
-                self.use_batch(storage_class)
+                self.use_batch(storage_class=storage_class)
                 # Distinct jobs/prefixes make each storage-class test independent.
                 self.config = replace(self.config, state_dir=self.root / ('state-' + storage_class))
                 self.file('a', storage_class.encode())
@@ -211,7 +211,7 @@ class S3IntegrationTests(Sandbox):
         from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
         self.file('a.txt', b'alpha')
         self.file('b.txt', b'beta')
-        self.use_batch('DEEP_ARCHIVE')
+        self.use_batch(storage_class='DEEP_ARCHIVE')
         self.config = replace(self.config, metadata_dir=self.root / 'metadata')
         for now in (1000, 2000):
             if now == 2000:
@@ -251,7 +251,7 @@ class S3IntegrationTests(Sandbox):
         from sambinha.metadata import control_directory
         from sambinha.storage import Storage
         self.file('file.txt', b'old')
-        self.use_batch('DEEP_ARCHIVE')
+        self.use_batch(storage_class='DEEP_ARCHIVE')
         self.config = replace(self.config, metadata_dir=self.root / 'metadata')
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         before = self.state()

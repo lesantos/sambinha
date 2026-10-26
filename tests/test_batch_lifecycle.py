@@ -53,7 +53,7 @@ class BatchOptionsAndTraversalTests(Sandbox):
 class StableBatchLifecycleTests(Sandbox):
     def setUp(self):
         super().setUp()
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=10 / 1024 ** 2),))
+        self.use_batch(max_megabytes=10 / 1024 ** 2)
 
     def seed(self):
         for name in ('a', 'b', 'c', 'd'):
@@ -84,7 +84,7 @@ class StableBatchLifecycleTests(Sandbox):
     def test_batch_alert_only_at_end_all_jobs_finish_and_exit_is_success(self):
         self.seed()
         (self.source / 'a').write_bytes(b'a' * 25)
-        second = replace(self.config.jobs[0], name='second', destination=str(self.root / 'second'), logic='simple')
+        second = self.job(name='second', destination=str(self.root / 'second'), logic='simple')
         config = replace(self.config, jobs=(self.config.jobs[0], second))
         states = []
         def notified(url, state, series, message=''):
@@ -108,7 +108,7 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertFalse(any(e['event'] == 'batch_size_alert' for e in self.events))
         (self.source / 'a').write_bytes(b'a' * 25)
         self.notifications.clear()
-        config = replace(self.config, jobs=(replace(self.config.jobs[0], batch_size_alert_percent=0),))
+        config = replace(self.config, jobs=(self.job(batch_size_alert_percent=0),))
         self.assertEqual(self.execute(config, now=2001), 0)
         self.assertEqual([n[1] for n in self.notifications], ['run', 'complete'])
 
@@ -209,7 +209,7 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertEqual(self.execute(now=2000), 0)
         rules = self.root / 'rules.txt'
         rules.write_text('a\n')
-        config = replace(self.config, jobs=(replace(self.config.jobs[0], exclude_files=rules),))
+        config = replace(self.config, jobs=(self.job(exclude_files=rules),))
         shutil.rmtree(self.source)
         self.assertEqual(self.execute(config, now=2000 + 2 * 86400, action='rebalance'), 0, self.output.getvalue())
         self.assertTrue((self.destination / old_key).exists())
@@ -230,7 +230,7 @@ class StableBatchLifecycleTests(Sandbox):
         self.seed()
         expected = contents(self.source)
         source_mount = self.source
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], source_mount=source_mount),))
+        self.config = replace(self.config, jobs=(self.job(source_mount=source_mount),))
         shutil.rmtree(self.source);shutil.rmtree(self.config.state_dir)
         output = self.root / 'restore-no-source'
         self.assertEqual(self.restore(output), 0)
@@ -252,7 +252,7 @@ class StableBatchLifecycleTests(Sandbox):
         archive = self.destination / key
         payload = archive.read_bytes()
         (self.destination / (key + '.json')).unlink()
-        config = replace(self.config, jobs=(replace(self.config.jobs[0], compression_level=9),))
+        config = replace(self.config, jobs=(self.job(compression_level=9),))
         with patch('sambinha.strategies.batch.compress', side_effect=AssertionError('healthy archive rewritten')):
             self.assertEqual(self.execute(config, now=2000), 0, self.output.getvalue())
         self.assertEqual(archive.read_bytes(), payload)
@@ -337,5 +337,5 @@ class StableBatchLifecycleTests(Sandbox):
         directory = self.destination / '.sambinha/indexes'
         self.assertEqual(len(list(directory.glob('*.commit.json'))), 2)
         self.assertEqual(len(list(directory.glob('*.tar.gz'))), 2)
-        config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='simple'),))
+        config = replace(self.config, jobs=(self.job(logic='simple'),))
         self.assertEqual(self.execute(config, action='rebalance'), 1)

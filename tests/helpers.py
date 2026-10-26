@@ -9,6 +9,7 @@ import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
+from typing import ClassVar
 
 from sambinha.config import JOB_SCOPED_OPTIONS, Config, Job, with_job_overrides
 from sambinha.config_validation import validate
@@ -65,6 +66,43 @@ class Sandbox(unittest.TestCase):
 
     def state(self):
         return json.loads((self.config.state_dir / "test" / "state.json").read_text())
+
+    # Canonical batch-job builders shared by the integration suites.
+    batch_defaults: ClassVar[dict] = {}
+
+    def job(self, **overrides):
+        """First configured job with ``overrides`` applied (the config is untouched)."""
+        return replace(self.config.jobs[0], **overrides)
+
+    def use_batch(self, **overrides):
+        """Switch the first job to batch logic; ``batch_defaults`` and ``overrides`` apply on top."""
+        self.config = replace(self.config, jobs=(self.job(logic="batch", **{**self.batch_defaults, **overrides}),))
+
+    def fixture(self):
+        """Copy the shared source tree and add edge-case names (spaces, leading @/-, wildcards)."""
+        shutil.copytree(Path(__file__).parent / "fixtures" / "source", self.source, dirs_exist_ok=True)
+        self.file("empty", b"")
+        self.file("ação/with spaces.txt", "Olá!".encode())
+        self.file("ação/@leading.txt", b"@file")
+        self.file("ação/-leading.txt", b"-file")
+        self.file("ação/[wildcard]*?.txt", b"literal wildcards")
+        self.file("binary.dat", bytes(range(256)) * 100)
+
+    def assert_complete(self, logic=None):
+        """Assert the local destination restores to exactly the source (simple copy or 7z batches)."""
+        logic = logic or self.config.jobs[0].logic
+        if logic == "simple":
+            self.assertEqual(contents(self.destination), contents(self.source))
+            return
+        restored = self.root / ("restored-" + str(len(list(self.root.glob("restored-*")))))
+        actual = restore_batches(self.state(), self.destination, restored)
+        self.assertEqual(actual, contents(self.source))
+        for key in set(self.state()["active"]):
+            self.assertTrue((self.destination / key).is_file())
+            self.assertTrue((self.destination / (key + ".json")).is_file())
+        self.assertFalse(set(contents(self.source)).intersection(contents(self.destination)))
+        for item in self.state()["active"].values():
+            self.assertTrue(item["files"])
 
 
 def contents(directory):

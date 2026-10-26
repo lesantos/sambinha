@@ -8,6 +8,7 @@ import zipfile
 from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 from sambinha.config import load, with_job_overrides
@@ -17,42 +18,12 @@ from sambinha.process import Runner
 from sambinha.recovery import recover
 from sambinha.retention import DAY
 from sambinha.storage import Storage
-from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
+from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
 @unittest.skipUnless(REAL_TOOLS, 'Install rclone and 7z for real local integration')
 class LocalIntegrationTests(Sandbox):
-    def fixture(self):
-        fixture = Path(__file__).parent / 'fixtures' / 'source'
-        shutil.copytree(fixture, self.source, dirs_exist_ok=True)
-        self.file('empty', b'')
-        self.file('ação/with spaces.txt', 'Olá!'.encode())
-        self.file('ação/@leading.txt', b'@file')
-        self.file('ação/-leading.txt', b'-file')
-        self.file('ação/[wildcard]*?.txt', b'literal wildcards')
-        self.file('binary.dat', bytes(range(256)) * 100)
-
-    def use_batch(self, **values):
-        self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch',
-                               max_megabytes=100 / 1024, **values),))
-
-    def assert_complete(self, logic=None):
-        logic = logic or self.config.jobs[0].logic
-        if logic == 'simple':
-            self.assertEqual(contents(self.destination), contents(self.source))
-        else:
-            restored = self.root / ('restored-' + str(len(list(self.root.glob('restored-*')))))
-            actual = restore_batches(self.state(), self.destination, restored)
-            self.assertEqual(actual, contents(self.source))
-            active_keys = set(self.state()['active'])
-            for key in active_keys:
-                self.assertTrue((self.destination / key).is_file())
-                self.assertTrue((self.destination / (key + '.json')).is_file())
-            remote_files = contents(self.destination)
-            original_paths = set(contents(self.source))
-            self.assertFalse(original_paths.intersection(remote_files))
-            for item in self.state()['active'].values():
-                self.assertTrue(item['files'])
+    batch_defaults: ClassVar[dict] = {'max_megabytes': 100 / 1024}
 
     def test_simple_complete_byte_exact_and_metadata(self):
         self.fixture()

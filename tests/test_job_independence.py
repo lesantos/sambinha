@@ -32,7 +32,7 @@ class IndependentJobTests(Sandbox):
             path = source / name
             path.write_bytes(payload)
             os.utime(path, ns=(1000000000, 1000000000))
-        first = replace(self.config.jobs[0], source=source, destination=str(base / 'middle' / 'backup'))
+        first = self.job(source=source, destination=str(base / 'middle' / 'backup'))
         second = replace(first, name='second', source=base / 'middle',
                          destination=str(base / 'final'), logic=logic)
         return with_job_overrides(replace(self.config, jobs=(first, second), state_dir=base / 'state', log_dir=base / 'logs'), verification_mode=mode, verify_interval_days=1)
@@ -120,7 +120,7 @@ class IndependentJobTests(Sandbox):
         next_source.mkdir()
         (next_source / 'ignored.tmp').write_bytes(b'ignore')
         (next_source / 'keep').write_bytes(b'keep')
-        first = replace(self.config.jobs[0], destination=str(next_source / 'rules'))
+        first = self.job(destination=str(next_source / 'rules'))
         second = replace(first, name='second', source=next_source, destination=str(self.destination),
                          exclude_files=next_source / 'rules' / 'exclude.txt')
         config = with_job_overrides(replace(self.config, jobs=(first, second)), verify_interval_days=1)
@@ -188,7 +188,7 @@ class IndependentJobTests(Sandbox):
         source = self.root / 'second-source'
         source.mkdir()
         (source / 'second').write_bytes(b'second')
-        first = replace(self.config.jobs[0], logic='batch')
+        first = self.job(logic='batch')
         second = replace(first, name='second', source=source)
         config = with_job_overrides(replace(self.config, jobs=(first, second)), verify_interval_days=1)
         with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
