@@ -125,7 +125,7 @@ class JobFailurePolicyTests(Sandbox):
                     if job.name == 'test':
                         raise BackupError('verificação falhou')
                     return verify_local_metadata_job(config, job, *args, **kwargs)
-                with patch('sambinha.recovery.verify_local_metadata_job', side_effect=verify):
+                with patch('sambinha.verification.verify_local_metadata_job', side_effect=verify):
                     self.assert_failure_policy(config)
 
     def test_manual_verification_failure_obeys_policy(self):

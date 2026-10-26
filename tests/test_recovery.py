@@ -501,7 +501,7 @@ assert runner.env == environment == dict(os.environ)
         self.assertEqual(self.state()['last_verified'], 1000)
         self.assertEqual(self.execute(now=1001), 0)
         self.assertFalse(any(e['event'] == 'verification_complete' for e in self.events))
-        with patch('sambinha.recovery.verify_local_metadata_job', side_effect=BackupError('corrupt')):
+        with patch('sambinha.verification.verify_local_metadata_job', side_effect=BackupError('corrupt')):
             self.assertEqual(self.execute(now=1000 + 7 * 86400), 1)
         self.assertEqual(self.state()['last_verified'], 1000)
 
