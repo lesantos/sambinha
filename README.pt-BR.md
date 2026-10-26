@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.17.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux ou macOS, Python 3.12+, rclone 1.60+ e 7-Zip 22.00+.
+O Sambinha **0.18.0** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux ou macOS, Python 3.12+, rclone 1.60+ e 7-Zip 22.00+.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 
@@ -21,6 +21,26 @@ python3 -m venv .venv
 No macOS, instale as ferramentas com o Homebrew em vez do apt (`brew install git python@3.12 rclone sevenzip`; o compactador também se chama `7zz`) e depois execute os mesmos passos de `git clone`, `venv` e `pip install`. Leia as [observações sobre macOS](docs/configuration.pt-BR.md#macos) antes de agendar os backups.
 
 O repositório é privado. Pacotes de instalação também estão disponíveis nas [releases](https://github.com/lesantos/sambinha/releases).
+
+## Atualizar
+
+Seus arquivos TOML, o estado e os logs ficam fora do clone e da `.venv`, então atualizar só troca o código. No diretório do clone:
+
+```bash
+cd sambinha
+git pull --ff-only origin main
+.venv/bin/python -m pip install --upgrade .
+.venv/bin/sambinha --version
+```
+
+Para instalar uma release específica em vez da `main`, baixe as tags e faça checkout de uma (`git fetch --tags` e depois `git checkout v0.18.0`); para voltar à `main`, use `git checkout main`. Leia o [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) antes de reativar os agendamentos: algumas releases removem ou renomeiam opções, e o Sambinha recusa uma configuração que ainda as use. Uma boa conferência depois de atualizar é `.venv/bin/sambinha --config sambinha.toml --dry-run`.
+
+Observações:
+- `pip install --upgrade .` só reinstala quando a versão em `pyproject.toml` mudou. Se você estiver testando um commit não publicado com a mesma versão, acrescente `--force-reinstall --no-deps`.
+- `git pull --ff-only` para em vez de fazer merge quando o clone tem commits locais ou divergiu; faça commit ou `git stash` das edições locais antes.
+- Se a `.venv` foi criada com um Python que foi atualizado ou removido (por exemplo, depois de atualizar o sistema operacional) ou se o `pip` falhar com erros de importação, recrie-a: `rm -rf .venv && python3 -m venv .venv && .venv/bin/python -m pip install .`. Nada mais se perde, porque a `.venv` não guarda dados.
+- Se `rclone` ou `7zz` também mudaram, confira as versões de novo com `rclone version` e `7zz` (os mínimos estão em [Instalar](#instalar)).
+- Um agendador (cron, timer do systemd ou launchd) que chama `.venv/bin/sambinha` usa a versão nova na próxima execução; não é preciso reiniciar nada. Uma execução em andamento continua com o código antigo até terminar.
 
 ## Configurar e executar
 

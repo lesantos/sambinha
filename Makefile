@@ -24,4 +24,4 @@ test-integration:
 
 ## Full suite with branch coverage; fails below 85%.
 coverage:
-	$(PYTEST) --cov=sambinha --cov-branch --cov-report=term-missing --cov-fail-under=85
+	$(PYTEST) --cov=sambinha --cov-branch --cov-report=term-missing --cov-fail-under=92

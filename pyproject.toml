@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sambinha"
-version = "0.17.0"
+version = "0.18.0"
 description = "Local and S3 backups with simple copies or compressed batches"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -115,4 +115,4 @@ branch = true
 source = ["sambinha"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 92

@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.17.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
+Sambinha **0.18.0** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
 
 Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
@@ -21,6 +21,26 @@ python3 -m venv .venv
 On macOS, install the tools with Homebrew instead of apt (`brew install git python@3.12 rclone sevenzip`; the compressor is also `7zz`), then run the same `git clone`, `venv` and `pip install` steps. See [macOS notes](docs/configuration.md#macos) before scheduling backups.
 
 The repository is private. Installable packages are also available in [releases](https://github.com/lesantos/sambinha/releases).
+
+## Update
+
+Your TOML files, state and logs live outside the clone and the `.venv`, so updating only replaces the code. From the clone directory:
+
+```bash
+cd sambinha
+git pull --ff-only origin main
+.venv/bin/python -m pip install --upgrade .
+.venv/bin/sambinha --version
+```
+
+To install an exact release instead of `main`, fetch the tags and check one out (`git fetch --tags`, then `git checkout v0.18.0`); to return to `main`, run `git checkout main`. Read [CHANGELOG.md](CHANGELOG.md) before restarting scheduled jobs: some releases remove or rename options, and Sambinha refuses a configuration that still uses them. A good check after updating is `.venv/bin/sambinha --config sambinha.toml --dry-run`.
+
+Notes:
+- `pip install --upgrade .` only reinstalls when the version in `pyproject.toml` changed. If you are testing an unreleased commit with the same version, add `--force-reinstall --no-deps`.
+- `git pull --ff-only` stops instead of merging when the clone has local commits or diverged; commit or `git stash` local edits first.
+- If the `.venv` was created with a Python that was upgraded or removed (for example after an operating-system upgrade) or `pip` fails with import errors, recreate it: `rm -rf .venv && python3 -m venv .venv && .venv/bin/python -m pip install .`. Nothing else is lost, because the `.venv` holds no data.
+- If `rclone` or `7zz` also changed, check their versions again with `rclone version` and `7zz` (minimums are listed in [Install](#install)).
+- A scheduler (cron, systemd timer or launchd) that calls `.venv/bin/sambinha` picks up the new version on its next run; no restart is needed. A run already in progress keeps using the old code until it finishes.
 
 ## Configure and run
 

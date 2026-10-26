@@ -4,7 +4,13 @@ Documento de handoff. Tudo aqui já foi revisado e aprovado por Leandro; o execu
 implementar o que está definido, sem reabrir decisões de design. Perguntas só se algo
 aqui for contraditório com o código real.
 
-## Estado em 2026-10-26 (0.17.0 implementada e mesclada; falta suíte completa, CI macOS e release)
+## Estado em 2026-10-26 (0.18.0 em fechamento: inclui 0.17.0 + compressão em três faixas)
+
+- Decisão do usuário: a 0.17.0 NÃO foi publicada separadamente; a release é a 0.18.0, que traz tudo
+  (0.17.0 + `compression_text/compressed/other_level` + listas de extensões + `<none>`).
+- Se o executor ler isto depois do fechamento: ver `git tag` e `gh release list` antes de repetir qualquer passo.
+
+(estado anterior, 0.17.0:)
 
 - 0.17.0: itens 4.1–4.8 e 5.6–5.10 todos MESCLADOS em `main`; versão e CHANGELOG em 0.17.0 já commitados
   localmente. PENDENTE (decisão do usuário: rodar tudo só ao final): suíte completa
