@@ -4,7 +4,7 @@ from .filtering import Selection, retired_paths
 from .metadata import control_directory, prepare_controls, write_manifest
 from .names import STATE_FILE
 from .retention import alert_time, date
-from .state import atomic_json, identity, indexed_files, load_state
+from .state import atomic_json, identity, identity_options, indexed_files, load_state, migrate_identity, record_origin
 from .storage import Storage
 
 
@@ -27,7 +27,9 @@ class Context:
         self.controls_directory = control_directory(config, job)
         self.state_path = self.directory / STATE_FILE
         self.identity = identity(job)
-        self.state = load_state(self.state_path, self.identity) if state is None else state
+        self.state = (load_state(self.state_path, self.identity, **identity_options(job))
+                      if state is None else state)
+        migrate_identity(self.state, job, log)
         if not job.dry_run:
             prepare_controls(config, job, self.state)
         self.metrics = {"reused_batches": 0, "rebuilt_batches": 0,
@@ -78,6 +80,7 @@ class Context:
                    pending_deletions=sum(len(r.get("files", [])) for r in self.state["retired"]), **self.metrics)
 
     def save(self):
+        record_origin(self.state, self.job, self.now)
         atomic_json(self.state_path, self.state)
         write_manifest(self.config, self.job, self.state)
         # Only now may the mirrors go: a crash before this point leaves a state

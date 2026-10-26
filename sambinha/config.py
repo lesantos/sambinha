@@ -62,6 +62,9 @@ class Job:
     transfer_workers: int = 4
     batch_workers: int = 2
     dry_run: bool = False
+    # Run-scoped only (--adopt-identity): accept state/index of a renamed job or
+    # of a legacy identity with other paths. Deliberately not a TOML key.
+    adopt_identity: bool = False
 
     @property
     def max_bytes(self) -> int:
@@ -135,7 +138,7 @@ def load(path: Path, overrides: dict | None = None) -> Config:
         if set(data) - {"backup", "jobs"}:
             raise ConfigError("Seções desconhecidas no TOML")
         global_values = dict(data.get("backup", {}))
-        job_keys = set(Job.__dataclass_fields__)
+        job_keys = set(Job.__dataclass_fields__) - {"adopt_identity"}
         config_keys = set(Config.__dataclass_fields__) - {"jobs", "environment"} - JOB_SCOPED_OPTIONS
         per_job_in_backup = set(global_values) & JOB_ONLY_OPTIONS
         if per_job_in_backup:

@@ -82,10 +82,15 @@ class RecoveryGenerationValidationTests(Sandbox):
                 with self.assertRaises(BackupError):self.recover()
 
     def test_another_jobs_identity_cannot_be_adopted(self):
-        self.add_generation(1)
-        wrong=json.loads(json.dumps(self.state_data));wrong['identity']['source']='/other'
-        self.add_generation(2,state=wrong)
-        with self.assertRaisesRegex(BackupError,'outra'):self.recover()
+        # Name-based identity: another job name or another S3 destination is
+        # foreign even when the newest generation carries it.
+        for key,value in (('name','other'),('destination','aws:other-bucket')):
+            with self.subTest(key=key):
+                self.objects.clear();self.entries={self.key:12,self.key+'.json':200}
+                self.add_generation(1)
+                wrong=json.loads(json.dumps(self.state_data));wrong['identity'][key]=value
+                self.add_generation(2,state=wrong)
+                with self.assertRaisesRegex(BackupError,'outro job'):self.recover()
 
     def test_legacy_index_is_supported_without_generation_metadata(self):
         self.add_generation(1)
@@ -129,7 +134,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
         from sambinha.index_generations import publish
         job=replace(self.config.jobs[0],logic='batch')
         state={'schema':1,'identity':identity(job),'active':{},'retired':[]}
-        ctx=Mock(config=self.config,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
+        ctx=Mock(config=self.config,job=job,now=1000,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
         with patch('sambinha.index_generations.MAX_METADATA',64), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()
@@ -144,7 +149,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
         atomic_json(controls/(key+'.json'),control)
         state={'schema':1,'identity':identity(job),'active':{},'retired':[
             {'key':key,'expires':1000,'control':key+'.json','files':[f['path'] for f in control['files']]}]}
-        ctx=Mock(config=self.config,directory=self.root/'transaction',identity=identity(job),controls_directory=controls)
+        ctx=Mock(config=self.config,job=job,now=1000,directory=self.root/'transaction',identity=identity(job),controls_directory=controls)
         with patch('sambinha.index_generations.MAX_METADATA',1800), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()
@@ -154,7 +159,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
         job=replace(self.config.jobs[0],logic='batch')
         control=plan([File('a',1,'a'*64,'b'*32,100,0o640)],100)[0].control()
         state={'schema':1,'identity':identity(job),'active':{control['archive']:control},'retired':[]}
-        ctx=Mock(config=self.config,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
+        ctx=Mock(config=self.config,job=job,now=1000,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
         with patch('sambinha.index_generations.MAX_CONTROLS_METADATA',100), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()

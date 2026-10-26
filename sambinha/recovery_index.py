@@ -2,7 +2,7 @@
 from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .local_paths import reject_symlinks
 from .names import STATE_FILE
-from .state import identity, load_state
+from .state import identity, identity_options, load_state
 
 
 def read_index(config, job, storage, work, *, metadata_only=False):
@@ -10,7 +10,7 @@ def read_index(config, job, storage, work, *, metadata_only=False):
     reject_symlinks(path, label="Estado", include_parents=False)
     if path.exists() and not (path.parent / 'publication.json').exists():
         try:
-            return load_state(path, identity(job))
+            return load_state(path, identity(job), **identity_options(job))
         except (ForeignStateError, UnsupportedStateError):
             raise
         except BackupError:

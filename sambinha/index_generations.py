@@ -13,8 +13,19 @@ from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
 from .metadata import read_control, write_control
-from .names import CONTROL, INDEXES, STATE_FILE
-from .state import atomic_json, identity, load_state, validate_controls
+from .names import CONTROL, INDEXES, JOB_MARKER, STATE_FILE
+from .state import (
+    IDENTITY_SCHEMA,
+    STATE_SCHEMA,
+    atomic_json,
+    identity,
+    identity_matches,
+    identity_options,
+    load_state,
+    migrate_identity,
+    record_origin,
+    validate_controls,
+)
 from .storage import Storage
 
 PREFIX = INDEXES + '/'
@@ -56,7 +67,7 @@ def _archive(config, job, archive, work):
         state_path = work / 'validated-state.json'
         atomic_json(state_path, json.load(tar.extractfile(states[0])),
                     preserve_permissions=supports_posix_metadata(work))
-        state = load_state(state_path, identity(job))
+        state = load_state(state_path, identity(job), **identity_options(job))
         known = {**state.get('excluded', {}), **state['active']}
         retired = {entry['key'] for entry in state['retired']}
         for member in entries:
@@ -122,6 +133,32 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
                       (': ' + '; '.join(failures[:3]) if failures else ''))
 
 
+def job_marker(job, created):
+    return {'schema': IDENTITY_SCHEMA, 'name': job.name, 'type': job.type, 'logic': job.logic,
+            'created': created}
+
+
+def read_marker(storage, work):
+    """The destination's `.sambinha/job.json`, or None when absent/unreadable."""
+    target = work / 'job.json'
+    try:
+        storage.get(JOB_MARKER, target)
+        data = json.loads(target.read_text(encoding='utf-8'))
+    except (BackupError, OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get('name'), str) else None
+
+
+def check_marker(job, storage, work, entries):
+    """Refuse a destination whose marker names another job unless adoption was requested."""
+    if JOB_MARKER not in entries or job.adopt_identity:
+        return
+    marker = read_marker(storage, work)
+    if marker is not None and marker['name'] != job.name:
+        raise ForeignStateError(f'Destino pertence ao job {marker["name"]!r}; '
+                                'use --adopt-identity para assumir')
+
+
 def backup_state(config, job, runner, *, allow_new=True, log=None):
     """Recover before planning; never mistake an existing backup for a new one."""
     path = config.state_dir / job.name / STATE_FILE
@@ -133,35 +170,43 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
     invalid = False
     if path.exists():
         try:
-            previous = load_state(path, identity(job))
+            previous = load_state(path, identity(job), **identity_options(job))
         except (ForeignStateError, UnsupportedStateError):
             raise
         except BackupError:
             invalid = True
     if previous is not None and not journal.exists():
+        # A legacy/renamed identity accepted above is rewritten in memory; the
+        # next save/publish persists it and republishes the index.
+        migrate_identity(previous, job, log)
         return previous
     storage = Storage(job, config, runner)
     with tempfile.TemporaryDirectory(prefix='sambinha-bootstrap-', dir=config.temp_dir) as temp:
         work = Path(temp)
         entries = listing(storage)
+        check_marker(job, storage, work, entries)
         own_initialization = False
         if initialized.exists():
-            own_initialization = json.loads(initialized.read_text()).get('identity') == identity(job)
+            own_initialization = identity_matches(json.loads(initialized.read_text()).get('identity'),
+                                                  identity(job), **identity_options(job))
         candidates = any(k == CONTROL or (k.endswith('.commit.json') and k.startswith(PREFIX))
                          for k in entries)
         if (allow_new and not invalid and not candidates and
                 (not entries or own_initialization)):
             state = previous or load_state(work / 'empty-state.json', identity(job))
+            migrate_identity(state, job, log)
             if not job.dry_run:
                 atomic_json(initialized, {'identity': identity(job)})
             return state
         state, controls = remote_index(config, job, storage, work, entries=entries)
         state['index_pending'] = True
+        migrate_identity(state, job, log)
         if not job.dry_run:
             for key, control in controls.items():
                 write_control(config, job, key, control)
             for key, control in {**state.get('excluded', {}), **state['active']}.items():
                 write_control(config, job, key, control)
+            record_origin(state, job)
             atomic_json(path, state)
             journal.unlink(missing_ok=True)
             initialized.unlink(missing_ok=True)
@@ -171,9 +216,28 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
         return state
 
 
+def publish_marker(ctx, work):
+    """Write `.sambinha/job.json` once: when absent or naming another job/identity."""
+    try:
+        ctx.storage.stat(JOB_MARKER, hashes=False)
+        current = read_marker(ctx.storage, work)
+    except BackupError:
+        current = None
+    expected = job_marker(ctx.job, 0)
+    if current is not None and {k: v for k, v in current.items() if k != 'created'} == \
+            {k: v for k, v in expected.items() if k != 'created'}:
+        return
+    marker = work / 'job-marker.json'
+    atomic_json(marker, job_marker(ctx.job, time.time()))
+    ctx.storage.put(marker, JOB_MARKER, standard="control")
+    ctx.event('job_marker_written', path=JOB_MARKER, previous=current)
+
+
 def publish(ctx, state):
     """Immutable generation + confirmation, then compatibility index and local commit."""
-    state['schema'] = 2
+    state['schema'] = STATE_SCHEMA
+    state['identity'] = ctx.identity
+    record_origin(state, ctx.job, ctx.now)
     previous = state.get('generation', '')
     sequence = int(previous.split('-', 1)[0]) if isinstance(previous, str) and GENERATION.fullmatch(previous) else 0
     generation = f'{max(time.time_ns(), sequence + 1):020d}-{uuid.uuid4().hex}'
@@ -217,6 +281,7 @@ def publish(ctx, state):
         ctx.storage.put(marker, PREFIX + generation + '.commit.json', standard="control")
         transferred = ctx.storage.put(archive, CONTROL, standard="control")
         ctx.event('transferred' if transferred else 'identical', path=CONTROL)
+        publish_marker(ctx, work)
 
 
 def finish(ctx):

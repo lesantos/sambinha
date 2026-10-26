@@ -1,6 +1,7 @@
 """Backup orchestration and independent, sequential job lifecycles."""
 import time
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 
 from .archives import compress as compress
@@ -29,7 +30,10 @@ STRATEGIES = {"batch": batch}
 # directories, children), exactly like Ctrl+C; see process.handle_termination.
 @handle_termination()
 def run(config: Config, *, runner=None, notifier=notify, clock=time.time, allow_mass_deletion=False,
-        action='backup') -> int:
+        action='backup', adopt_identity=False) -> int:
+    if adopt_identity:
+        # Identity adoption is per invocation; the jobs carry it to state/index checks.
+        config = replace(config, jobs=tuple(replace(job, adopt_identity=True) for job in config.jobs))
     with open_session(config, runner=runner) as session:
         runner, redactor, progress, log = session.runner, session.redactor, session.progress, session.log
         all_dry_run = session.all_dry_run

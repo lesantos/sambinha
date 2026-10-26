@@ -24,6 +24,8 @@ def parser():
     result.add_argument("--output", type=Path, help="Pasta nova ou vazia para restauração")
     result.add_argument("--path", dest="paths", action="append", default=[], help="Arquivo ou pasta do índice; repetível")
     result.add_argument("--allow-mass-deletion", action="store_true", help="Autorizar remoções em massa nesta execução")
+    result.add_argument("--adopt-identity", action="store_true",
+                        help="Assumir um backup existente de outro nome de job ou identidade antiga com caminhos diferentes (só backup)")
     result.add_argument("--max-delete-percent", type=float, default=None)
     result.add_argument("--max-delete", type=int, default=None,
                         help="Sobrepor max_delete absoluto do job simples; requer --job")
@@ -54,13 +56,16 @@ def main(argv=None):
     output = arguments.pop("output")
     selectors = arguments.pop("paths")
     allowed = arguments.pop("allow_mass_deletion")
+    adopted = arguments.pop("adopt_identity")
     try:
         config = load(path, arguments)
+        if adopted and action != "backup":
+            raise BackupError("--adopt-identity só se aplica a backup")
         if action not in {"backup", "rebalance"}:
             return recover(config, action, output=output, selectors=selectors, notifier=notify)
         if output is not None or selectors:
             raise BackupError("--output e --path exigem restore")
-        return run(config, allow_mass_deletion=allowed, action=action)
+        return run(config, allow_mass_deletion=allowed, action=action, adopt_identity=adopted)
     except (BackupError, OSError) as exc:
         print(f"sambinha: {exc}", file=sys.stderr)
         return 2
