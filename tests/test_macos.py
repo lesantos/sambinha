@@ -259,6 +259,9 @@ class RealMacOSTests(Sandbox):
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assertEqual((self.destination / "file.txt").read_bytes(), b"hello")
         self.assertEqual((self.destination / "acentuação/relatório.txt").read_bytes(), b"nfc")
+        # Batch inventories reject control characters in names, so Finder's
+        # Icon\r files must be excluded (docs: `Icon[\x0d␍]`) or removed.
+        (self.source / "Icon\r").unlink()
         batch = replace(self.config, jobs=(replace(self.config.jobs[0], name="batch", logic="batch",
                                                    compressor=Path(MAC_COMPRESSOR).name,
                                                    destination=str(self.root / "batches")),))

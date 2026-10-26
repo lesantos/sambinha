@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+import shutil
 import unittest
 from unittest.mock import Mock, patch
 
@@ -8,6 +9,19 @@ from sambinha.errors import BackupError, ConfigError
 from sambinha.mounts import check_mounts
 from sambinha.process import Runner
 from tests.helpers import REAL_TOOLS, Sandbox
+
+
+def setUpModule():
+    # These tests drive the util-linux `mountpoint` path (mocked or real);
+    # pin the Linux backend so they also run on macOS. tests/test_macos.py
+    # covers the Darwin backend.
+    global _platform
+    _platform = patch("sambinha.mounts._PLATFORM", "linux")
+    _platform.start()
+
+
+def tearDownModule():
+    _platform.stop()
 
 
 class MountUnitTests(Sandbox):
@@ -68,6 +82,7 @@ class MountUnitTests(Sandbox):
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
 class MountIntegrationTests(Sandbox):
+    @unittest.skipUnless(shutil.which('mountpoint'), 'util-linux mountpoint required')
     def test_real_mountpoint_refuses_ordinary_directory_and_notifies(self):
         self.file('file')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], source_mount=self.source),))

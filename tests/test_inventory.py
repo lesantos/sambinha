@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from sambinha import inventory
 from sambinha.discovery import Discovery
 from sambinha.errors import BackupError
 from sambinha.filtering import Selection
@@ -99,7 +100,7 @@ class InventoryTests(Sandbox):
              patch('sambinha.inventory.os.read', side_effect=AssertionError('content read')), \
              patch('sambinha.inventory.os.open', wraps=os.open) as opened:
             self.assertEqual(len(scan(self.source, mode='simple')), 25)
-        self.assertTrue(all(call.args[1] & (os.O_DIRECTORY | os.O_PATH) for call in opened.call_args_list))
+        self.assertTrue(all(call.args[1] & (os.O_DIRECTORY | inventory._METADATA_FLAGS) for call in opened.call_args_list))
 
 
 def altered(info, **changes):
