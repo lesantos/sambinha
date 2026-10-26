@@ -5,14 +5,14 @@ import unittest
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
+from sambinha.archive_recovery import unpack
 from sambinha.batches import plan
 from sambinha.errors import BackupError
 from sambinha.inventory import safe_relative, scan
 from sambinha.local_paths import reject_symlinks
 from sambinha.logging import RunLog
 from sambinha.process import Runner
-from sambinha.recovery import identity, unpack
-from sambinha.state import atomic_json, load_state, lock
+from sambinha.state import atomic_json, identity, load_state, lock
 from tests.helpers import REAL_TOOLS, Sandbox
 
 

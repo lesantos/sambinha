@@ -7,9 +7,10 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from sambinha.config import validate
-from sambinha.engine import DAY
+from sambinha.config import with_job_overrides
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError, ConfigError
+from sambinha.retention import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.s3_support import MotoRunner
 
@@ -48,8 +49,7 @@ class S3IntegrationTests(Sandbox):
             with self.subTest(suffix=suffix):
                 second = replace(first, name='second', source=source, destination=first.destination + suffix,
                                  exclude_files=rules)
-                config = replace(self.config, jobs=(first, second), verify_interval_days=1,
-                                 state_dir=self.root / ('nested-state' if suffix else 'shared-state'))
+                config = with_job_overrides(replace(self.config, jobs=(first, second), state_dir=self.root / ('nested-state' if suffix else 'shared-state')), verify_interval_days=1)
                 with self.assertRaisesRegex(ConfigError, 'se sobrepõem'):
                     validate(config)
 
@@ -120,7 +120,7 @@ class S3IntegrationTests(Sandbox):
 
     def test_metadata_mode_roundtrip_reuse_and_timestamp_change(self):
         self.fixture()
-        self.config = replace(self.config, verification_mode='simple')
+        self.config = with_job_overrides(self.config, verification_mode='simple')
         with patch('sambinha.inventory.fingerprint', side_effect=AssertionError('source hash read')):
             self.assertEqual(self.execute(), 0, self.output.getvalue())
             self.assertEqual(self.execute(now=1001), 0, self.output.getvalue())
@@ -133,7 +133,7 @@ class S3IntegrationTests(Sandbox):
         self.assert_complete()
         from unittest.mock import Mock
 
-        from sambinha.recovery import verify_local_metadata_job
+        from sambinha.verification import verify_local_metadata_job
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
             result = verify_local_metadata_job(self.config, self.config.jobs[0], self.runner, Mock())
         self.assertEqual(result['mode'], 'rclone_check')
@@ -293,7 +293,7 @@ class S3IntegrationTests(Sandbox):
         self.fixture()
         for logic in ('simple', 'batch'):
             with self.subTest(logic=logic):
-                config = replace(self.config, dry_run=True, jobs=(replace(self.config.jobs[0], logic=logic),))
+                config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic),)), dry_run=True)
                 self.assertEqual(self.execute(config), 0)
                 self.assertEqual(self.client.list_objects_v2(Bucket='sambinha-tests').get('KeyCount'), 0)
                 self.assertFalse(self.config.state_dir.exists())
@@ -375,8 +375,8 @@ class S3IntegrationTests(Sandbox):
     def test_s3_simple_and_batch_verification_only_reads_metadata(self):
         from unittest.mock import Mock
 
-        from sambinha.recovery import verify_destination_metadata_job, verify_local_metadata_job
         from sambinha.storage import Storage
+        from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
         self.file('data.txt', bytes(range(256)))
         self.file('more.txt', b'original')
         original = self.runner.run
@@ -418,7 +418,7 @@ class S3IntegrationTests(Sandbox):
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], max_megabytes=1 / 1024 ** 2),))
         for name in ('a', 'b', 'c'):
             self.file(name)
-        self.config = replace(self.config, deletion_alert_threshold=2)
+        self.config = with_job_overrides(self.config, deletion_alert_threshold=2)
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()
@@ -434,7 +434,7 @@ class S3IntegrationTests(Sandbox):
         for name in ('a', 'b', 'c'):
             self.file(name)
         self.use_batch()
-        self.config = replace(self.config, deletion_alert_threshold=2)
+        self.config = with_job_overrides(self.config, deletion_alert_threshold=2)
         self.assertEqual(self.execute(now=1000), 0)
         for name in ('a', 'b', 'c'):
             (self.source / name).unlink()

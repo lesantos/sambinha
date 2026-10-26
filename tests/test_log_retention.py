@@ -2,11 +2,11 @@ import io
 import os
 import time
 from contextlib import redirect_stdout
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from sambinha.config import with_job_overrides
 from sambinha.engine import run
 from sambinha.logging import RunLog
 from sambinha.recovery import recover
@@ -135,7 +135,7 @@ class LogRetentionTests(Sandbox):
     def test_normal_backup_cleans_logs_and_dry_run_preserves_them(self):
         expired = self.old_log(30 * DAY, now=time.time())
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(run(replace(self.config, dry_run=True), runner=Mock()), 0)
+            self.assertEqual(run(with_job_overrides(self.config, dry_run=True), runner=Mock()), 0)
         self.assertTrue(expired.exists())
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run(self.config, runner=Mock()), 0)
@@ -146,7 +146,7 @@ class LogRetentionTests(Sandbox):
             for dry_run in (True, False):
                 with self.subTest(action=action, dry_run=dry_run):
                     expired = self.old_log(30 * DAY, now=time.time())
-                    config = replace(self.config, dry_run=dry_run)
+                    config = with_job_overrides(self.config, dry_run=dry_run)
                     with redirect_stdout(io.StringIO()), patch('sambinha.recovery.restore_job'), \
                          patch('sambinha.recovery.verify_local_metadata_job'):
                         self.assertEqual(recover(config, action, runner=Mock(), output=self.root / 'restored'), 0)

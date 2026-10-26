@@ -8,7 +8,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from sambinha import preflight
-from sambinha.config import validate
+from sambinha.config_validation import validate
 from sambinha.inventory import fingerprint
 from sambinha.recovery import recover
 from sambinha.strategies.batch import snapshot

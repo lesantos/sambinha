@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from sambinha import archives
 from sambinha.batches import plan
-from sambinha.config import validate
+from sambinha.config_validation import validate
 from sambinha.context import Context
 from sambinha.errors import BackupError
 from sambinha.inventory import scan, verify

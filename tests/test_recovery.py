@@ -12,10 +12,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
-from sambinha.config import validate
+from sambinha.config import with_job_overrides
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_destination_metadata_job, verify_local_metadata_job
+from sambinha.recovery import recover
+from sambinha.verification import verify_destination_metadata_job, verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents
 
 
@@ -128,7 +130,7 @@ class S3MetadataVerificationTests(Sandbox):
 
     def test_simple_s3_verification_uses_rclone_check_in_hash_mode_too(self):
         job = replace(self.config.jobs[0], type='s3', destination='aws:bucket')
-        config = replace(self.config, jobs=(job,), verification_mode='hash')
+        config = with_job_overrides(replace(self.config, jobs=(job,)), verification_mode='hash')
         with patch('sambinha.storage.Storage.check_simple') as check, \
              patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
             result = verify_local_metadata_job(config, job, Mock(), Mock())
@@ -454,7 +456,7 @@ assert runner.env == environment == dict(os.environ)
         self.file('file.txt')
         self.config = replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),))
         self.assertEqual(self.execute(), 0)
-        self.config = replace(self.config, dry_run=True)
+        self.config = with_job_overrides(self.config, dry_run=True)
         restored = self.root / 'missing-parent' / 'restored'
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
             self.assertEqual(self.recover('restore', output=restored), 0)
@@ -486,7 +488,7 @@ assert runner.env == environment == dict(os.environ)
     def test_restore_simulation_has_no_downloads_or_output_writes(self):
         self.file('file')
         self.assertEqual(self.execute(), 0)
-        self.config = replace(self.config, dry_run=True)
+        self.config = with_job_overrides(self.config, dry_run=True)
         restored = self.root / 'restored'
         with patch('sambinha.storage.Storage.get', side_effect=AssertionError('download')):
             self.assertEqual(self.recover('restore', output=restored), 0)
@@ -494,13 +496,12 @@ assert runner.env == environment == dict(os.environ)
 
     def test_periodic_verification_only_runs_when_due_and_failure_keeps_last_success(self):
         self.file('file', b'original')
-        self.config = replace(self.config, verify_interval_days=7,
-                              jobs=(replace(self.config.jobs[0], logic='batch'),))
+        self.config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),)), verify_interval_days=7)
         self.assertEqual(self.execute(now=1000), 0)
         self.assertEqual(self.state()['last_verified'], 1000)
         self.assertEqual(self.execute(now=1001), 0)
         self.assertFalse(any(e['event'] == 'verification_complete' for e in self.events))
-        with patch('sambinha.recovery.verify_local_metadata_job', side_effect=BackupError('corrupt')):
+        with patch('sambinha.verification.verify_local_metadata_job', side_effect=BackupError('corrupt')):
             self.assertEqual(self.execute(now=1000 + 7 * 86400), 1)
         self.assertEqual(self.state()['last_verified'], 1000)
 
@@ -513,7 +514,7 @@ assert runner.env == environment == dict(os.environ)
         changed.write_bytes(b'new content')
         deleted.unlink()
         self.file('new', b'new')
-        self.assertEqual(self.execute(replace(self.config, dry_run=True)), 0)
+        self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True)), 0)
         summary = next(e for e in self.events if e['event'] == 'summary')
         self.assertEqual((summary['new_files'], summary['modified_files'], summary['removed_files'],
                           summary['unchanged_files']), (1, 1, 1, 1))

@@ -37,11 +37,9 @@ def _check_cancelled(runner):
 
 def upload_batch(ctx, item):
     # Each worker owns its runner's last_stderr and its temporary archive.
-    worker = copy.copy(ctx)
-    worker.runner = copy.copy(ctx.runner)
-    worker.progress = ctx.batch_progress.get(item.key) if ctx.progress else None
+    # The runner copy shares the cancellation token (see process.Runner); the view shares the rest of ctx.
+    worker = ctx.worker_view(copy.copy(ctx.runner), ctx.batch_progress.get(item.key) if ctx.progress else None)
     show_progress(worker.runner, worker.progress)
-    worker.storage = ctx.storage_factory(ctx.job, ctx.config, worker.runner, source_required=not ctx.rebalancing)
     with tempfile.TemporaryDirectory(prefix=prefix("batch"), dir=ctx.config.temp_dir) as temp:
         check_disks(ctx.job, config=ctx.config, check_source=not ctx.rebalancing)
         # After an interruption, never start compression or an upload whose

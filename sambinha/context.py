@@ -1,6 +1,7 @@
 """Execution context shared by backup strategies."""
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Protocol
 
 from .errors import BackupError
@@ -24,6 +25,10 @@ class StrategyContext(Protocol):
     allow_mass_deletion: bool
     storage_factory: StorageFactory
 
+    def worker_view(self, runner, progress) -> Any:
+        """A view for one worker thread: its own ``runner``/``progress``, everything else shared."""
+        ...
+
 
 @dataclass
 class SimpleContext:
@@ -38,13 +43,51 @@ class SimpleContext:
     allow_mass_deletion: bool = False
     storage_factory: StorageFactory = Storage
 
+    def worker_view(self, runner, progress) -> "SimpleContext":
+        """Same contract as ``Context.worker_view``; this context has no shared mutable parts."""
+        return replace(self, runner=runner, progress=progress)
+
+
+@dataclass(frozen=True, slots=True)
+class ContextRefs:
+    """What a job context only refers to: fixed for the whole execution, safe to share across threads."""
+
+    config: Any
+    job: Any
+    storage_factory: StorageFactory
+    directory: Path
+    controls_directory: Path
+    state_path: Path
+    identity: Any
+
+
+class WorkerView:
+    """One worker's window on a ``Context``: own runner, progress and storage; the rest is the parent's.
+
+    Reads of anything else (journal and its lock, control memo, metrics, state, ``event``...) resolve to
+    the parent, so the thread-safe parts are shared by construction. Writes stay on the view and never
+    leak into the parent, which replaces the former ``copy.copy(ctx)``.
+    """
+
+    def __init__(self, parent: "Context", runner, progress, storage):
+        self.parent, self.runner, self.progress, self.storage = parent, runner, progress, storage
+
+    def __getattr__(self, name):
+        # Only reached for names not set on the view itself. Guard ``parent`` so a half-built view cannot recurse.
+        if name == "parent":
+            raise AttributeError(name)
+        return getattr(self.parent, name)
+
+    def worker_view(self, runner, progress) -> "WorkerView":
+        return self.parent.worker_view(runner, progress)
+
 
 class Context:
     """Per-job state, metrics, deletion guards and retention for batch strategies."""
 
     def __init__(self, config, job, runner, log, files, now, selected_dirs=None, forecast=None, progress=None,
                  state=None, rebalancing=False, storage_factory: StorageFactory = Storage):
-        self.config, self.job, self.runner, self.log = config, job, runner, log
+        self.runner, self.log = runner, log
         self.files, self.now = files, now
         self.selection = Selection(job.exclude_files, config, runner,
                                    ignored_roots=(job.source,))
@@ -53,13 +96,11 @@ class Context:
         self.progress = progress
         self.rebalancing = rebalancing
         self.source = job.source
-        # Overridable seam: tests and alternate backends inject a StorageBackend here.
-        self.storage_factory = storage_factory
+        # ``storage_factory`` is the overridable seam: tests and alternate backends inject a StorageBackend.
+        directory = config.state_dir / job.name
+        self.refs = ContextRefs(config, job, storage_factory, directory, control_directory(config, job),
+                                directory / STATE_FILE, identity(job))
         self.storage: StorageBackend = storage_factory(job, config, runner, source_required=not rebalancing)
-        self.directory = config.state_dir / job.name
-        self.controls_directory = control_directory(config, job)
-        self.state_path = self.directory / STATE_FILE
-        self.identity = identity(job)
         self.state = (load_state(self.state_path, self.identity, **identity_options(job))
                       if state is None else state)
         migrate_identity(self.state, job, log)
@@ -87,6 +128,54 @@ class Context:
         # Local control mirrors of expired history, removed only after the
         # state without those entries is durable (see expire/save).
         self.expired_mirrors = []
+
+    # Immutable references live in ``refs``; ``config``/``job``/``storage_factory`` stay assignable (tests
+    # swap them) by replacing the whole frozen record, so a view never sees a half-updated set.
+    @property
+    def config(self):
+        return self.refs.config
+
+    @config.setter
+    def config(self, value):
+        self.refs = replace(self.refs, config=value)
+
+    @property
+    def job(self):
+        return self.refs.job
+
+    @job.setter
+    def job(self, value):
+        self.refs = replace(self.refs, job=value)
+
+    @property
+    def storage_factory(self) -> StorageFactory:
+        return self.refs.storage_factory
+
+    @storage_factory.setter
+    def storage_factory(self, value: StorageFactory):
+        self.refs = replace(self.refs, storage_factory=value)
+
+    @property
+    def directory(self) -> Path:
+        return self.refs.directory
+
+    @property
+    def controls_directory(self) -> Path:
+        return self.refs.controls_directory
+
+    @property
+    def state_path(self) -> Path:
+        return self.refs.state_path
+
+    @property
+    def identity(self):
+        return self.refs.identity
+
+    def worker_view(self, runner, progress) -> WorkerView:
+        """View for one upload worker: private runner, progress and storage; journal lock, control memo,
+        journal, metrics and state are the parent's own objects (see ``WorkerView``)."""
+        storage = self.storage_factory(self.job, self.config, runner, source_required=not self.rebalancing)
+        return WorkerView(self, runner, progress, storage)
 
     def event(self, event, **values):
         if event in {"batch_start", "would_batch"}:

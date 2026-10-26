@@ -2,18 +2,11 @@
 import tarfile
 from contextlib import nullcontext
 
-from .archive_recovery import check_content as check_content
-from .archive_recovery import unpack as unpack
 from .disks import check_disks
 from .errors import BackupError, JobError
 from .process import handle_termination
-from .recovery_index import read_index as read_index
-from .restore import matches as matches
-from .restore import restore_job as restore_job
-from .restore import validate_output as validate_output
+from .restore import restore_job
 from .session import open_session
-from .state import identity as identity
-from .state import indexed_files as indexed_files
 from .state import lock
 from .verification import verify_destination_integrity_job, verify_destination_metadata_job, verify_local_metadata_job
 from .versions import check_compressor_version, check_rclone_version

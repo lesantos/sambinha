@@ -98,7 +98,7 @@ class JobExecution:
         if self.job.dry_run:
             ctx.event("would_verify", mode="source_metadata")
             return
-        from .recovery import verify_local_metadata_job
+        from .verification import verify_local_metadata_job
 
         checking = self.progress.scope(0.9, 1)
         show_progress(self.runner, checking)

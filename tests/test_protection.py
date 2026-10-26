@@ -2,6 +2,7 @@ import os
 import unittest
 from dataclasses import replace
 
+from sambinha.config import with_job_overrides
 from sambinha.errors import BackupError
 from sambinha.process import Runner
 from sambinha.protection import timestamp_ns
@@ -65,7 +66,7 @@ class NewerDestinationTests(Sandbox):
         ns = source.stat().st_mtime_ns + 1000000000
         os.utime(self.destination / 'file', ns=(ns, ns))
         self.notifications.clear()
-        self.assertEqual(self.execute(replace(self.config, dry_run=True)), 1)
+        self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True)), 1)
         self.assertEqual(self.notifications, [])
 
     def test_concurrent_newer_destination_is_skipped_by_rclone_and_notified(self):

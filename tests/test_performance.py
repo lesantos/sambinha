@@ -5,10 +5,11 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from sambinha.batches import plan
-from sambinha.config import validate
-from sambinha.engine import preflight
+from sambinha.config import with_job_overrides
+from sambinha.config_validation import validate
 from sambinha.filtering import Selection
 from sambinha.inventory import fingerprint, scan
+from sambinha.preflight import preflight
 from sambinha.profiles import settings
 from tests.helpers import REAL_TOOLS, Sandbox, contents, tick
 
@@ -68,7 +69,7 @@ class PerformanceIntegrationTests(Sandbox):
             self.assertEqual(self.execute(now=1000 + 7 * 86400), 0)
             self.assertGreaterEqual(hash_file.call_count, 1)
         with patch('sambinha.inventory.fingerprint', wraps=fingerprint) as hash_file:
-            self.assertEqual(self.execute(replace(self.config, fingerprint_cache=False)), 0)
+            self.assertEqual(self.execute(with_job_overrides(self.config, fingerprint_cache=False)), 0)
             self.assertGreaterEqual(hash_file.call_count, 1)
 
     def test_many_simple_files_use_one_native_sync(self):
@@ -89,9 +90,8 @@ class PerformanceIntegrationTests(Sandbox):
     def test_batch_workers_run_concurrently_with_bounded_parallelism(self):
         for i in range(6):
             self.file(f'dir/file-{i}.txt', str(i).encode())
-        self.config = replace(self.config, batch_workers=2,
-                              jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),))
-        from sambinha.engine import upload_batch
+        self.config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch', max_megabytes=2 / 1024 ** 2),)), batch_workers=2)
+        from sambinha.strategies.batch import upload_batch
         gate = threading.Barrier(2)
         mutex = threading.Lock()
         running, peak, calls = 0, 0, 0
@@ -148,7 +148,7 @@ class PerformanceIntegrationTests(Sandbox):
         # Only the scan hashes the changed file; no verify pass reads any content.
         self.assertEqual(cached, ['dir/0.txt'])
         (self.source / 'dir/1.txt').write_bytes(b'again')
-        full = source_reads(replace(self.config, fingerprint_cache=False), 3000)
+        full = source_reads(with_job_overrides(self.config, fingerprint_cache=False), 3000)
         # Without the cache the scan hashes all six and each verify pass re-reads them again.
         self.assertGreater(len(full), 6 + 6)
 

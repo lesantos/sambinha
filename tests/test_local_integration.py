@@ -10,11 +10,12 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.config import load, validate
-from sambinha.engine import DAY
+from sambinha.config import load, with_job_overrides
+from sambinha.config_validation import validate
 from sambinha.errors import BackupError
 from sambinha.process import Runner
 from sambinha.recovery import recover
+from sambinha.retention import DAY
 from sambinha.storage import Storage
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 
@@ -223,7 +224,7 @@ class LocalIntegrationTests(Sandbox):
         self.fixture()
         for logic in ('simple', 'batch'):
             with self.subTest(logic=logic):
-                config = replace(self.config, dry_run=True, jobs=(replace(self.config.jobs[0], logic=logic),))
+                config = with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic=logic),)), dry_run=True)
                 self.assertEqual(self.execute(config), 0)
                 self.assertFalse(self.destination.exists())
                 self.assertFalse(self.config.state_dir.exists())
@@ -245,7 +246,7 @@ class LocalIntegrationTests(Sandbox):
                 before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*')
                           if p.is_file() and 'logs' not in p.parts and 'source' not in p.parts}
                 (self.source / 'file').write_bytes(b'new')
-                self.assertEqual(self.execute(replace(self.config, dry_run=True), now=1000000), 0)
+                self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True), now=1000000), 0)
                 after = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*')
                          if p.is_file() and 'logs' not in p.parts and 'source' not in p.parts}
                 self.assertEqual(before, after)
@@ -341,7 +342,7 @@ class LocalIntegrationTests(Sandbox):
         self.file('a')
         self.assertEqual(self.execute(), 0)
         (self.source / 'a').unlink()
-        config = replace(self.config, deleted_days=0)
+        config = with_job_overrides(self.config, deleted_days=0)
         self.assertEqual(self.execute(config), 0)
         self.assertEqual(self.state()['retired'], [])
 

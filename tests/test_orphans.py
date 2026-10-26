@@ -4,6 +4,7 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
+from sambinha.config import with_job_overrides
 from tests.helpers import REAL_TOOLS, Sandbox, tick
 
 
@@ -129,6 +130,6 @@ class OrphanTests(Sandbox):
 
     def test_dry_run_never_prunes(self):
         old = self.plant(self.ORPHAN, age_days=3)
-        self.assertEqual(self.execute(config=replace(self.config, dry_run=True), prune_orphans=True), 0)
+        self.assertEqual(self.execute(config=with_job_overrides(self.config, dry_run=True), prune_orphans=True), 0)
         self.assertTrue(old.exists())
         self.assertEqual(self.named('orphans'), [])

@@ -6,10 +6,12 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from sambinha.config import with_job_overrides
 from sambinha.errors import BackupError, JobError, job_errors
 from sambinha.inventory import scan
-from sambinha.recovery import recover, verify_local_metadata_job
+from sambinha.recovery import recover
 from sambinha.storage import Storage
+from sambinha.verification import verify_local_metadata_job
 from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches
 from tests.test_disks import Usage
 
@@ -119,12 +121,12 @@ class JobFailurePolicyTests(Sandbox):
     def test_scheduled_verification_failure_obeys_policy(self):
         for policy in (True, False):
             with self.subTest(policy=policy):
-                config = replace(self.two_jobs(policy, f'scheduled-{policy}'), verify_interval_days=7)
+                config = with_job_overrides(self.two_jobs(policy, f'scheduled-{policy}'), verify_interval_days=7)
                 def verify(config, job, *args, **kwargs):
                     if job.name == 'test':
                         raise BackupError('verificação falhou')
                     return verify_local_metadata_job(config, job, *args, **kwargs)
-                with patch('sambinha.recovery.verify_local_metadata_job', side_effect=verify):
+                with patch('sambinha.verification.verify_local_metadata_job', side_effect=verify):
                     self.assert_failure_policy(config)
 
     def test_manual_verification_failure_obeys_policy(self):

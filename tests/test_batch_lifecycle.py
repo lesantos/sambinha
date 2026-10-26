@@ -7,7 +7,8 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest.mock import patch
 
-from sambinha.config import validate
+from sambinha.config import with_job_overrides
+from sambinha.config_validation import validate
 from sambinha.engine import run
 from sambinha.errors import BackupError, ConfigError
 from sambinha.inventory import scan
@@ -116,7 +117,7 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertEqual(self.execute(), 0)
         (self.source / 'a').write_bytes(b'a' * 16)
         self.notifications.clear()
-        self.assertEqual(self.execute(replace(self.config, dry_run=True), now=2000), 0)
+        self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True), now=2000), 0)
         self.assertEqual(self.notifications, [])
         self.assertEqual(self.execute(now=2001), 0)
         self.assertTrue(any(e['event'] == 'batch_size_alert' and e['bytes'] == 20 for e in self.events))
@@ -125,7 +126,7 @@ class StableBatchLifecycleTests(Sandbox):
         before = self.seed()
         key, control = next((k,c) for k,c in before['active'].items() if len(c['files']) > 1)
         for f in control['files']:(self.source / f['path']).unlink()
-        config = replace(self.config, deleted_days=0, version_days=0)
+        config = with_job_overrides(self.config, deleted_days=0, version_days=0)
         self.assertEqual(self.execute(config, now=2000), 0, self.output.getvalue())
         self.assertNotIn(key, self.state()['active'])
         self.assertFalse((self.destination / key).exists())
@@ -221,7 +222,7 @@ class StableBatchLifecycleTests(Sandbox):
         before = {p.relative_to(self.destination).as_posix():p.read_bytes() for p in self.destination.rglob('*') if p.is_file()}
         state = self.state()
         shutil.rmtree(self.source)
-        self.assertEqual(self.execute(replace(self.config, dry_run=True), action='rebalance'), 0)
+        self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True), action='rebalance'), 0)
         self.assertEqual(self.state(), state)
         self.assertEqual({p.relative_to(self.destination).as_posix():p.read_bytes() for p in self.destination.rglob('*') if p.is_file()}, before)
 
@@ -329,7 +330,7 @@ class StableBatchLifecycleTests(Sandbox):
 
     def test_generation_pruning_and_rebalance_of_simple_job_rejected(self):
         self.file('a', b'one')
-        self.config = replace(self.config, recovery_index_versions=2)
+        self.config = with_job_overrides(self.config, recovery_index_versions=2)
         for i in range(4):
             (self.source / 'a').write_bytes(str(i).encode())
             self.assertEqual(self.execute(now=1000+i), 0, self.output.getvalue())

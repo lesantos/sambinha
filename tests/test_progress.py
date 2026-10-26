@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
+from sambinha.config import with_job_overrides
 from sambinha.engine import run
 from sambinha.inventory import scan
 from sambinha.process import Runner
@@ -76,8 +77,7 @@ class ProgressTests(Sandbox):
         runner = Mock()
         stdout = io.StringIO()
         with patch('sys.stderr', terminal), redirect_stdout(stdout):
-            result = run(replace(self.config, dry_run=True, verification_mode='simple',
-                                 jobs=(replace(self.config.jobs[0], logic='batch'),)), runner=runner,
+            result = run(with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),)), dry_run=True, verification_mode='simple'), runner=runner,
                          clock=lambda: 1000)
         self.assertEqual(result, 0)
         self.assertIn('Inventário simples', terminal.getvalue())
@@ -159,8 +159,7 @@ class ProgressTests(Sandbox):
         terminal = Terminal()
         stdout = io.StringIO()
         with patch('sys.stderr', terminal), redirect_stdout(stdout):
-            result = run(replace(self.config, dry_run=True, verification_mode='simple',
-                                 jobs=(replace(self.config.jobs[0], logic='batch'),)),
+            result = run(with_job_overrides(replace(self.config, jobs=(replace(self.config.jobs[0], logic='batch'),)), dry_run=True, verification_mode='simple'),
                          runner=Mock(), clock=lambda: 1000)
         self.assertEqual(result, 0)
         self.assertNotIn('unique-file-name', stdout.getvalue())
@@ -195,7 +194,7 @@ class OverallProgressIntegrationTests(Sandbox):
                 directories.append(kwargs.get('progress_directory'))
             return original(runner, args, **kwargs)
         with patch('sys.stderr', terminal), redirect_stdout(stdout), patch.object(Runner, 'run', record):
-            result = run(replace(self.config, verification_mode='simple'), clock=lambda: 1000)
+            result = run(with_job_overrides(self.config, verification_mode='simple'), clock=lambda: 1000)
         self.assertEqual(result, 0, stdout.getvalue())
         self.assertEqual(directories, [str(self.source)])
         self.assertEqual(contents(self.source), contents(self.destination))
@@ -212,7 +211,7 @@ class OverallProgressIntegrationTests(Sandbox):
         self.file('subdir/file')
         first = self.config.jobs[0]
         second = replace(first, name='second', destination=str(self.root / 'second'))
-        config = replace(self.config, jobs=(first, second), verification_mode='simple')
+        config = with_job_overrides(replace(self.config, jobs=(first, second)), verification_mode='simple')
         terminal, stdout = Terminal(), io.StringIO()
         with patch('sys.stderr', terminal), redirect_stdout(stdout):
             result = run(config, clock=lambda: 1000)

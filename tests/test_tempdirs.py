@@ -6,6 +6,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from sambinha.archives import compress
+from sambinha.config import with_job_overrides
 from sambinha.tempdirs import prefix, sweep
 from tests.helpers import REAL_TOOLS, Sandbox
 
@@ -121,6 +122,6 @@ class SweepIntegrationTests(Sandbox):
 
     def test_dry_run_leaves_leftovers_alone(self):
         left = self.stale()
-        self.assertEqual(self.execute(config=replace(self.config, dry_run=True)), 0)
+        self.assertEqual(self.execute(config=with_job_overrides(self.config, dry_run=True)), 0)
         self.assertTrue(left.exists())
         self.assertFalse([e for e in self.events if e['event'] == 'temp_cleanup'])

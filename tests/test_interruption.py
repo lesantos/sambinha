@@ -11,12 +11,12 @@ import threading
 import time
 import unittest
 from contextlib import redirect_stdout
-from dataclasses import replace
 from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import Mock, patch
 
-from sambinha.config import validate
+from sambinha.config import with_job_overrides
+from sambinha.config_validation import validate
 from sambinha.engine import run
 from sambinha.errors import BackupError
 from sambinha.process import Interrupted, Runner, Terminated, handle_termination
@@ -185,7 +185,7 @@ class EngineTerminationTests(Sandbox):
         self.file('a')
         previous = signal.getsignal(signal.SIGTERM)
         output = io.StringIO()
-        config = validate(replace(self.config, log_terminal_level='detailed'))
+        config = validate(with_job_overrides(self.config, log_terminal_level='detailed'))
         with redirect_stdout(output), self.assertRaises(Terminated):
             run(config, runner=self.terminating_runner(), notifier=lambda *args: None)
         events = self.events(output)
@@ -195,7 +195,7 @@ class EngineTerminationTests(Sandbox):
     def test_recovery_logs_an_unsuccessful_end_on_sigterm(self):
         previous = signal.getsignal(signal.SIGTERM)
         output = io.StringIO()
-        config = validate(replace(self.config, log_terminal_level='detailed'))
+        config = validate(with_job_overrides(self.config, log_terminal_level='detailed'))
         with redirect_stdout(output), self.assertRaises(Terminated):
             recover(config, 'verify-local-metadata', runner=self.terminating_runner())
         events = self.events(output)

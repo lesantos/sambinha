@@ -4,10 +4,10 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from sambinha.config import load
-from sambinha.engine import DAY
+from sambinha.config import load, with_job_overrides
 from sambinha.filtering import Selection, path_groups, retired_paths
 from sambinha.process import Runner
+from sambinha.retention import DAY
 from tests.helpers import REAL_TOOLS, Sandbox, restore_batches
 
 
@@ -134,7 +134,7 @@ class FilteringTests(Sandbox):
             calls.append(args)
             return original(runner, args, **kwargs)
         with patch.object(Runner, 'run', record):
-            self.assertEqual(self.execute(replace(self.config, dry_run=True)), 0)
+            self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True)), 0)
         self.assertEqual([e['event'] for e in self.events if e['event'] == 'sync_start'], ['sync_start'])
         sync = next(command for command in calls if command[1] == 'sync')
         self.assertIn('--dry-run', sync)
