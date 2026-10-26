@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from .disks import check_disk
-from .errors import BackupError
+from .errors import BackupError, SourceChangedError
 from .inventory import verify
 from .process import show_progress
 from .profiles import settings
@@ -74,7 +74,7 @@ def compress(ctx, batch, work: Path):
     show_progress(ctx.runner, ctx.progress.scope(0.8, 0.9) if ctx.progress else None)
     ctx.runner.run([ctx.job.compressor, "t", str(archive)])
     listing = ctx.runner.run([ctx.job.compressor, "l", "-slt", "-ba", str(archive)])
-    members = {}
+    members, crcs = {}, {}
     for record in listing.strip().split("\n\n"):
         fields = dict(line.split(" = ", 1) for line in record.splitlines() if " = " in line)
         if "Path" in fields and fields.get("Folder") != "+" and not fields.get("Attributes", "").startswith("D"):
@@ -82,7 +82,14 @@ def compress(ctx, batch, work: Path):
             if name in members:
                 raise BackupError("Arquivo duplicado no lote")
             members[name] = int(fields["Size"])
+            # Absent for empty files and for formats without per-member CRCs.
+            crcs[name] = int(fields["CRC"], 16) if fields.get("CRC") else None
     if members != {f.path: f.size for f in batch.files}:
         raise BackupError("Lote incompleto ou caminhos incorretos; envio interrompido")
+    # The inventory's own read pass must agree with what 7-Zip read for the same member. Only
+    # files hashed in this run carry a CRC (hash mode, no cache hit); empty members have none.
+    for item in batch.files:
+        if item.crc32 is not None and crcs.get(item.path) not in (None, item.crc32):
+            raise SourceChangedError(f"CRC32 do 7-Zip diverge do inventário: {item.path}; execute novamente")
     # Upload only after the source still matches the inventoried batch.
     return archive

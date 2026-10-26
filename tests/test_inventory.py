@@ -1,6 +1,9 @@
 """Single-pass inventories, stable ordering and descriptor-anchored race guards."""
+import hashlib
 import os
+import threading
 import unittest
+import zlib
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -488,3 +491,68 @@ class VerifyWalkTests(Sandbox):
         files, _ = self.inventory()
         (self.source / 'a/f').unlink()
         inventory.verify(self.source, files, verify_source_changes=False)
+
+
+class HashingTests(Sandbox):
+    def test_all_digests_match_hashlib_and_zlib_for_threaded_and_inline_sizes(self):
+        for size in (0, 1, 1000, inventory.BLOCK_SIZE, inventory.THREADED_MD5_MIN + 12345):
+            data = os.urandom(size)
+            item = fingerprint(self.source, self.file(f'f{size}', data).name)
+            self.assertEqual((item.sha256, item.md5, item.crc32), (
+                hashlib.sha256(data).hexdigest(), hashlib.md5(data).hexdigest(), zlib.crc32(data)))
+
+    def test_requested_subset_leaves_other_digests_empty(self):
+        self.file('f', b'abc')
+        item = fingerprint(self.source, 'f', digests={'md5'})
+        self.assertEqual((item.sha256, item.md5, item.crc32),
+                         ('', hashlib.md5(b'abc').hexdigest(), None))
+
+    def test_crc32_is_memory_only_and_never_compared_or_persisted(self):
+        self.file('f', b'abc')
+        cache = {}
+        (item,) = scan(self.source, cache_out=cache)
+        self.assertEqual(item.crc32, zlib.crc32(b'abc'))
+        self.assertNotIn('crc32', item.metadata())
+        self.assertNotIn('crc32', cache['f']['file'])
+        self.assertEqual(item, replace(item, crc32=None))
+        (cached,) = scan(self.source, cache=cache)
+        self.assertIsNone(cached.crc32)
+
+    def test_read_errors_propagate_from_threaded_hashing_without_leaking_threads(self):
+        data = os.urandom(inventory.THREADED_MD5_MIN + 5 * inventory.BLOCK_SIZE)
+        self.file('big', data)
+        baseline = threading.active_count()
+        real_read = os.read
+        reads = []
+        def failing(fd, size):
+            reads.append(size)
+            if len(reads) == 6:
+                raise OSError(5, 'injected I/O error')
+            return real_read(fd, size)
+        with patch('sambinha.inventory.os.read', side_effect=failing), self.assertRaisesRegex(OSError, 'injected'):
+            fingerprint(self.source, 'big')
+        self.assertEqual(threading.active_count(), baseline)
+        self.assertEqual(fingerprint(self.source, 'big').md5, hashlib.md5(data).hexdigest())
+        self.assertEqual(threading.active_count(), baseline)
+
+    def test_md5_failure_in_the_helper_thread_is_raised_and_thread_stops(self):
+        self.file('big', os.urandom(inventory.THREADED_MD5_MIN + 10))
+        baseline = threading.active_count()
+        class Broken:
+            def update(self, _block):
+                raise ValueError('md5 broke')
+        with patch('sambinha.inventory.hashlib.md5', return_value=Broken()), \
+             self.assertRaisesRegex(ValueError, 'md5 broke'):
+            fingerprint(self.source, 'big')
+        self.assertEqual(threading.active_count(), baseline)
+
+    def test_reads_use_one_mib_blocks_for_large_files(self):
+        self.file('big', b'x' * (2 * inventory.BLOCK_SIZE + 1))
+        sizes = []
+        real_read = os.read
+        def spy(fd, size):
+            sizes.append(size)
+            return real_read(fd, size)
+        with patch('sambinha.inventory.os.read', side_effect=spy):
+            fingerprint(self.source, 'big')
+        self.assertEqual(set(sizes), {inventory.BLOCK_SIZE})

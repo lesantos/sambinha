@@ -3,9 +3,12 @@ import errno
 import hashlib
 import json
 import os
+import queue
 import stat
+import threading
+import zlib
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 
 from .errors import BackupError, SourceChangedError
@@ -26,9 +29,14 @@ class File:
     md5: str
     mtime_ns: int
     mode: int
+    # In-memory only (never persisted, never compared): CRC32 of the bytes the inventory hashed,
+    # cross-checked against the one 7-Zip reports for the same member.
+    crc32: int | None = field(default=None, compare=False, repr=False)
 
     def metadata(self):
-        return asdict(self)
+        data = asdict(self)
+        del data["crc32"]
+        return data
 
 
 def safe_relative(value: str) -> str:
@@ -96,22 +104,67 @@ def _source_file(root, relative, dir_fd=None, before=None, *, metadata_only=Fals
         os.close(fd)
 
 
-def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None, file_fd=None) -> File:
+ALL_DIGESTS = frozenset({"sha256", "md5", "crc32"})
+BLOCK_SIZE = 1024 * 1024
+# Below this size a helper thread costs more than the overlapped md5 saves.
+THREADED_MD5_MIN = 4 * BLOCK_SIZE
+
+
+def fingerprint(root: Path, relative: str, *, progress=None, dir_fd=None, before=None, file_fd=None,
+                digests=ALL_DIGESTS) -> File:
+    """Hash a file; ``digests`` selects among sha256, md5 and crc32 (unrequested ones stay empty)."""
     if file_fd is None:
         with _source_file(root, relative, dir_fd, before) as (fd, opened):
-            return _fingerprint(relative, fd, opened, progress)
-    return _fingerprint(relative, file_fd, before, progress)
+            return _fingerprint(relative, fd, opened, progress, digests)
+    return _fingerprint(relative, file_fd, before, progress, digests)
 
 
-def _fingerprint(relative, file_fd, before, progress):
-    sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
-    while chunk := os.read(file_fd, 64 * 1024):
-        sha.update(chunk)
-        md5.update(chunk)
-        if progress:
-            progress(len(chunk))
-    return File(relative, before.st_size, sha.hexdigest(), md5.hexdigest(),
-                before.st_mtime_ns, stat.S_IMODE(before.st_mode))
+def _md5_consumer(blocks, md5, failure):
+    """Feed queued blocks to md5 until the None sentinel; keep draining after an error."""
+    while (block := blocks.get()) is not None:
+        if not failure:
+            try:
+                md5.update(block)
+            except BaseException as exc:
+                failure.append(exc)
+
+
+def _fingerprint(relative, file_fd, before, progress, digests=ALL_DIGESTS):
+    sha = hashlib.sha256() if "sha256" in digests else None
+    md5 = hashlib.md5(usedforsecurity=False) if "md5" in digests else None
+    crc = 0 if "crc32" in digests else None
+    # md5 runs in a second thread (hashlib drops the GIL for large updates) only when
+    # another digest shares the pass and the file is big enough to repay the thread.
+    threaded = md5 is not None and (sha is not None or crc is not None) and before.st_size >= THREADED_MD5_MIN
+    blocks, failure, consumer = queue.Queue(maxsize=4), [], None
+    if threaded:
+        consumer = threading.Thread(target=_md5_consumer, args=(blocks, md5, failure),
+                                    name="sambinha-md5", daemon=True)
+        consumer.start()
+    # Small files never need a full block; a growing file is caught by the race checks.
+    size = BLOCK_SIZE if before.st_size >= BLOCK_SIZE else before.st_size + 1
+    try:
+        while chunk := os.read(file_fd, size):
+            if threaded:
+                blocks.put(chunk)
+            elif md5 is not None:
+                md5.update(chunk)
+            if sha is not None:
+                sha.update(chunk)
+            if crc is not None:
+                crc = zlib.crc32(chunk, crc)
+            if progress:
+                progress(len(chunk))
+            size = BLOCK_SIZE
+    finally:
+        if consumer is not None:
+            # The consumer always drains, so the sentinel and the join cannot block for long.
+            blocks.put(None)
+            consumer.join()
+    if failure:
+        raise failure[0]
+    return File(relative, before.st_size, sha.hexdigest() if sha else "", md5.hexdigest() if md5 else "",
+                before.st_mtime_ns, stat.S_IMODE(before.st_mode), crc)
 
 
 def metadata(root: Path, relative: str, *, dir_fd=None, before=None, file_fd=None) -> File:

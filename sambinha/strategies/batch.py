@@ -49,8 +49,9 @@ def upload_batch(ctx, item):
         # result would be discarded: each would leave an orphan at the destination.
         _check_cancelled(worker.runner)
         archive = compress(worker, item, Path(temp))
-        compressed = (fingerprint(ctx.source, item.files[0].path) if item.passthrough
-                      else fingerprint(Path(temp), archive.name))
+        # Only the archive size and md5 are recorded; sha256 of the archive is never used.
+        compressed = (fingerprint(ctx.source, item.files[0].path, digests={"md5"}) if item.passthrough
+                      else fingerprint(Path(temp), archive.name, digests={"md5"}))
         control = item.control()
         control.update(archive_size=compressed.size, archive_md5=compressed.md5)
         control_path = Path(temp) / "control.json"

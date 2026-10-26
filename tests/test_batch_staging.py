@@ -243,6 +243,41 @@ class BatchStagingIntegrationTests(BatchContext, Sandbox):
         self.assertFalse((work / 'snapshot').exists())
         self.assertTrue((work / 'archive.7z').is_file())
 
+    def crc_listing(self, tamper):
+        ctx, pending, _active = self.context(count=2)
+        work = self.root / 'work'
+        work.mkdir()
+        original_run = ctx.runner.run
+
+        def run(args, **kwargs):
+            output = original_run(args, **kwargs)
+            return tamper(output) if args[1] == 'l' else output
+
+        return ctx, pending, work, run
+
+    def test_7z_crc_is_cross_checked_against_the_inventory_crc(self):
+        ctx, pending, work, run = self.crc_listing(lambda output: output)
+        self.assertTrue(all(f.crc32 is not None for f in pending[0].files))
+        with patch.object(ctx.runner, 'run', run):
+            compress(ctx, pending[0], work)  # A genuine listing agrees with the inventory.
+
+    def test_7z_crc_mismatch_names_the_member(self):
+        victim = 'CRC = 00000000'
+        def tamper(output):
+            lines = output.splitlines()
+            index = next(i for i, line in enumerate(lines) if line.startswith('CRC = '))
+            lines[index] = victim
+            return '\n'.join(lines)
+        ctx, pending, work, run = self.crc_listing(tamper)
+        with patch.object(ctx.runner, 'run', run), self.assertRaisesRegex(BackupError, r'CRC32.*\.bin'):
+            compress(ctx, pending[0], work)
+
+    def test_missing_7z_crc_is_skipped(self):
+        ctx, pending, work, run = self.crc_listing(
+            lambda output: '\n'.join(line for line in output.splitlines() if not line.startswith('CRC = ')))
+        with patch.object(ctx.runner, 'run', run):
+            compress(ctx, pending[0], work)
+
 
 class BlockingStorage:
     """Stand-in for rclone uploads: block until the runner's children are killed."""
