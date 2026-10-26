@@ -8,7 +8,7 @@ import tempfile
 import math
 import re
 
-from .errors import BackupError
+from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
 from .names import NAMESPACE
@@ -113,9 +113,9 @@ def load_state(path: Path, identity: dict):
     try:
         data = json.loads(path.read_text())
         if type(data["schema"]) is not int or data["schema"] not in {1, 2}:
-            raise BackupError("Versão de estado não suportada")
+            raise UnsupportedStateError("Versão de estado não suportada")
         if data["identity"] != identity:
-            raise BackupError("Estado pertence a outra origem/destino/lógica; use outro nome de job")
+            raise ForeignStateError("Estado pertence a outra origem/destino/lógica; use outro nome de job")
         if not isinstance(data["active"], dict) or not isinstance(data["retired"], list):
             raise ValueError("estrutura")
         if 'generation' in data and (not isinstance(data['generation'], str) or

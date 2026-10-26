@@ -14,6 +14,14 @@ class ConfigError(BackupError):
     """Configuration violates a required constraint."""
 
 
+class ForeignStateError(BackupError):
+    """Persisted metadata belongs to another job identity and must never be adopted."""
+
+
+class UnsupportedStateError(BackupError):
+    """Persisted metadata uses a schema this version cannot interpret."""
+
+
 class JobError(BackupError):
     """A failure attributed to the job that was being processed."""
 

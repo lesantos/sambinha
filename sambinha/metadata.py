@@ -1,7 +1,7 @@
 """Local mirrors of batch controls, kept separately from archive data."""
 import json
 
-from .errors import BackupError
+from .errors import BackupError, ForeignStateError
 from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
@@ -59,7 +59,7 @@ def write_manifest(config, job, state):
         try:
             previous = json.loads(path.read_text(encoding='utf-8'))
             if previous.get('identity') != data['identity']:
-                raise BackupError(f'Cache de metadados pertence a outro job: {path}')
+                raise ForeignStateError(f'Cache de metadados pertence a outro job: {path}')
             if previous == data:
                 return
         except (OSError, ValueError, TypeError, AttributeError) as exc:

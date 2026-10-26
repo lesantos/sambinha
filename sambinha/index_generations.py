@@ -8,7 +8,7 @@ import tempfile
 import time
 import uuid
 
-from .errors import BackupError
+from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .filesystems import supports_posix_metadata
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
@@ -113,7 +113,7 @@ def remote_index(config, job, storage, work, *, allow_new=False, entries=None):
             return state, controls
         except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
             # Never adopt another job's identity or follow a metadata symlink.
-            if isinstance(exc, BackupError) and ('pertence a outra' in str(exc) or 'não suportada' in str(exc) or 'link simbólico' in str(exc)):
+            if isinstance(exc, (ForeignStateError, UnsupportedStateError)) or isinstance(exc, BackupError) and 'link simbólico' in str(exc):
                 raise
             failures.append(str(exc))
     if not candidates and not entries and allow_new:
@@ -134,9 +134,9 @@ def backup_state(config, job, runner, *, allow_new=True, log=None):
     if path.exists():
         try:
             previous = load_state(path, identity(job))
-        except BackupError as exc:
-            if 'pertence a outra' in str(exc) or 'não suportada' in str(exc):
-                raise
+        except (ForeignStateError, UnsupportedStateError):
+            raise
+        except BackupError:
             invalid = True
     if previous is not None and not journal.exists():
         return previous
