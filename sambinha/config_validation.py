@@ -106,7 +106,7 @@ def _validate_job(job: Job, seen: set[str]):
             raise ConfigError("max_delete_percent deve estar entre 0 e 100")
         if type(job.deletion_min_files) is not int or job.deletion_min_files < 1:
             raise ConfigError("deletion_min_files deve ser pelo menos 1")
-    for name in ("compression_level", "compression_text_level", "compression_compressed_level"):
+    for name in ("compression_text_level", "compression_compressed_level", "compression_other_level"):
         if type(getattr(job, name)) is not int or not 0 <= getattr(job, name) <= 9:
             raise ConfigError(f"{name} deve ser um inteiro entre 0 e 9")
     for name in ("compression_text_extensions", "compression_compressed_extensions"):

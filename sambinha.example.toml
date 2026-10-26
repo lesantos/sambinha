@@ -68,7 +68,7 @@ logic = "simple"
 # extension, each at its own 7-Zip level 0-9 (0 = store). See the batch job below for the extension lists.
 compression_text_level = 1        # text: very compressible, cheap level
 compression_compressed_level = 0  # already compressed (jpg, mp4, zip...): stored
-compression_level = 1             # every other extension (executables, databases, images...)
+compression_other_level = 1             # every other extension (executables, databases, images...)
 # compression_text_extensions = [...]        # defaults listed in the batch job below
 # compression_compressed_extensions = [...]
 compression_threads = 2
@@ -132,7 +132,7 @@ logic = "batch"
 # (case-insensitive; "a.tar.gz" -> "gz"; ".bashrc" and "Makefile" have none). Levels are 7-Zip 0-9 (0 = store).
 # Text goes first (cheapest), then "other", then already compressed data, which is stored as is.
 compression_text_level = 1        # tier 1: extensions in compression_text_extensions
-compression_level = 1             # tier 2 "other": every extension in neither list
+compression_other_level = 1             # tier 2 "other": every extension in neither list
 compression_compressed_level = 0  # tier 3: extensions in compression_compressed_extensions
 compression_threads = 2
 # Entries are bare extensions (no dot, no spaces; case and a leading dot are ignored). An extension may not

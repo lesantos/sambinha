@@ -218,7 +218,7 @@ class StableBatchLifecycleTests(Sandbox):
         archive = self.destination / key
         payload = archive.read_bytes()
         (self.destination / (key + '.json')).unlink()
-        config = replace(self.config, jobs=(self.job(compression_level=9),))
+        config = replace(self.config, jobs=(self.job(compression_other_level=9),))
         with patch('sambinha.strategies.batch.compress', side_effect=AssertionError('healthy archive rewritten')):
             self.assertEqual(self.execute(config, now=2000), 0, self.output.getvalue())
         self.assertEqual(archive.read_bytes(), payload)

@@ -18,6 +18,9 @@ JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "vers
                                 "transfer_workers", "batch_workers", "dry_run"})
 JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
 EXTENSION_OPTIONS = ("compression_text_extensions", "compression_compressed_extensions")
+# Removed options: name -> hint appended to the unknown-parameter diagnostic.
+REMOVED_OPTIONS = {"compression_level": "foi removido na 0.18; use compression_other_level (demais extensões), "
+                                        "compression_text_level (texto) e compression_compressed_level (já compactados)"}
 # Job fields set per invocation by the CLI, never read from TOML.
 RUN_SCOPED_FIELDS = frozenset({"adopt_identity", "prune_orphans", "fresh_start"})
 
@@ -53,9 +56,9 @@ class Job:
     check_destination_disk: bool = True
     continue_on_job_error: bool = True
     # Three tiers by file extension (see profiles.py): text, already compressed, everything else.
-    compression_level: int = 1  # level of the "other" tier (extensions in neither list)
     compression_text_level: int = 1
     compression_compressed_level: int = 0
+    compression_other_level: int = 1  # extensions listed in neither list
     # Normalized (lower-case, no dots) tuples; "<none>" stands for files without an extension.
     compression_text_extensions: tuple[str, ...] = DEFAULT_TEXT_EXTENSIONS
     compression_compressed_extensions: tuple[str, ...] = DEFAULT_COMPRESSED_EXTENSIONS
@@ -141,7 +144,9 @@ def load(path: Path, overrides: dict | None = None) -> Config:
                 details = '; '.join(
                     f'{name!r} (linha {locations[prefix + (name,)]})'
                     for name in values if name in unknown)
-                raise ConfigError(f"Parâmetros desconhecidos em {section}: {details}; arquivo: {path}")
+                hints = '; '.join(f'{name}: {REMOVED_OPTIONS[name]}' for name in values if name in REMOVED_OPTIONS)
+                raise ConfigError(f"Parâmetros desconhecidos em {section}: {details}; arquivo: {path}"
+                                  + (f"; {hints}" if hints else ""))
 
         if set(data) - {"backup", "jobs"}:
             raise ConfigError("Seções desconhecidas no TOML")

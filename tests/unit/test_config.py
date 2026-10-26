@@ -21,7 +21,7 @@ class ConfigurationTests(Sandbox):
         self.assertEqual(config.jobs[0].version_days, 2)
         self.assertEqual(config.jobs[0].max_megabytes, 1024)
         self.assertEqual(config.jobs[0].max_bytes, 1024**3)
-        self.assertEqual(config.jobs[0].compression_level, 1)
+        self.assertEqual(config.jobs[0].compression_other_level, 1)
         self.assertEqual(config.jobs[0].source, self.source)
         self.assertEqual(config.log_dir, self.root / "logs")
         self.assertIsNone(config.temp_dir)
@@ -170,7 +170,7 @@ class ConfigurationTests(Sandbox):
                        {"storage_class": "wrong"}, {"max_megabytes": 0}, {"individual_batch_percent": 0},
                        {"compressor": ""}, {"archive_format": "rar"}, {"destination": ""},
                        {"max_delete": -1}, {"max_delete": True},
-                       {"compression_level": 10},
+                       {"compression_other_level": 10},
                        {"compression_threads": 65}):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, jobs=(replace(self.config.jobs[0], **values),)))

@@ -23,6 +23,7 @@ from sambinha.inventory import scan
 from sambinha.profiles import COMPRESSED, OTHER, TEXT, classify, plan_groups, summary
 from tests.helpers import FakeRunner, Sandbox
 
+LEVELS = ("compression_text_level", "compression_compressed_level", "compression_other_level")
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -81,7 +82,7 @@ class ClassificationTests(Sandbox):
 class PlanGroupsTests(Sandbox):
     def test_order_empty_groups_and_stable_inside(self):
         items = files("z.jpg", "b.txt", "a.exe", "c.png", "a.txt", "d.bin")
-        groups = plan_groups(job(compression_level=5, compression_text_level=2, compression_compressed_level=0), items)
+        groups = plan_groups(job(compression_other_level=5, compression_text_level=2, compression_compressed_level=0), items)
         self.assertEqual([(g.kind, g.level, [f.path for f in g.files]) for g in groups],
                          [(TEXT, 2, ["b.txt", "a.txt"]), (OTHER, 5, ["a.exe", "d.bin"]), (COMPRESSED, 0, ["z.jpg", "c.png"])])
         self.assertEqual(summary(groups)[OTHER], {"files": 2, "bytes": 20, "level": 5})
@@ -96,7 +97,7 @@ class PlanGroupsTests(Sandbox):
 class CompressCommandTests(Sandbox):
     def setUp(self):
         super().setUp()
-        self.job = replace(self.config.jobs[0], logic="batch", compression_level=4, compression_text_level=2,
+        self.job = replace(self.config.jobs[0], logic="batch", compression_other_level=4, compression_text_level=2,
                            compression_compressed_level=0, compression_threads=3,
                            check_source_disk=False, check_destination_disk=False)
 
@@ -124,6 +125,12 @@ class CompressCommandTests(Sandbox):
             self.assertEqual(command[-len(command) + command.index(str(archive)) + 1], "--")
         self.assertEqual(len(runner.calls("7z", "t")), 1)
         self.assertLess(runner.commands.index(adds[-1]), runner.commands.index(runner.calls("7z", "t")[0]))
+
+    def test_each_level_reaches_its_own_mx(self):
+        job = replace(self.job, compression_text_level=3, compression_other_level=5, compression_compressed_level=7)
+        runner, _batch, _archive = self.run_compress(["a.txt", "b.exe", "c.zip"], job=job)
+        self.assertEqual([next(a for a in c if a.startswith("-mx=")) for c in runner.calls("7z", "a")],
+                         ["-mx=3", "-mx=5", "-mx=7"])
 
     def test_single_group_runs_exactly_one_command(self):
         for names in (["a.txt", "b.md"], ["a.zip", "b.jpg"], ["a.bin"]):
@@ -180,14 +187,14 @@ class CompressCommandTests(Sandbox):
 class ConfigurationTests(Sandbox):
     def test_defaults(self):
         j = Job("j", Path("/s"), "/d")
-        self.assertEqual((j.compression_level, j.compression_text_level, j.compression_compressed_level), (1, 1, 0))
+        self.assertEqual((j.compression_text_level, j.compression_compressed_level, j.compression_other_level), (1, 0, 1))
         self.assertIs(j.compression_text_extensions, DEFAULT_TEXT_EXTENSIONS)
         self.assertIsInstance(j.compression_compressed_extensions, tuple)
 
     def test_invalid_levels_and_lists_on_hand_built_jobs(self):
         base = self.config.jobs[0]
         bad = []
-        for name in ("compression_level", "compression_text_level", "compression_compressed_level"):
+        for name in LEVELS:
             bad += [{name: -1}, {name: 10}, {name: True}, {name: 1.0}, {name: "1"}]
         bad += [{"compression_text_extensions": "txt"}, {"compression_text_extensions": ["txt"]},
                 {"compression_text_extensions": ("txt", 1)}, {"compression_text_extensions": ("a.b",)},
@@ -223,13 +230,21 @@ class ConfigurationTests(Sandbox):
                      'compression_text_extensions = ["zip"]\ncompression_compressed_extensions = ["ZIP"]',
                      'compression_text_extensions = ["<none>"]\ncompression_compressed_extensions = ["<none>"]',
                      'compression_text_level = 10', 'compression_compressed_level = true',
-                     'compression_level = "1"'):
+                     'compression_other_level = "1"'):
             with self.subTest(body=body), self.assertRaises(ConfigError):
                 load(self.toml(body))
 
-    def test_new_options_are_job_only_like_compression_level(self):
-        for name in ("compression_level", "compression_text_level", "compression_compressed_level",
-                     "compression_text_extensions", "compression_compressed_extensions"):
+    def test_legacy_compression_level_is_rejected_with_replacement_and_line(self):
+        with self.assertRaises(ConfigError) as caught:
+            load(self.toml("compression_level = 3"))
+        message = str(caught.exception)
+        for part in ("compression_level", "linha 6", "compression_other_level", "compression_text_level",
+                     "compression_compressed_level", "removido"):
+            self.assertIn(part, message)
+        self.assertNotIn("compression_level", {f.name for f in fields(Job)})
+
+    def test_new_options_are_job_only(self):
+        for name in (*LEVELS, "compression_text_extensions", "compression_compressed_extensions"):
             path = self.root / "b.toml"
             path.write_text(f'[backup]\n{name} = 1\n[[jobs]]\nname="t"\nsource="source"\ndestination="destination"\n')
             with self.subTest(name=name), self.assertRaises(ConfigError):
@@ -241,7 +256,8 @@ class ConfigurationTests(Sandbox):
         self.assertTrue(set(OVERRIDES) - {"job", "dry_run"} <= names | {f.name for f in fields(type(self.config))})
         for name in EXTENSION_OPTIONS:
             self.assertNotIn(name, OVERRIDES)
-        for name in ("compression_level", "compression_text_level", "compression_compressed_level"):
+        self.assertNotIn("compression_level", OVERRIDES)
+        for name in LEVELS:
             self.assertIs(OVERRIDES[name].type, int)
 
     def test_example_files_round_trip_to_the_defaults(self):
@@ -251,8 +267,8 @@ class ConfigurationTests(Sandbox):
             self.assertTrue(batch)
             for item in batch:
                 with self.subTest(name=name, job=item["name"]):
-                    self.assertEqual((item["compression_text_level"], item["compression_compressed_level"],
-                                      item["compression_level"]), (1, 0, 1))
+                    self.assertEqual([item[name] for name in LEVELS], [1, 0, 1])
+                    self.assertNotIn("compression_level", item)
             first = batch[0]
             self.assertEqual(normalize_extensions(first["compression_text_extensions"], "t"), DEFAULT_TEXT_EXTENSIONS)
             self.assertEqual(normalize_extensions(first["compression_compressed_extensions"], "c"),

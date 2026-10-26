@@ -47,7 +47,7 @@ def plan_groups(job: Any, files: Sequence[Any]) -> list[Group]:
     buckets: dict[str, list[Any]] = {kind: [] for kind in ORDER}
     for item in files:
         buckets[_kind(item.path, text, compressed)].append(item)
-    levels = {TEXT: job.compression_text_level, OTHER: job.compression_level,
+    levels = {TEXT: job.compression_text_level, OTHER: job.compression_other_level,
               COMPRESSED: job.compression_compressed_level}
     return [Group(kind, levels[kind], tuple(buckets[kind])) for kind in ORDER if buckets[kind]]
 
