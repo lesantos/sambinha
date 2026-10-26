@@ -32,7 +32,7 @@ class SymlinkInventoryTests(Sandbox):
         (self.source / 'dir').rename(self.root / 'original')
         (self.source / 'dir').symlink_to(self.root / 'original', target_is_directory=True)
         for mode in ('simple', 'hash'):
-            with self.subTest(mode=mode), self.assertRaisesRegex(BackupError, 'dir/file'):
+            with self.subTest(mode=mode), self.assertRaisesRegex(BackupError, 'link simbólico: dir'):
                 verify(self.source, files, mode=mode)
 
     def test_destination_root_and_metadata_links_are_rejected_without_touching_targets(self):

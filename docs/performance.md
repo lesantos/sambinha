@@ -102,3 +102,22 @@ References: [restic change detection](https://restic.readthedocs.io/en/stable/04
 ## Batches and recovery in 0.13.0
 
 See [stable batches, uniform compression, final Cronitor alerts, manual rebalance and generation recovery](batch-lifecycle.md) for current behavior and migration from 0.12.0.
+
+
+## Final verification, hashing and controls (0.17.0)
+
+Measured with `scripts/benchmark-verify.py` (6000 small files in 400 directories plus four 64 MiB files; raw numbers in `docs/benchmarks/verify-2026-10-26.json`). The measuring host was shared and overloaded (load average 7-10 on 4 cores), so wall-clock times varied by ±50% between identical runs; **syscall counts are exact, timings are indicative only**.
+
+| Final `verify()` over 6005 files | before | after |
+| --- | --- | --- |
+| `stat` calls, simple mode | 42,024 | 12,912 |
+| `stat` calls, hash mode | 42,024 | 12,912 (full re-hash) |
+| hash mode, fingerprint cache, no full scan due | full re-read (`read` 16,102) | 0 reads, 1 `stat` per file |
+| simple mode, median of 5 runs | 2.86 s | 1.67 s |
+| hash mode with cache, median of 5 runs | 5.33 s (cache ignored) | 1.18 s |
+
+- **Descriptor walk.** `verify()` now opens every directory once with `O_NOFOLLOW` relative to its parent and validates files with `dir_fd`, so the per-file ancestor `lstat` chain is gone. A directory replaced by a symlink or another directory, and a swap while a directory is being checked, still raise `BackupError`/`SourceChangedError`.
+- **Scan signatures.** With `verification_mode = "hash"`, `fingerprint_cache = true` and no full scan due, `verify()` (final pass and the checks around each 7-Zip run) compares the stat signature (dev, ino, size, mtime, ctime, mode) with the one the scan recorded and re-reads only files that differ. `fingerprint_cache = false` and the full-scan run keep the full re-hash. A same-size, same-mtime edit still changes `ctime` and is caught.
+- **Hashing.** Reads use 1 MiB blocks; for files of 4 MiB or more md5 runs in a helper thread beside sha256 (bounded queue, joined on every exit path, errors re-raised). The generated archive is fingerprinted with md5 only. On this overloaded host the overlap measured only ~12% in a pure in-memory test (2.77 s → 2.43 s for 128 MiB) and was cancelled end to end by the extra CRC32 pass (2.20 s vs 2.41 s for 256 MiB): no net gain was measurable here; it is kept because it is simple and bounded.
+- **CRC32 cross-check.** In hash mode the inventory also computes CRC32 (in memory only, never persisted). After `7z l -slt`, a member whose CRC differs raises an error naming the path; members without a CRC (empty files, cache hits) are skipped. This closes the gap between what the inventory read and what 7-Zip read, but only for files hashed in that run.
+- **Controls.** Local control mirrors are validated once per execution (memoized per `Context`, invalidated when a control is written or an expired mirror is removed) instead of twice; this saves one JSON read and validation per control and was not separately timed.
