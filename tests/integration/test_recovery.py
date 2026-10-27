@@ -14,7 +14,7 @@ from sambinha.config import with_job_overrides
 from sambinha.config_validation import validate
 from sambinha.errors import BackupError
 from sambinha.recovery import recover
-from tests.helpers import REAL_TOOLS, Sandbox, contents
+from tests.helpers import COMPRESSOR, REAL_TOOLS, Sandbox, contents
 
 
 @unittest.skipUnless(REAL_TOOLS, 'rclone and 7z required')
@@ -157,10 +157,10 @@ import json, os, sys
 from types import SimpleNamespace
 from sambinha.archive_recovery import check_archive
 from sambinha.process import Runner
-archive, key, control = sys.argv[1:]
+archive, key, control, compressor = sys.argv[1:]
 environment = dict(os.environ)
 runner = Runner(env=environment)
-storage = SimpleNamespace(job=SimpleNamespace(compressor='7z'), path=lambda key: archive)
+storage = SimpleNamespace(job=SimpleNamespace(compressor=compressor), path=lambda key: archive)
 check_archive(storage, runner, key, json.loads(control))
 assert runner.env == environment == dict(os.environ)
 '''
@@ -173,7 +173,7 @@ assert runner.env == environment == dict(os.environ)
             for zone in ('America/Sao_Paulo', 'America/New_York', 'Asia/Kolkata', 'UTC'):
                 with self.subTest(archive_format=archive_format, timezone=zone):
                     result = subprocess.run([sys.executable, '-c', script, str(Path(job.destination) / key),
-                                             key, json.dumps(control)], capture_output=True, text=True,
+                                             key, json.dumps(control), COMPRESSOR], capture_output=True, text=True,
                                             env={**os.environ, 'TZ': zone})
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

@@ -1,6 +1,8 @@
 import io
 import json
 import os
+import sys
+import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest.mock import Mock, patch
@@ -16,6 +18,7 @@ from tests.helpers import Sandbox
 
 
 class InventoryNameTests(Sandbox):
+    @unittest.skipIf(sys.platform == 'darwin', 'APFS rejects non-UTF-8 file names')
     def test_scan_rejects_non_utf8_names_early(self):
         fd = os.open(os.fsencode(self.source) + b'/bad\xff.txt', os.O_WRONLY | os.O_CREAT, 0o640)
         os.close(fd)

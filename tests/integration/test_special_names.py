@@ -1,6 +1,7 @@
 import io
 import os
 import subprocess
+import sys
 import unittest
 from contextlib import redirect_stdout
 from typing import ClassVar
@@ -9,7 +10,7 @@ from unittest.mock import patch
 from sambinha import archives
 from sambinha.config_validation import validate
 from sambinha.recovery import recover
-from tests.helpers import REAL_TOOLS, Sandbox, contents
+from tests.helpers import COMPRESSOR, REAL_TOOLS, Sandbox, contents
 
 
 @unittest.skipUnless(REAL_TOOLS, 'Install rclone and 7z for real local integration')
@@ -29,7 +30,7 @@ class SpecialNameBatchTests(Sandbox):
     def members(self):
         key = next(iter(self.state()['active']))
         self.assertTrue(key.endswith('.7z'))
-        listing = subprocess.run(['7z', 'l', '-slt', '-ba', str(self.destination / key)],
+        listing = subprocess.run([COMPRESSOR, 'l', '-slt', '-ba', str(self.destination / key)],
                                  check=True, capture_output=True, text=True).stdout
         return {line.removeprefix('Path = ').removeprefix('./') for line in listing.split('\n') if line.startswith('Path = ')}
 
@@ -74,6 +75,7 @@ class SpecialNameBatchTests(Sandbox):
         with patch.object(archives, 'ARGUMENT_BUDGET', 0):
             self.roundtrip()
 
+    @unittest.skipIf(sys.platform == 'darwin', 'APFS rejects non-UTF-8 file names')
     def test_non_utf8_name_fails_naming_the_path_without_crashing(self):
         fd = os.open(os.fsencode(self.source) + b'/bad\xff.txt', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
         os.write(fd, b'payload')

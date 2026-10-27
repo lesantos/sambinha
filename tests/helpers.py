@@ -50,10 +50,15 @@ class Sandbox(unittest.TestCase):
         self.source.mkdir()
         self.destination = self.root / "destination"
         self.config = with_job_overrides(
-            Config(jobs=(Job("test", self.source, str(self.destination)),),
+            Config(jobs=(Job("test", self.source, str(self.destination), compressor=self.compressor()),),
                    state_dir=self.root / "state", log_dir=self.root / "logs"),
             verification_mode="hash", log_file_level="detailed")
         self.notifications = []
+
+    @classmethod
+    def compressor(cls):
+        """Real 7-Zip binary for integration suites; unit suites keep the default name their fake runners expect."""
+        return COMPRESSOR if cls.__module__.startswith("tests.integration") else "7z"
 
     def file(self, path, content=b"test", mode=0o640):
         target = self.source / path
@@ -126,7 +131,7 @@ def restore_batches(state, destination, restore):
         archive = destination / key
         extracted = restore / hashlib.sha256(key.encode()).hexdigest()[:12]
         extracted.mkdir(parents=True)
-        subprocess.run(["7z", "x", "-y", "-o" + str(extracted), str(archive)],
+        subprocess.run([COMPRESSOR, "x", "-y", "-o" + str(extracted), str(archive)],
                        check=True, capture_output=True)
         actual = contents(extracted)
         if set(actual) != {item["path"] for item in control["files"]}:
@@ -141,7 +146,9 @@ def restore_batches(state, destination, restore):
     return expected
 
 
-REAL_TOOLS = bool(shutil.which("rclone") and shutil.which("7z"))
+# Homebrew's `sevenzip` installs only `7zz`; Linux packages ship `7z`. Real runs use whichever exists.
+COMPRESSOR = "7zz" if shutil.which("7zz") else "7z"
+REAL_TOOLS = bool(shutil.which("rclone") and shutil.which(COMPRESSOR))
 
 
 Usage = namedtuple('Usage', 'total used free')

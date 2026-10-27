@@ -14,7 +14,7 @@ from sambinha.engine import run
 from sambinha.extensions import DEFAULT_COMPRESSED_EXTENSIONS, DEFAULT_TEXT_EXTENSIONS, NONE
 from sambinha.process import Runner
 from sambinha.recovery import recover
-from tests.helpers import REAL_TOOLS, Sandbox, contents, restore_batches, tick
+from tests.helpers import COMPRESSOR, REAL_TOOLS, Sandbox, contents, restore_batches, tick
 
 TEXT = (b"The quick brown fox jumps over the lazy dog.\n" * 400)
 PATTERN = bytes(range(251)) * 80
@@ -59,8 +59,8 @@ class TieredCompressionTests(Sandbox):
         keys = list(self.state()["active"])
         self.assertEqual(len(keys), 1)
         archive = self.destination / keys[0]
-        self.assertEqual(subprocess.run(["7z", "t", str(archive)], capture_output=True).returncode, 0)
-        listing = subprocess.run(["7z", "l", "-slt", "-ba", str(archive)], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(subprocess.run([COMPRESSOR, "t", str(archive)], capture_output=True).returncode, 0)
+        listing = subprocess.run([COMPRESSOR, "l", "-slt", "-ba", str(archive)], capture_output=True, text=True, check=True).stdout
         result = {}
         for record in listing.strip().split("\n\n"):
             fields = dict(line.split(" = ", 1) for line in record.splitlines() if " = " in line)

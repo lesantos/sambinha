@@ -43,6 +43,16 @@ def fake_mount(output=MOUNT_OUTPUT):
     return run
 
 
+class FakeOs:
+    """`os` stand-in scoped to the filesystems module, so coverage's own os.lstat calls stay real."""
+
+    def __init__(self, lstat):
+        self.lstat = lstat
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+
 class DarwinMountTableTests(unittest.TestCase):
     """Simulated macOS: `mount` output drives filesystem detection."""
 
@@ -50,7 +60,7 @@ class DarwinMountTableTests(unittest.TestCase):
         self.devices = {}
         patches = [patch.object(filesystems, "_PLATFORM", "darwin"),
                    patch.object(filesystems.subprocess, "run", fake_mount()),
-                   patch.object(filesystems.os, "lstat", self.lstat),
+                   patch.object(filesystems, "os", FakeOs(self.lstat)),
                    patch.object(filesystems.Path, "resolve", lambda path: path)]
         for item in patches:
             item.start()
@@ -108,7 +118,7 @@ class DarwinMountTableTests(unittest.TestCase):
             if str(path) == "/Volumes/USB":
                 raise OSError("gone")
             return self.lstat(path)
-        with patch.object(filesystems.os, "lstat", lstat):
+        with patch.object(filesystems, "os", FakeOs(lstat)):
             rows = {str(mount): device for mount, _kind, device in mounted_filesystems()}
         self.assertIsNone(rows["/Volumes/USB"])
         self.assertIsNotNone(rows["/"])
