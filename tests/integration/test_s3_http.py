@@ -100,6 +100,35 @@ class S3HTTPTests(suite.S3IntegrationTests):
         self.assert_complete()
         self.assertNotIn('PRIVATE-S3-SECRET', self.output.getvalue())
 
+    def test_new_zip_and_batch_take_md5_from_the_stored_object_without_hashing_files(self):
+        import hashlib
+
+        from sambinha.inventory import fingerprint
+        payload = bytes(range(256)) * 400
+        self.file('big.zip', payload)
+        self.file('small.txt', b'small')
+        job = replace(self.config.jobs[0], logic='batch', max_megabytes=50 / 1024 ** 2,
+                      log_terminal_level='detailed')
+        self.config = replace(self.config, jobs=(job,))
+        hashed = []
+        real = fingerprint
+
+        def counting(root, relative, **kwargs):
+            hashed.append(relative)
+            return real(root, relative, **kwargs)
+        with patch('sambinha.strategies.batch.fingerprint', counting):
+            self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assertEqual(hashed, [])
+        sources = {e['archive'] for e in self.events if e['event'] == 'md5_from_destination'}
+        controls = self.state()['active']
+        self.assertEqual(sources, set(controls))
+        zipped = next(c for c in controls.values() if c.get('passthrough'))
+        self.assertEqual(zipped['archive_md5'], hashlib.md5(payload).hexdigest())
+        for key, control in controls.items():
+            stored = self.client.get_object(Bucket='sambinha-tests', Key='backup/' + key)['Body'].read()
+            self.assertEqual((control['archive_size'], control['archive_md5']),
+                             (len(stored), hashlib.md5(stored).hexdigest()))
+
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
         from unittest.mock import Mock, patch
 

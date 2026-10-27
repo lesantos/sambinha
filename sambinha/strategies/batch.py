@@ -1,6 +1,7 @@
 """Immutable batch uploads and transactional recovery-index publication."""
 import copy
 import json
+import re
 import tempfile
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -55,6 +56,26 @@ def _known_passthrough(ctx, item):
     return SimpleNamespace(size=control["archive_size"], md5=control["archive_md5"])
 
 
+def _stored_md5(worker, key, path):
+    """Size and md5 of the S3 object just stored, from its metadata, or None to hash ``path`` instead.
+
+    rclone computes the md5 of what it sends and keeps it on the object (also for multipart uploads), so a
+    HEAD answers without reading the file again. Local destinations would make rclone read the stored
+    copy to hash it, and an object without a usable md5 or with another size is not evidence: both fall back.
+    """
+    if worker.job.type != "s3":
+        return None
+    try:
+        stored = worker.storage.stat(key)
+    except BackupError:
+        return None
+    md5 = (stored.get("Hashes") or {}).get("md5")
+    if (not isinstance(md5, str) or not re.fullmatch("[0-9a-f]{32}", md5)
+            or stored["Size"] != path.stat().st_size):
+        return None
+    return SimpleNamespace(size=stored["Size"], md5=md5)
+
+
 def upload_batch(ctx, item):
     # Each worker owns its runner's last_stderr and its temporary archive.
     # The runner copy shares the cancellation token (see process.Runner); the view shares the rest of ctx.
@@ -67,21 +88,26 @@ def upload_batch(ctx, item):
         _check_cancelled(worker.runner)
         archive = compress(worker, item, Path(temp))
         # Only the archive size and md5 are recorded; sha256 of the archive is never used.
-        if item.passthrough:
-            known = _known_passthrough(ctx, item)
-            compressed = known or fingerprint(ctx.source, item.files[0].path, digests={"md5"})
-            if known:
-                ctx.event("md5_reused", archive=item.key)
-        else:
-            compressed = fingerprint(Path(temp), archive.name, digests={"md5"})
-        control = item.control()
-        control.update(archive_size=compressed.size, archive_md5=compressed.md5)
-        control_path = Path(temp) / "control.json"
-        atomic_json(control_path, control)
+        # The md5 comes from the control mirror of an earlier upload of this very file, else from the
+        # object rclone just stored (it hashed the bytes it sent), else from reading the file again.
+        known = _known_passthrough(ctx, item) if item.passthrough else None
+        if known:
+            ctx.event("md5_reused", archive=item.key)
         show_progress(worker.runner, worker.progress.scope(0.7, 0.95) if worker.progress else None)
         _check_cancelled(worker.runner)
         transferred = (worker.storage.put(archive, item.key, metadata_comparison=True) if item.passthrough
                        else worker.storage.put(archive, item.key))
+        compressed = known or _stored_md5(worker, item.key, archive)
+        if compressed:
+            if not known:
+                ctx.event("md5_from_destination", archive=item.key)
+        else:
+            compressed = (fingerprint(ctx.source, item.files[0].path, digests={"md5"}) if item.passthrough
+                          else fingerprint(archive.parent, archive.name, digests={"md5"}))
+        control = item.control()
+        control.update(archive_size=compressed.size, archive_md5=compressed.md5)
+        control_path = Path(temp) / "control.json"
+        atomic_json(control_path, control)
         events = [("transferred" if transferred else "identical", {
             "path": item.key, "files": [f.path for f in item.files],
             "bytes": compressed.size if transferred else 0})]
