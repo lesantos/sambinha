@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.18.3 — 2026-10-27
+
+Let very large filtered source listings finish. The private rclone server used for filtered discovery cut any response still being written after one hour (its default `--rc-server-write-timeout`), so a recursive listing of a huge first-level directory on a slow CIFS mount failed with `RemoteDisconnected` after rclone had already done the work, and retrying only repeated the hour. The server now starts with `--rc-server-read-timeout` and `--rc-server-write-timeout` equal to the job `timeout`, the same deadline Sambinha already applies to each request.
+
 ## 0.18.2 — 2026-10-27
 
 Make the test suite pass on macOS; no change to the program itself. The default temporary directory is resolved once per test session (macOS places it under `/var`, a symlink that metadata directories refuse), as the program already does at startup. The integration tests use `7zz` when it is on the PATH and `7z` otherwise, so Homebrew's `sevenzip` no longer makes about 270 tests skip and drops coverage below the 92% floor. Tests that need non-UTF-8 file names are skipped on macOS (APFS rejects those names), and the simulated Darwin mount tests no longer replace the global `os.lstat`, which made them fail intermittently under coverage on Python 3.15.

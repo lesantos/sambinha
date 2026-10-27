@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.18.3 — 2026-10-27
+
+Permitir que listagens filtradas muito grandes da origem terminem. O servidor rclone privado da descoberta filtrada cortava qualquer resposta ainda em escrita após uma hora (o `--rc-server-write-timeout` padrão dele), então a listagem recursiva de um diretório de primeiro nível enorme em um CIFS lento falhava com `RemoteDisconnected` depois que o rclone já tinha feito o trabalho, e repetir só gastava mais uma hora. O servidor agora sobe com `--rc-server-read-timeout` e `--rc-server-write-timeout` iguais ao `timeout` do job, o mesmo prazo que o Sambinha já aplica a cada requisição.
+
 ## 0.18.2 — 2026-10-27
 
 Fazer a suíte de testes passar no macOS; o programa em si não muda. O diretório temporário padrão é resolvido uma vez por sessão de testes (o macOS o coloca em `/var`, um link simbólico que os diretórios de metadados recusam), como o programa já faz na inicialização. Os testes de integração usam `7zz` quando ele está no PATH e `7z` caso contrário, de modo que o `sevenzip` do Homebrew não faz mais cerca de 270 testes serem pulados e a cobertura cair abaixo do piso de 92%. Testes que exigem nomes de arquivo não-UTF-8 são pulados no macOS (o APFS recusa esses nomes), e os testes simulados da tabela de montagem do Darwin não substituem mais o `os.lstat` global, o que os fazia falhar de forma intermitente com cobertura no Python 3.15.

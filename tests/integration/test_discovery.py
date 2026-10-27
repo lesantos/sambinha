@@ -283,6 +283,19 @@ class DiscoveryTests(Sandbox):
             self.assertEqual(len(server.restarts), 1)
             self.assertIsNotNone(server.process.poll())
 
+    def test_server_write_timeout_follows_the_job_timeout(self):
+        launched = []
+        real = subprocess.Popen
+        def popen(arguments, *args, **kwargs):
+            launched.append(arguments)
+            return real(arguments, *args, **kwargs)
+        with patch('sambinha.discovery.subprocess.Popen', popen), \
+             Discovery(self.config, Runner(timeout=7200), self.source, self.rules()):
+            pass
+        arguments = launched[0]
+        for option in ('--rc-server-read-timeout', '--rc-server-write-timeout'):
+            self.assertEqual(arguments[arguments.index(option) + 1], '7200s')
+
     def test_crashed_server_is_restarted_and_listing_is_repeated(self):
         self.file('a/f')
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:

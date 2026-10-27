@@ -120,6 +120,10 @@ class Discovery:
         arguments = [self.config.rclone, "rcd", "--rc-addr", "127.0.0.1:0",
                      "--rc-no-auth=false", "--rc-serve=false", "--rc-files", "",
                      "--rc-web-gui=false", "--rc-baseurl", "",
+                     # rclone cuts a response still being written after 1 h; a huge
+                     # recursive listing must be allowed as long as our own deadline.
+                     "--rc-server-read-timeout", f"{max(1, int(self.timeout))}s",
+                     "--rc-server-write-timeout", f"{max(1, int(self.timeout))}s",
                      "--log-level", "NOTICE", "--use-json-log=false",
                      "--log-file", str(self.log_path),
                      "--retries", "1", "--low-level-retries", "1",
