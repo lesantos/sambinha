@@ -129,6 +129,35 @@ class S3HTTPTests(suite.S3IntegrationTests):
             self.assertEqual((control['archive_size'], control['archive_md5']),
                              (len(stored), hashlib.md5(stored).hexdigest()))
 
+    def test_lost_state_adopts_the_stored_batches_after_listing_the_bucket(self):
+        from sambinha.archives import compress
+        from sambinha.state import atomic_json, identity
+        self.file('big.zip', bytes(range(256)) * 400)
+        for name in 'abcd':
+            self.file(name, name.encode() * 4)
+        job = replace(self.config.jobs[0], logic='batch', max_megabytes=10 / 1024 ** 2, batch_workers=1,
+                      log_terminal_level='detailed')
+        self.config = replace(self.config, jobs=(job,))
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        confirmed = self.state()['active']
+        directory = self.config.state_dir / 'test'
+        for name in ('state.json', 'uploads.json'):
+            (directory / name).unlink(missing_ok=True)
+        for obj in self.client.list_objects_v2(Bucket='sambinha-tests', Prefix='backup/.sambinha/')\
+                .get('Contents', []):
+            self.client.delete_object(Bucket='sambinha-tests', Key=obj['Key'])
+        atomic_json(directory / 'initialization.json', {'identity': identity(job)})
+        built = []
+
+        def counting(worker, item, temp):
+            built.append(item.key)
+            return compress(worker, item, temp)
+        with patch('sambinha.strategies.batch.compress', counting):
+            self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
+        self.assertEqual(built, [])
+        self.assertEqual([e['count'] for e in self.events if e['event'] == 'batches_adopted'], [len(confirmed)])
+        self.assertEqual(set(self.state()['active']), set(confirmed))
+
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
         from unittest.mock import Mock, patch
 

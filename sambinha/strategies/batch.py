@@ -210,16 +210,44 @@ def _available(ctx, item, control, entries=None):
     return True
 
 
+def _adoptable(ctx, batches, old, retired_keys):
+    """Keys of planned batches with a local control mirror but no confirmed state, journal or retirement.
+
+    A lost state (a first run that never committed, a deleted state directory) leaves the mirrors behind: each
+    one is written only after its archive and control were stored. Fresh starts and rebalances ignore them.
+    """
+    if ctx.rebalancing or requested(ctx.job):
+        return set()
+    return {item.key for item in batches
+            if item.key not in old and item.key not in retired_keys and item.key not in ctx.journal
+            and (ctx.controls_directory / (item.key + ".json")).is_file()}
+
+
+def _saved_control(mirror, key, adopting):
+    if not adopting:
+        return json.loads(mirror.read_text())
+    try:
+        control = read_control(mirror, key)
+    except BackupError:
+        return None
+    return control if "archive_size" in control and "archive_md5" in control else None
+
+
 def _pending_uploads(ctx, batches, old, active):
     retired_keys = {entry["key"] for entry in ctx.state["retired"]}
     pending = []
+    adopting = _adoptable(ctx, batches, old, retired_keys)
+    adopted = 0
     from ..index_generations import listing
-    entries = listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys or ctx.journal) else None
+    entries = (listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys or ctx.journal or adopting)
+               else None)
     if entries is not None:
         ctx.listing = entries  # snapshot before this run's uploads; reused by the orphan report
     for item in batches:
         mirror = ctx.controls_directory / (item.key + ".json")
-        saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None
+        adopt = item.key in adopting
+        saved_control = (_saved_control(mirror, item.key, adopt)
+                         if (item.key in retired_keys or adopt) and mirror.is_file() else None)
         reusable = saved_control is not None and all(saved_control.get(k) == item.control()[k]
                                                      for k in ("schema", "archive", "files"))
         if reusable:
@@ -234,6 +262,7 @@ def _pending_uploads(ctx, batches, old, active):
                 journal.discard(ctx, item.key)
                 ctx.event("journal_entry_discarded", archive=item.key, reason="missing")
         if available:
+            adopted += adopt and reusable
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
             continue
@@ -243,6 +272,8 @@ def _pending_uploads(ctx, batches, old, active):
         if ctx.job.dry_run:
             continue
         pending.append(item)
+    if adopted:
+        ctx.event("batches_adopted", count=adopted, rebuilt=len(pending))
     return pending
 
 

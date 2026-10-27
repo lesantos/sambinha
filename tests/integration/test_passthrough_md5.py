@@ -48,6 +48,9 @@ class PassthroughMd5Tests(Sandbox):
         return hashed, puts
 
     def test_unchanged_zip_reuses_the_recorded_md5(self):
+        # With the object still at the destination the batch is adopted untouched (test_adopt_batches);
+        # here it must be stored again, and its recorded md5 spares reading it.
+        (self.destination / self.archive).unlink()
         hashed, puts = self.run_counting()
         self.assertEqual(hashed, [])
         self.assertTrue(any(e['event'] == 'md5_reused' and e['archive'] == self.archive for e in self.events))
