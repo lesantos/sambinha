@@ -365,6 +365,7 @@ class VerifyWalkTests(Sandbox):
         self.file('a/b/f', b'data')
         files, cache = self.inventory()
         (self.source / 'a/b').rename(self.root / 'moved')
+        tick()
         self.file('a/b/f', b'data')
         with self.assertRaises(BackupError):
             inventory.verify(self.source, files, mode='hash', signatures=cache)

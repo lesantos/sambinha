@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.18.4 — 2026-10-27
+
+Fix an unstable test. `test_nested_directory_replaced_by_another_directory_is_detected` recreated the replaced file right after the scan, and on kernels with a coarse filesystem clock (Linux 5.15 on ext4) the new file kept the same `mtime_ns` and content, so the change went unnoticed and the test failed most runs. It now waits for the clock to advance like the neighbouring tests. No change to the package code; the full suite (823 tests) passes.
+
 ## 0.18.3 — 2026-10-27
 
 Let very large filtered source listings finish. The private rclone server used for filtered discovery cut any response still being written after one hour (its default `--rc-server-write-timeout`), so a recursive listing of a huge first-level directory on a slow CIFS mount failed with `RemoteDisconnected` after rclone had already done the work, and retrying only repeated the hour. The server now starts with `--rc-server-read-timeout` and `--rc-server-write-timeout` equal to the job `timeout`, the same deadline Sambinha already applies to each request.

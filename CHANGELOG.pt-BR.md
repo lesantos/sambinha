@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.18.4 — 2026-10-27
+
+Corrigir um teste instável. `test_nested_directory_replaced_by_another_directory_is_detected` recriava o arquivo trocado logo após o scan e, em kernels com relógio de sistema de arquivos grosso (Linux 5.15 em ext4), o arquivo novo ficava com o mesmo `mtime_ns` e o mesmo conteúdo, a mudança passava despercebida e o teste falhava na maioria das execuções. Agora ele espera o relógio avançar, como os testes vizinhos. Sem mudança no código do pacote; a suíte completa (823 testes) passa.
+
 ## 0.18.3 — 2026-10-27
 
 Permitir que listagens filtradas muito grandes da origem terminem. O servidor rclone privado da descoberta filtrada cortava qualquer resposta ainda em escrita após uma hora (o `--rc-server-write-timeout` padrão dele), então a listagem recursiva de um diretório de primeiro nível enorme em um CIFS lento falhava com `RemoteDisconnected` depois que o rclone já tinha feito o trabalho, e repetir só gastava mais uma hora. O servidor agora sobe com `--rc-server-read-timeout` e `--rc-server-write-timeout` iguais ao `timeout` do job, o mesmo prazo que o Sambinha já aplica a cada requisição.
