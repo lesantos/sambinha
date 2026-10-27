@@ -43,7 +43,7 @@ class MemoryStorage:
     def inventory(self):
         return {key: {'Size': len(data)} for key, data in self.objects.items()}
 
-    def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+    def put(self, source, key, *, standard=False, protected_mtime_ns=None, metadata_comparison=False):
         data = Path(source).read_bytes()
         changed = self.objects.get(key) != data
         self.objects[key] = data

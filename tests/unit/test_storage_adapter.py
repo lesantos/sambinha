@@ -33,6 +33,15 @@ class StoragePutTests(Sandbox):
         self.assertFalse(self.put(skipped))
         self.assertEqual(len(skipped.calls('rclone', 'lsjson')), 0)  # no confirmation without protection
 
+    def test_metadata_comparison_skips_checksum_only_in_simple_mode(self):
+        for mode, flag, absent in (('simple', '--ignore-checksum', '--checksum'), ('hash', '--checksum', '--ignore-checksum')):
+            runner = FakeRunner({'rclone copyto': Reply('', COPIED + '\n')})
+            self.storage(runner, verification_mode=mode).put(self.source / 'f', 'k.zip', metadata_comparison=True)
+            command = runner.commands[0]
+            self.assertIn(flag, command)
+            self.assertNotIn(absent, command)
+            self.assertNotIn('--update', command)
+
     def test_missing_or_non_text_stderr_counts_as_a_transfer(self):
         self.assertTrue(self.put(FakeRunner()))
 

@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.18.6 — 2026-10-27
+
+Parar de reler arquivos enormes já compactados (zip, 7z...) enviados como estão. Um arquivo assim tem o md5 calculado (gravado no controle do lote para verificação e restauração) e depois é comparado com o destino por `rclone copyto --checksum`; assim, uma execução que perdeu o estado (por exemplo, todas as anteriores falharam antes de confirmar) lia um zip de 68 GB duas vezes pelo CIFS mesmo sem nenhuma mudança. Agora o md5 e o tamanho vêm da réplica local do controle do envio anterior quando caminho, tamanho, data e modo do arquivo continuam idênticos (novo evento `md5_reused` no nível `detailed`); qualquer divergência ou réplica ilegível volta a calcular o hash. No modo de verificação `simple`, esses arquivos são comparados com o destino por tamanho e data (`--ignore-checksum --modify-window 1ns`) em vez de checksum; o modo `hash` e os lotes `.7z`, refeitos a cada execução, mantêm `--checksum`. `StorageBackend.put` ganha o argumento opcional `metadata_comparison`. A suíte completa (829 testes) passa.
+
 ## 0.18.5 — 2026-10-27
 
 Registrar em log cada reinício do servidor rclone privado da descoberta filtrada. Desde a 0.18.1 uma conexão perdida reinicia o servidor e repete a listagem, mas o motivo ficava só em memória, então uma execução que reiniciou várias vezes não deixava rastro do porquê. Cada reinício agora grava um evento `discovery_restart` (visível nos níveis `summary` e `detailed`, não em `error`) com o tipo da exceção, se o rclone ainda estava em execução ou o código de saída, o final do log dele e a contagem de reinícios. Sem outra mudança de comportamento.

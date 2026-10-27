@@ -5,6 +5,7 @@ import tempfile
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
+from types import SimpleNamespace
 
 from .. import journal, orphans
 from ..archives import compress, temporary_bytes
@@ -14,7 +15,7 @@ from ..disks import check_disk, check_disks, get_temporary_path
 from ..errors import BackupError
 from ..fresh import requested
 from ..inventory import fingerprint, path_has_symlink, verify
-from ..metadata import cached_control, write_control
+from ..metadata import cached_control, read_control, write_control
 from ..names import CONTROL
 from ..process import Runner, show_progress
 from ..profiles import plan_groups, summary
@@ -35,6 +36,25 @@ def _check_cancelled(runner):
         runner.check_cancelled()
 
 
+def _known_passthrough(ctx, item):
+    """Size and md5 an earlier upload of this very file recorded, or None when it must be hashed again.
+
+    The local mirror is written only after the archive and its control were stored, and is trusted
+    only while every member stat (path, size, mtime, mode) still matches, the same evidence simple
+    mode relies on for the source. Anything odd falls back to reading the file.
+    """
+    mirror = ctx.controls_directory / (item.key + ".json")
+    try:
+        control = read_control(mirror, item.key) if mirror.is_file() else None
+    except BackupError:
+        return None
+    if (control is None or not control.get("passthrough") or control.get("archive") != item.key
+            or control.get("files") != item.control()["files"] or len(item.files) != 1
+            or control.get("archive_size") != item.files[0].size):
+        return None
+    return SimpleNamespace(size=control["archive_size"], md5=control["archive_md5"])
+
+
 def upload_batch(ctx, item):
     # Each worker owns its runner's last_stderr and its temporary archive.
     # The runner copy shares the cancellation token (see process.Runner); the view shares the rest of ctx.
@@ -47,15 +67,21 @@ def upload_batch(ctx, item):
         _check_cancelled(worker.runner)
         archive = compress(worker, item, Path(temp))
         # Only the archive size and md5 are recorded; sha256 of the archive is never used.
-        compressed = (fingerprint(ctx.source, item.files[0].path, digests={"md5"}) if item.passthrough
-                      else fingerprint(Path(temp), archive.name, digests={"md5"}))
+        if item.passthrough:
+            known = _known_passthrough(ctx, item)
+            compressed = known or fingerprint(ctx.source, item.files[0].path, digests={"md5"})
+            if known:
+                ctx.event("md5_reused", archive=item.key)
+        else:
+            compressed = fingerprint(Path(temp), archive.name, digests={"md5"})
         control = item.control()
         control.update(archive_size=compressed.size, archive_md5=compressed.md5)
         control_path = Path(temp) / "control.json"
         atomic_json(control_path, control)
         show_progress(worker.runner, worker.progress.scope(0.7, 0.95) if worker.progress else None)
         _check_cancelled(worker.runner)
-        transferred = worker.storage.put(archive, item.key)
+        transferred = (worker.storage.put(archive, item.key, metadata_comparison=True) if item.passthrough
+                       else worker.storage.put(archive, item.key))
         events = [("transferred" if transferred else "identical", {
             "path": item.key, "files": [f.path for f in item.files],
             "bytes": compressed.size if transferred else 0})]

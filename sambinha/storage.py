@@ -43,8 +43,12 @@ class StorageBackend(Protocol):
         ...
 
     def put(self, source: Any, key: str, *, standard: bool | str = False,
-            protected_mtime_ns: int | None = None) -> bool:
-        """Upload one object; True when bytes were actually transferred, False when identical."""
+            protected_mtime_ns: int | None = None, metadata_comparison: bool = False) -> bool:
+        """Upload one object; True when bytes were actually transferred, False when identical.
+
+        ``metadata_comparison`` lets a simple-mode job compare size and date instead of re-reading
+        the whole source to checksum it (only for sources that are stable files, not fresh archives).
+        """
         ...
 
     def get(self, key: str, target: Any) -> None:
@@ -123,14 +127,15 @@ class Storage:
         except (ValueError, KeyError, TypeError) as exc:
             raise BackupError("Inventário rclone inválido") from exc
 
-    def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+    def put(self, source, key, *, standard=False, protected_mtime_ns=None, metadata_comparison=False):
         if self.job.type == "local":
             check_mounts(self.job, self.runner, check_source=self.source_required)
             check_disks(self.job, config=self.config, temporary_path=self.temporary_directory,
                         check_source=self.source_required)
             prepare_write(self.job.destination, key)
         protection = ["--update"] if protected_mtime_ns is not None else []
-        comparison = self.comparison_flags() if protected_mtime_ns is not None else ["--checksum"]
+        comparison = (self.comparison_flags() if protected_mtime_ns is not None or metadata_comparison
+                      else ["--checksum"])
         self.command("copyto", source, self.path(key), *comparison, "-v", "--use-json-log", *protection,
                      retry=True, standard=standard)
         report = getattr(self.runner, "last_stderr", None)

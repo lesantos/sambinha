@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.18.6 — 2026-10-27
+
+Stop re-reading huge already-compressed files (zip, 7z, ...) that are uploaded as they are. Such a file is hashed (md5, recorded in its batch control for verification and restore) and then compared with the destination by `rclone copyto --checksum`, so a run that had lost its state (for example every earlier run failed before committing) read a 68 GB zip twice from the CIFS mount even though nothing had changed. Now the md5 and size are taken from the local control mirror of the earlier upload when the file's path, size, date and mode still match exactly (new `md5_reused` event at the `detailed` level); any mismatch or unreadable mirror falls back to hashing. In `simple` verification mode these files are compared with the destination by size and date (`--ignore-checksum --modify-window 1ns`) instead of a checksum; `hash` mode and `.7z` batches, which are rebuilt on every run, keep `--checksum`. `StorageBackend.put` gets the optional `metadata_comparison` argument. The full suite (829 tests) passes.
+
 ## 0.18.5 — 2026-10-27
 
 Log every restart of the private rclone server used for filtered discovery. Since 0.18.1 a dropped connection restarts the server and repeats the listing, but the reason was kept only in memory, so a run that restarted several times left no trace of why. Each restart now writes a `discovery_restart` event (visible at the `summary` and `detailed` levels, not at `error`) with the exception type, whether rclone was still running or its exit code, the tail of its log and the restart count. No change in behavior otherwise.

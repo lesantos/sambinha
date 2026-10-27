@@ -162,7 +162,7 @@ class BlockingStorage:
     def __init__(self, job, config, runner, source_required=True):
         self.runner = runner
 
-    def put(self, source, key, *, standard=False, protected_mtime_ns=None):
+    def put(self, source, key, *, standard=False, protected_mtime_ns=None, metadata_comparison=False):
         with BlockingStorage.lock:
             BlockingStorage.puts.append(key)
         self.runner.cancellation.event.wait(15)
