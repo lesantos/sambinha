@@ -117,7 +117,7 @@ class DiscoveryTests(Sandbox):
         self.file('a/f')
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:
             with patch.object(server, '_call', side_effect=ConnectionResetError()):
-                with self.assertRaisesRegex(BackupError, 'Inventário filtrado inválido'):
+                with self.assertRaisesRegex(BackupError, 'Falha de comunicação.*ConnectionResetError'):
                     server.listing('a')
             self.assertIsNotNone(server.process.poll())
 
@@ -277,17 +277,28 @@ class DiscoveryTests(Sandbox):
 
     def test_transport_failure_reaps_server(self):
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:
-            with patch.object(server, '_call', side_effect=ConnectionResetError()):
-                with self.assertRaisesRegex(BackupError, 'Inventário filtrado inválido'):
+            with patch.object(server, '_call', side_effect=BrokenPipeError()):
+                with self.assertRaisesRegex(BackupError, r'BrokenPipeError; rclone de descoberta .*Serving remote'):
                     server.listing('')
+            self.assertEqual(len(server.restarts), 1)
             self.assertIsNotNone(server.process.poll())
 
-    def test_crashed_server_does_not_turn_into_an_empty_inventory(self):
+    def test_crashed_server_is_restarted_and_listing_is_repeated(self):
+        self.file('a/f')
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:
             server.process.kill()
             server.process.wait()
-            with self.assertRaises(BackupError):
-                server.listing('')
+            self.assertEqual([r['Path'] for r in server.listing('a')], ['a/f'])
+            self.assertEqual(server.starts, 2)
+            self.assertEqual(len(server.restarts), 1)
+
+    def test_server_that_keeps_failing_reports_exit_code_and_log(self):
+        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+            server.process.kill()
+            server.process.wait()
+            with patch.object(server, '_spawn', side_effect=BackupError('rclone de descoberta não iniciou: boom')):
+                with self.assertRaisesRegex(BackupError, 'não iniciou: boom'):
+                    server.listing('')
 
     def test_server_uses_runner_environment_without_mutating_it(self):
         environment = {**os.environ, 'RCLONE_RC_PASS': 'inherited-password',

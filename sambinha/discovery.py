@@ -90,47 +90,80 @@ class Discovery:
         # listing falls back to one flat request per directory.
         self.max_entries = MAX_SUBTREE_ENTRIES
         self.index, self.subtrees, self.oversized = {}, set(), set()
+        self.starts = 0
+        self.restarts = []
 
     def __enter__(self):
         self.directory = tempfile.TemporaryDirectory(prefix=prefix("discovery"),
                                                      dir=self.config.temp_dir)
         try:
-            self.log_path = Path(self.directory.name) / "rclone.log"
-            self.log = self.log_path.open("wb")
-            password = secrets.token_urlsafe(32)
-            self.authorization = "Basic " + base64.b64encode(
-                ("sambinha:" + password).encode()).decode()
-            environment = child_environment(self.runner.env)
-            # Authentication never appears in process arguments or diagnostics.
-            environment.update(RCLONE_RC_USER="sambinha", RCLONE_RC_PASS=password)
-            arguments = [self.config.rclone, "rcd", "--rc-addr", "127.0.0.1:0",
-                         "--rc-no-auth=false", "--rc-serve=false", "--rc-files", "",
-                         "--rc-web-gui=false", "--rc-baseurl", "",
-                         "--log-level", "NOTICE", "--use-json-log=false",
-                         "--log-file", str(self.log_path),
-                         "--retries", "1", "--low-level-retries", "1",
-                         "--skip-links", "--links=false", "--copy-links=false",
-                         "--exclude-from", str(self.exclude_file)]
-            if self.config.rclone_config:
-                arguments += ["--config", self.config.rclone_config]
-            self.process = subprocess.Popen(arguments, env=environment, stdin=subprocess.DEVNULL,
-                                            stdout=subprocess.DEVNULL, stderr=self.log)
-            deadline = time.monotonic() + min(self.timeout, 10)
-            while True:
-                diagnostic = self._diagnostic()
-                if self.process.poll() is not None:
-                    raise BackupError("rclone de descoberta não iniciou: " + diagnostic)
-                address = re.search(r"Serving remote control on http://127\.0\.0\.1:(\d+)", diagnostic)
-                if address:
-                    self.port = int(address[1])
-                    self._reconnect()
-                    return self
-                if time.monotonic() >= deadline:
-                    raise BackupError("Timeout ao iniciar rclone de descoberta")
-                time.sleep(0.01)
+            self._spawn()
+            return self
         except BaseException:
             self.close()
             raise
+
+    def _spawn(self):
+        """Start the private rclone server; also used to restart it after a crash."""
+        self.starts += 1
+        # One log per start, so the port search never reads a previous server.
+        self.log_path = Path(self.directory.name) / f"rclone-{self.starts}.log"
+        if self.log:
+            self.log.close()
+        self.log = self.log_path.open("wb")
+        password = secrets.token_urlsafe(32)
+        self.authorization = "Basic " + base64.b64encode(
+            ("sambinha:" + password).encode()).decode()
+        environment = child_environment(self.runner.env)
+        # Authentication never appears in process arguments or diagnostics.
+        environment.update(RCLONE_RC_USER="sambinha", RCLONE_RC_PASS=password)
+        arguments = [self.config.rclone, "rcd", "--rc-addr", "127.0.0.1:0",
+                     "--rc-no-auth=false", "--rc-serve=false", "--rc-files", "",
+                     "--rc-web-gui=false", "--rc-baseurl", "",
+                     "--log-level", "NOTICE", "--use-json-log=false",
+                     "--log-file", str(self.log_path),
+                     "--retries", "1", "--low-level-retries", "1",
+                     "--skip-links", "--links=false", "--copy-links=false",
+                     "--exclude-from", str(self.exclude_file)]
+        if self.config.rclone_config:
+            arguments += ["--config", self.config.rclone_config]
+        self.process = subprocess.Popen(arguments, env=environment, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=self.log)
+        deadline = time.monotonic() + min(self.timeout, 10)
+        while True:
+            diagnostic = self._diagnostic()
+            if self.process.poll() is not None:
+                raise BackupError("rclone de descoberta não iniciou: " + diagnostic)
+            address = re.search(r"Serving remote control on http://127\.0\.0\.1:(\d+)", diagnostic)
+            if address:
+                self.port = int(address[1])
+                self._reconnect()
+                return
+            if time.monotonic() >= deadline:
+                raise BackupError("Timeout ao iniciar rclone de descoberta")
+            time.sleep(0.01)
+
+    def _stop_server(self):
+        if self.connection:
+            self.connection.close()
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+
+    def _server_state(self):
+        """Why the server is unreachable: exit status plus the tail of its log."""
+        code = self.process.poll() if self.process is not None else None
+        state = "rclone de descoberta ainda em execução" if code is None else \
+            f"rclone de descoberta encerrou com código {code}"
+        try:
+            tail = self._diagnostic().strip()
+        except OSError:
+            tail = ""
+        return state + (": " + tail if tail else " (sem saída no log)")
 
     def _diagnostic(self):
         with self.log_path.open("rb") as stream:
@@ -195,22 +228,44 @@ class Discovery:
             safe_relative(relative)
         top = relative.split("/", 1)[0]
         try:
-            if top and top not in self.subtrees and top not in self.oversized:
-                self._load_subtree(top)
-            if not top or top in self.oversized:
-                return self._flat(relative)
-            return [{"Path": path, "IsDir": is_dir}
-                    for path, is_dir in self.index.get(relative, ())]
+            try:
+                return self._listing(relative, top)
+            except (OSError, http.client.HTTPException) as exc:
+                if isinstance(exc, TimeoutError):
+                    raise
+                # The server dropped the connection or died: restart it once
+                # and repeat the request; loaded subtrees stay in memory.
+                self._restart(exc)
+                return self._listing(relative, top)
         except TimeoutError:
             self.close()
             raise BackupError(f"Timeout ao listar diretório da origem: {self.root / relative}") from None
-        except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError) as exc:
+        except (OSError, http.client.HTTPException) as exc:
+            # Read the server state before close() deletes its log.
+            state = self._server_state()
+            self.close()
+            raise BackupError(f"Falha de comunicação com o rclone de descoberta em "
+                              f"{self.root / relative}: {type(exc).__name__}; {state}") from None
+        except (ValueError, KeyError, TypeError) as exc:
             self.close()
             raise BackupError(f"Inventário filtrado inválido em {self.root / relative}: "
                               f"{type(exc).__name__}") from None
         except BaseException:
             self.close()
             raise
+
+    def _listing(self, relative, top):
+        if top and top not in self.subtrees and top not in self.oversized:
+            self._load_subtree(top)
+        if not top or top in self.oversized:
+            return self._flat(relative)
+        return [{"Path": path, "IsDir": is_dir}
+                for path, is_dir in self.index.get(relative, ())]
+
+    def _restart(self, cause):
+        self.restarts.append(f"{type(cause).__name__}: {self._server_state()}")
+        self._stop_server()
+        self._spawn()
 
     def _flat(self, relative):
         deadline = time.monotonic() + self.timeout
@@ -257,15 +312,7 @@ class Discovery:
         self.connection = http.client.HTTPConnection("127.0.0.1", self.port)
 
     def close(self):
-        if self.connection:
-            self.connection.close()
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+        self._stop_server()
         if self.log:
             self.log.close()
         if self.directory:
