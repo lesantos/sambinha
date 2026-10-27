@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.18.2 — 2026-10-27
+
+Fazer a suíte de testes passar no macOS; o programa em si não muda. O diretório temporário padrão é resolvido uma vez por sessão de testes (o macOS o coloca em `/var`, um link simbólico que os diretórios de metadados recusam), como o programa já faz na inicialização. Os testes de integração usam `7zz` quando ele está no PATH e `7z` caso contrário, de modo que o `sevenzip` do Homebrew não faz mais cerca de 270 testes serem pulados e a cobertura cair abaixo do piso de 92%. Testes que exigem nomes de arquivo não-UTF-8 são pulados no macOS (o APFS recusa esses nomes), e os testes simulados da tabela de montagem do Darwin não substituem mais o `os.lstat` global, o que os fazia falhar de forma intermitente com cobertura no Python 3.15.
+
 ## 0.18.1 — 2026-10-27
 
 Recuperar-se de uma conexão perdida com o servidor rclone privado usado na descoberta filtrada da origem. Um backup falhava com "Inventário filtrado inválido ... BrokenPipeError" porque todo erro de rede com esse servidor era tratado como inventário inválido, e a causa se perdia junto com o log temporário. Agora, se a conexão cair ou o servidor morrer, o Sambinha o reinicia uma vez e repete a listagem (as subárvores já carregadas continuam em memória). Se ainda falhar, o erro diz "Falha de comunicação com o rclone de descoberta", informa a exceção, se o rclone ainda está em execução ou o código de saída, e traz o final do log dele. "Inventário filtrado inválido" fica só para dados malformados. Cada inicialização do servidor grava seu próprio log, então um reinício nunca lê a porta anterior.

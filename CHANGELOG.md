@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.18.2 — 2026-10-27
+
+Make the test suite pass on macOS; no change to the program itself. The default temporary directory is resolved once per test session (macOS places it under `/var`, a symlink that metadata directories refuse), as the program already does at startup. The integration tests use `7zz` when it is on the PATH and `7z` otherwise, so Homebrew's `sevenzip` no longer makes about 270 tests skip and drops coverage below the 92% floor. Tests that need non-UTF-8 file names are skipped on macOS (APFS rejects those names), and the simulated Darwin mount tests no longer replace the global `os.lstat`, which made them fail intermittently under coverage on Python 3.15.
+
 ## 0.18.1 — 2026-10-27
 
 Recover from a dropped connection to the private rclone server used for filtered source discovery. A backup failed with "Inventário filtrado inválido ... BrokenPipeError" because every network error talking to that server was reported as an invalid inventory and the cause was lost with the temporary log. Now, if the connection drops or the server dies, Sambinha restarts it once and repeats the listing (subtrees already loaded stay in memory). If it still fails, the error says "Falha de comunicação com o rclone de descoberta", names the exception, tells whether rclone is still running or its exit code, and includes the tail of its log. "Inventário filtrado inválido" is kept for malformed data only. Each server start writes its own log, so a restart never reads the previous port.
