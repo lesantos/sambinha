@@ -158,6 +158,49 @@ class S3HTTPTests(suite.S3IntegrationTests):
         self.assertEqual([e['count'] for e in self.events if e['event'] == 'batches_adopted'], [len(confirmed)])
         self.assertEqual(set(self.state()['active']), set(confirmed))
 
+    def test_lost_state_and_mirrors_adopt_batches_from_the_controls_stored_in_the_bucket(self):
+        import shutil
+
+        from sambinha.archives import compress
+        from sambinha.state import atomic_json, identity
+        self.file('big.zip', bytes(range(256)) * 400)
+        for name in 'abcd':
+            self.file(name, name.encode() * 4)
+        job = replace(self.config.jobs[0], logic='batch', max_megabytes=10 / 1024 ** 2, batch_workers=1,
+                      log_terminal_level='detailed')
+        self.config = replace(self.config, jobs=(job,))
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        confirmed = self.state()['active']
+        directory = self.config.state_dir / 'test'
+        for name in ('state.json', 'uploads.json'):
+            (directory / name).unlink(missing_ok=True)
+        shutil.rmtree(directory / 'controls')
+        for obj in self.client.list_objects_v2(Bucket='sambinha-tests', Prefix='backup/.sambinha/')\
+                .get('Contents', []):
+            self.client.delete_object(Bucket='sambinha-tests', Key=obj['Key'])
+        atomic_json(directory / 'initialization.json', {'identity': identity(job)})
+        built, copies = [], []
+
+        def counting(worker, item, temp):
+            built.append(item.key)
+            return compress(worker, item, temp)
+        run = self.runner.run
+
+        def record(args, **kwargs):
+            copies.append(list(args))
+            return run(args, **kwargs)
+        self.runner.run = record
+        with patch('sambinha.strategies.batch.compress', counting):
+            self.assertEqual(self.execute(now=2000), 0, self.output.getvalue())
+        self.assertEqual(built, [])
+        event = next(e for e in self.events if e['event'] == 'batches_adopted')
+        self.assertEqual((event['count'], event['from_destination'], event['rebuilt']),
+                         (len(confirmed), len(confirmed), 0))
+        self.assertEqual(sum(1 for c in copies if len(c) > 1 and c[1] == 'copy' and '--files-from-raw' in c), 1)
+        self.assertEqual(set(self.state()['active']), set(confirmed))
+        self.assertEqual({k: c['archive_md5'] for k, c in self.state()['active'].items()},
+                         {k: c['archive_md5'] for k, c in confirmed.items()})
+
     def test_verification_makes_head_requests_and_never_gets_object_bodies(self):
         from unittest.mock import Mock, patch
 

@@ -69,6 +69,8 @@ class PassthroughMd5Tests(Sandbox):
         self.assertNotIn(self.recorded['archive_md5'], md5s)
 
     def test_unreadable_mirror_falls_back_to_hashing(self):
+        # Neither the mirror nor the stored control can be adopted, so the file is hashed again.
         (self.config.state_dir / 'test' / 'controls' / (self.archive + '.json')).write_text('{broken')
+        (self.destination / (self.archive + '.json')).write_text('{broken')
         hashed, _ = self.run_counting()
         self.assertEqual(hashed, ['dir/backup.zip'])

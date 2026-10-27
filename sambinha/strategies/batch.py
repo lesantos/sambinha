@@ -211,43 +211,83 @@ def _available(ctx, item, control, entries=None):
 
 
 def _adoptable(ctx, batches, old, retired_keys):
-    """Keys of planned batches with a local control mirror but no confirmed state, journal or retirement.
+    """Keys of planned batches no confirmed state, journal or retirement accounts for, which may already be stored.
 
-    A lost state (a first run that never committed, a deleted state directory) leaves the mirrors behind: each
-    one is written only after its archive and control were stored. Fresh starts and rebalances ignore them.
+    Without a committed state every such batch qualifies (its control may be at the destination); with one,
+    only those with a local control mirror do. Fresh starts and rebalances adopt nothing.
     """
     if ctx.rebalancing or requested(ctx.job):
         return set()
+    lost = not ctx.state_path.exists()
     return {item.key for item in batches
             if item.key not in old and item.key not in retired_keys and item.key not in ctx.journal
-            and (ctx.controls_directory / (item.key + ".json")).is_file()}
+            and (lost or (ctx.controls_directory / (item.key + ".json")).is_file())}
 
 
-def _saved_control(mirror, key, adopting):
-    if not adopting:
-        return json.loads(mirror.read_text())
+def _mirror_control(ctx, key):
+    """The local control mirror of ``key`` when it is valid and records the archive size and md5."""
+    mirror = ctx.controls_directory / (key + ".json")
     try:
-        control = read_control(mirror, key)
+        control = read_control(mirror, key) if mirror.is_file() else None
     except BackupError:
         return None
-    return control if "archive_size" in control and "archive_md5" in control else None
+    return control if control and "archive_size" in control and "archive_md5" in control else None
+
+
+def _stored_controls(ctx, keys, entries):
+    """Controls stored at the destination next to their archives, for ``keys`` the listing shows complete.
+
+    One bulk ``rclone copy`` of the small control objects (never of an archive) into a temporary directory.
+    Unreadable or incomplete controls are left out, so their batches are simply rebuilt.
+    """
+    found = {}
+    if ctx.job.type == "s3":
+        wanted = [key for key in keys if key in entries and key + ".json" in entries]
+        if not wanted:
+            return found
+        with tempfile.TemporaryDirectory(prefix=prefix("controls"), dir=ctx.config.temp_dir) as temp:
+            ctx.storage.command("copy", ctx.job.destination, temp, "--files-from-raw", "-", "--transfers", "16",
+                                retry=True, standard="control", input="".join(key + ".json\n" for key in wanted))
+            for key in wanted:
+                found[key] = _read_stored(Path(temp) / (key + ".json"), key)
+    else:
+        for key in keys:
+            archive = Path(ctx.job.destination) / key
+            if (archive.is_file() and not path_has_symlink(ctx.job.destination, key)
+                    and not path_has_symlink(ctx.job.destination, key + ".json")):
+                found[key] = _read_stored(Path(ctx.job.destination) / (key + ".json"), key)
+    return {key: control for key, control in found.items() if control}
+
+
+def _read_stored(path, key):
+    try:
+        control = read_control(path, key) if path.is_file() else None
+    except BackupError:
+        return None
+    return control if control and "archive_size" in control and "archive_md5" in control else None
 
 
 def _pending_uploads(ctx, batches, old, active):
     retired_keys = {entry["key"] for entry in ctx.state["retired"]}
     pending = []
     adopting = _adoptable(ctx, batches, old, retired_keys)
-    adopted = 0
+    adopted = from_destination = 0
     from ..index_generations import listing
     entries = (listing(ctx.storage) if ctx.job.type == 's3' and (old or retired_keys or ctx.journal or adopting)
                else None)
     if entries is not None:
         ctx.listing = entries  # snapshot before this run's uploads; reused by the orphan report
+    mirrors = {key: _mirror_control(ctx, key) for key in adopting}
+    elsewhere = [key for key, control in mirrors.items() if control is None]
+    stored = _stored_controls(ctx, elsewhere, entries) if elsewhere and not ctx.state_path.exists() else {}
     for item in batches:
         mirror = ctx.controls_directory / (item.key + ".json")
         adopt = item.key in adopting
-        saved_control = (_saved_control(mirror, item.key, adopt)
-                         if (item.key in retired_keys or adopt) and mirror.is_file() else None)
+        remote = adopt and mirrors[item.key] is None
+        if adopt:
+            saved_control = mirrors[item.key] or stored.get(item.key)
+        else:
+            saved_control = json.loads(mirror.read_text()) if item.key in retired_keys and mirror.is_file() else None
         reusable = saved_control is not None and all(saved_control.get(k) == item.control()[k]
                                                      for k in ("schema", "archive", "files"))
         if reusable:
@@ -262,7 +302,12 @@ def _pending_uploads(ctx, batches, old, active):
                 journal.discard(ctx, item.key)
                 ctx.event("journal_entry_discarded", archive=item.key, reason="missing")
         if available:
-            adopted += adopt and reusable
+            if adopt and reusable:
+                adopted += 1
+                if remote:
+                    from_destination += 1
+                    if not ctx.job.dry_run:
+                        write_control(ctx.config, ctx.job, item.key, saved_control, memo=ctx.control_memo)
             for f in item.files:
                 ctx.event("identical", path=f.path, archive=item.key)
             continue
@@ -273,7 +318,7 @@ def _pending_uploads(ctx, batches, old, active):
             continue
         pending.append(item)
     if adopted:
-        ctx.event("batches_adopted", count=adopted, rebuilt=len(pending))
+        ctx.event("batches_adopted", count=adopted, from_destination=from_destination, rebuilt=len(pending))
     return pending
 
 

@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import unittest
@@ -78,9 +79,40 @@ class AdoptBatchesTests(Sandbox):
         self.assertIn(key, puts)
         self.assertEqual(self.adopted()[0]['count'], len(self.confirmed) - 1)
 
-    def test_unreadable_mirror_is_not_adopted(self):
+    def test_unreadable_mirror_falls_back_to_the_control_stored_at_the_destination(self):
         key = next(k for k, c in self.confirmed.items() if not c.get('passthrough'))
         (self.config.state_dir / 'test' / 'controls' / (key + '.json')).write_text('{broken')
+        built, _ = self.rerun()
+        self.assertEqual(built, [])
+        self.assertEqual(self.adopted()[0]['from_destination'], 1)
+
+    def test_without_mirrors_the_controls_stored_at_the_destination_are_adopted_and_mirrored_again(self):
+        shutil.rmtree(self.config.state_dir / 'test' / 'controls')
+        built, puts = self.rerun()
+        self.assertEqual(built, [])
+        self.assertEqual([key for key in puts if not key.startswith('.sambinha/')], [])
+        event = self.adopted()[0]
+        self.assertEqual((event['count'], event['from_destination'], event['rebuilt']),
+                         (len(self.confirmed), len(self.confirmed), 0))
+        self.assertEqual(set(self.state()['active']), set(self.confirmed))
+        for key in self.confirmed:
+            self.assertTrue((self.config.state_dir / 'test' / 'controls' / (key + '.json')).is_file())
+
+    def test_stored_control_that_does_not_match_or_cannot_be_read_is_not_adopted(self):
+        shutil.rmtree(self.config.state_dir / 'test' / 'controls')
+        keys = [k for k, c in self.confirmed.items() if not c.get('passthrough')]
+        (self.destination / (keys[0] + '.json')).write_text('{broken')
+        stale = json.loads((self.destination / (keys[1] + '.json')).read_text())
+        stale['files'][0]['size'] += 1
+        (self.destination / (keys[1] + '.json')).write_text(json.dumps(stale))
+        built, _ = self.rerun()
+        self.assertEqual(sorted(built), sorted(keys[:2]))
+        self.assertEqual(self.adopted()[0]['count'], len(self.confirmed) - 2)
+
+    def test_stored_control_without_its_archive_is_not_adopted(self):
+        shutil.rmtree(self.config.state_dir / 'test' / 'controls')
+        key = next(k for k, c in self.confirmed.items() if not c.get('passthrough'))
+        (self.destination / key).unlink()
         built, _ = self.rerun()
         self.assertEqual(built, [key])
 
