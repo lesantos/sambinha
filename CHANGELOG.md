@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.18.8 — 2026-10-27
+
+Keep batches running in parallel when one of them is oversized, and write large progress counters the same way everywhere. Until now a single pending batch above `max_megabytes` (a huge file, or a group that grew past the limit) made the whole run use one worker, so a first run after a lost state, with thousands of pending batches, compressed them one at a time while `batch_workers` sat idle. Now the ordinary batches use the configured workers, and the oversized ones, which can need a whole disk of staging by themselves, run alone one at a time afterwards; oversized archives stored as they are (zip, 7z, ...) stage nothing and never serialize anything. The staging-space check runs for each group. In the progress line, counters of five or more digits are written as `134.5k` / `2.1M` at every terminal width; before, they were shortened only on narrow terminals and showed as `134500` otherwise.
+
 ## 0.18.7 — 2026-10-27
 
 Read newly uploaded archives one time fewer. Besides the file read by rclone, Sambinha used to hash every uploaded archive itself (md5, recorded in the batch control for verification and restore) before sending it: a new 68 GB zip was read three times from the source mount, a new `.7z` batch four times from the temporary directory. On S3 rclone already stores the md5 of what it sent on the object (multipart uploads included), so after the upload Sambinha now asks for it with one metadata request (`lsjson --hash --stat`, never the body) and skips its own pass; the new `md5_from_destination` event (`detailed` level) marks each use. It falls back to hashing the file when the destination is local, the object has no md5, its size differs from the local file, or the request fails. The archive is now stored before its control is built; the control is still uploaded last, as before. The full suite passes.

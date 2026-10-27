@@ -151,6 +151,40 @@ class BatchStagingTests(BatchContext, Sandbox):
         self.assertEqual(upload.call_count, len(pending))
         self.assertEqual(upload.call_args_list[0].args[1], pending[0])
 
+    def run_mixed(self, *, heavy_passthrough=False):
+        """One batch above max_megabytes among six ordinary ones, with three workers."""
+        ctx, pending, active = self.context(workers=3, count=7)
+        big = replace(pending[0].files[0], size=2 * MIB)
+        pending = [replace(pending[0], files=(big,), passthrough=heavy_passthrough), *pending[1:]]
+        active = {item.key: item.control() for item in pending}
+        running, peak, order, lock = 0, [], [], threading.Lock()
+
+        def upload(worker, item):
+            nonlocal running
+            with lock:
+                running += 1
+                peak.append((item.key == pending[0].key, running))
+            time.sleep(0.05)
+            with lock:
+                running -= 1
+                order.append(item.key)
+            return item.control(), []
+        with patch.object(strategy, 'check_disk'), patch.object(strategy, 'upload_batch', side_effect=upload):
+            strategy._upload_pending(ctx, pending, active)
+        return pending, peak, order
+
+    def test_oversized_batch_runs_alone_after_the_ordinary_ones_which_stay_parallel(self):
+        pending, peak, order = self.run_mixed()
+        self.assertEqual(sorted(order), sorted(item.key for item in pending))
+        self.assertEqual(order[-1], pending[0].key)
+        self.assertEqual(max(running for heavy, running in peak if not heavy), 3)
+        self.assertEqual([running for heavy, running in peak if heavy], [1])
+
+    def test_oversized_stored_as_is_archive_does_not_serialise_the_rest(self):
+        pending, peak, order = self.run_mixed(heavy_passthrough=True)
+        self.assertEqual(max(running for _, running in peak), 3)
+        self.assertEqual(len(order), len(pending))
+
 
 class BlockingStorage:
     """Stand-in for rclone uploads: block until the runner's children are killed."""

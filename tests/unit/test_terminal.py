@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from sambinha.progress import Progress
-from sambinha.terminal import cell_width, progress_line, terminal_columns
+from sambinha.terminal import cell_width, compact_numbers, progress_line, terminal_columns
 from tests.helpers import Terminal
 
 
@@ -32,6 +32,15 @@ class TerminalLayoutTests(unittest.TestCase):
                         self.assertLess(cell_width(frame), columns)
                         frames.append(frame)
                 self.assertEqual(frames[0].index("40"), frames[1].index("40"))
+
+    def test_large_counters_use_the_same_short_form_at_every_width(self):
+        activity = "diretórios: 4321 | arquivos: 134500"
+        for columns in (50, 80, 240):
+            with self.subTest(columns=columns):
+                frame = progress_line(25, "Inventário simples", "/dados", activity, columns, indeterminate=True)
+                self.assertIn("134.5k", frame)
+                self.assertNotIn("134500", frame)
+        self.assertEqual(compact_numbers("1234 12345 123456789 2000000"), "1234 12.3k 123.5M 2M")
 
     def test_real_terminal_width_prevents_wrapping_and_update_newlines(self):
         master, slave = os.openpty()

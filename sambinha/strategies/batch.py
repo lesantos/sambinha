@@ -246,79 +246,95 @@ def _pending_uploads(ctx, batches, old, active):
     return pending
 
 
-def _upload_pending(ctx, pending, active):
-    if pending:
-        # A dedicated oversized batch can consume a whole alternate disk by
-        # itself. Do not overlap it with any other staging/archive file.
-        oversized = any(sum(file.size for file in item.files) > ctx.job.max_bytes for item in pending)
-        workers = 1 if oversized else min(ctx.job.batch_workers, len(pending))
-        # Check the largest possible simultaneous staging demand, including
-        # dedicated files and existing groups exceeding the configured limit.
-        largest = sorted(((temporary_bytes(item, ctx.job), item) for item in pending),
-                         key=lambda entry: entry[0], reverse=True)[:workers]
-        required = sum(size for size, _ in largest)
-        try:
-            check_disk(get_temporary_path(ctx.config), "temporários", ctx.event, required_bytes=required)
-        except BackupError as exc:
-            if "Espaço insuficiente" not in str(exc):
-                raise
-            details = []
-            for staging_bytes, item in largest:
-                files = sorted(item.files, key=lambda file: file.size, reverse=True)
-                largest_files = ", ".join(f"{file.path} ({file.size} bytes)" for file in files[:3])
-                if len(files) > 3:
-                    largest_files += f", +{len(files) - 3} arquivos"
-                details.append(f"{item.key}: staging estimado {staging_bytes} bytes; "
-                               f"originais {sum(file.size for file in item.files)} bytes; "
-                               f"maiores arquivos: {largest_files}")
-            raise BackupError(f"{exc}; lotes que definem a estimativa: " + " | ".join(details)) from exc
-        scopes = (ctx.progress.scope(0.1, 0.85).parallel(
-            [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
-        ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes, strict=False)}
-        stopped = threading.Event()
-
-        def upload(item):
-            try:
-                return upload_batch(ctx, item)
-            except BaseException:
-                # Mark failure inside the worker before it accepts more work.
-                stopped.set()
-                raise
-
-        remaining = iter(pending)
-        pool = ThreadPoolExecutor(max_workers=workers)
-        futures = {}
-        try:
-            while True:
-                while len(futures) < workers and not stopped.is_set():
-                    item = next(remaining, None)
-                    if item is None:
-                        break
-                    futures[pool.submit(upload, item)] = item
-                if not futures:
-                    break
-                # A bounded wait lets a signal delivered to another thread
-                # reach this one (handlers only run in the main thread).
-                done, _ = wait(futures, timeout=1, return_when=FIRST_COMPLETED)
-                # Consume every completed result before submitting replacements.
-                for future in done:
-                    item = futures.pop(future)
-                    control, events = future.result()
-                    active[item.key] = control
-                    for event, values in events:
-                        ctx.event(event, **values)
-        except BaseException as exc:
-            stopped.set()
-            # Ctrl+C/SIGTERM: kill in-flight 7-Zip/rclone children so workers
-            # bail out in seconds instead of finishing hours of discarded work.
-            # A worker's own BackupError keeps letting its siblings finish.
-            if not isinstance(exc, Exception) and isinstance(ctx.runner, Runner):
-                ctx.runner.cancel()
+def _staging_check(ctx, items, workers):
+    # Check the largest possible simultaneous staging demand, including
+    # dedicated files and existing groups exceeding the configured limit.
+    largest = sorted(((temporary_bytes(item, ctx.job), item) for item in items),
+                     key=lambda entry: entry[0], reverse=True)[:workers]
+    required = sum(size for size, _ in largest)
+    try:
+        check_disk(get_temporary_path(ctx.config), "temporários", ctx.event, required_bytes=required)
+    except BackupError as exc:
+        if "Espaço insuficiente" not in str(exc):
             raise
-        finally:
+        details = []
+        for staging_bytes, item in largest:
+            files = sorted(item.files, key=lambda file: file.size, reverse=True)
+            largest_files = ", ".join(f"{file.path} ({file.size} bytes)" for file in files[:3])
+            if len(files) > 3:
+                largest_files += f", +{len(files) - 3} arquivos"
+            details.append(f"{item.key}: staging estimado {staging_bytes} bytes; "
+                           f"originais {sum(file.size for file in item.files)} bytes; "
+                           f"maiores arquivos: {largest_files}")
+        raise BackupError(f"{exc}; lotes que definem a estimativa: " + " | ".join(details)) from exc
+
+
+def _run_workers(ctx, items, workers, active):
+    stopped = threading.Event()
+
+    def upload(item):
+        try:
+            return upload_batch(ctx, item)
+        except BaseException:
+            # Mark failure inside the worker before it accepts more work.
             stopped.set()
-            # In-flight workers finish their own temporary-directory cleanup.
-            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+
+    remaining = iter(items)
+    pool = ThreadPoolExecutor(max_workers=workers)
+    futures = {}
+    try:
+        while True:
+            while len(futures) < workers and not stopped.is_set():
+                item = next(remaining, None)
+                if item is None:
+                    break
+                futures[pool.submit(upload, item)] = item
+            if not futures:
+                break
+            # A bounded wait lets a signal delivered to another thread
+            # reach this one (handlers only run in the main thread).
+            done, _ = wait(futures, timeout=1, return_when=FIRST_COMPLETED)
+            # Consume every completed result before submitting replacements.
+            for future in done:
+                item = futures.pop(future)
+                control, events = future.result()
+                active[item.key] = control
+                for event, values in events:
+                    ctx.event(event, **values)
+    except BaseException as exc:
+        stopped.set()
+        # Ctrl+C/SIGTERM: kill in-flight 7-Zip/rclone children so workers
+        # bail out in seconds instead of finishing hours of discarded work.
+        # A worker's own BackupError keeps letting its siblings finish.
+        if not isinstance(exc, Exception) and isinstance(ctx.runner, Runner):
+            ctx.runner.cancel()
+        raise
+    finally:
+        stopped.set()
+        # In-flight workers finish their own temporary-directory cleanup.
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
+
+
+def _upload_pending(ctx, pending, active):
+    if not pending:
+        return
+    # A dedicated batch above max_megabytes that is built here (anything but a stored-as-is archive, which
+    # stages nothing) can consume a whole alternate disk by itself: those run alone, one at a time, after
+    # the ordinary batches, which keep the configured parallelism.
+    heavy = [item for item in pending if not item.passthrough
+             and sum(file.size for file in item.files) > ctx.job.max_bytes]
+    heavy_keys = {item.key for item in heavy}
+    light = [item for item in pending if item.key not in heavy_keys]
+    scopes = (ctx.progress.scope(0.1, 0.85).parallel(
+        [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
+    ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes, strict=False)}
+    for items, workers in ((light, min(ctx.job.batch_workers, len(light))), (heavy, 1)):
+        if items:
+            _staging_check(ctx, items, workers)
+            _run_workers(ctx, items, workers, active)
 
 
 def batch(ctx: Context):

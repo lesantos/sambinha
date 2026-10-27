@@ -40,12 +40,8 @@ def shorten(text, columns, *, tail=False):
     return "".join(chars) + "…"
 
 
-def compact_activity(text):
-    for before, after in (("conferidos: ", "conf:"), ("copiados: ", "cóp:"),
-                          ("remoções: ", "rem:"), ("movidos: ", "mov:"),
-                          ("tempo: ", "t:"), ("aguardando estatísticas do rclone", "aguardando dados")):
-        text = text.replace(before, after)
-
+def compact_numbers(text):
+    """Write counters of five or more digits as 134.5k / 2.1M, wherever they are shown."""
     def compact_count(match):
         number = int(match[0])
         for scale, suffix in ((10**9, "B"), (10**6, "M"), (10**3, "k")):
@@ -53,13 +49,22 @@ def compact_activity(text):
                 return f"{number / scale:.1f}".rstrip("0").rstrip(".") + suffix
         return match[0]
 
-    return re.sub(r"\b\d{5,}\b", compact_count, text).replace(" | ", " ")
+    return re.sub(r"\b\d{5,}\b", compact_count, text)
+
+
+def compact_activity(text):
+    for before, after in (("conferidos: ", "conf:"), ("copiados: ", "cóp:"),
+                          ("remoções: ", "rem:"), ("movidos: ", "mov:"),
+                          ("tempo: ", "t:"), ("aguardando estatísticas do rclone", "aguardando dados")):
+        text = text.replace(before, after)
+    return compact_numbers(text).replace(" | ", " ")
 
 
 def progress_line(percent, stage, directory, activity, columns, *, indeterminate=False):
     # Leave a cell free: writing through the right margin can auto-wrap.
     budget = max(0, columns - 1)
     prefix = "Em andamento" if indeterminate else f"{percent:5.1f}% do backup (estimado)"
+    activity = compact_numbers(activity) if activity else activity
     parts = [prefix, stage]
     if activity:
         parts.append(activity)
