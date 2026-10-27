@@ -161,7 +161,7 @@ class SelectionTests(Sandbox):
         (self.source / 'lnk').symlink_to(outside)
 
         class FakeDiscovery:
-            def __init__(self, config, runner, root, exclude_file):
+            def __init__(self, config, runner, root, exclude_file, on_event=None):
                 self.visited = []
 
             def __enter__(self):
@@ -184,7 +184,7 @@ class SelectionTests(Sandbox):
         entered = []
 
         @contextmanager
-        def discovery(config, runner, root, exclude):
+        def discovery(config, runner, root, exclude, on_event=None):
             entered.append(root)
             yield Mock(listing='LISTING')
         with patch('sambinha.filtering.Discovery', discovery), self.selection(FakeRunner()).source_listing(self.source) as listing:

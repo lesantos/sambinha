@@ -298,12 +298,28 @@ class DiscoveryTests(Sandbox):
 
     def test_crashed_server_is_restarted_and_listing_is_repeated(self):
         self.file('a/f')
-        with Discovery(self.config, Runner(), self.source, self.rules()) as server:
+        events = []
+        with Discovery(self.config, Runner(), self.source, self.rules(),
+                       lambda name, **values: events.append((name, values))) as server:
             server.process.kill()
             server.process.wait()
             self.assertEqual([r['Path'] for r in server.listing('a')], ['a/f'])
             self.assertEqual(server.starts, 2)
             self.assertEqual(len(server.restarts), 1)
+        self.assertEqual([name for name, _ in events], ['discovery_restart'])
+        self.assertEqual(events[0][1]['restarts'], 1)
+        self.assertIn('rclone de descoberta', events[0][1]['server'])
+
+    def test_selection_hands_its_event_callback_to_discovery(self):
+        events = []
+        selection = Selection(self.rules(), self.config, Runner(), on_event=lambda *a, **k: events.append(a))
+        self.file('a/f')
+        with selection.source_listing(self.source) as listing:
+            server = listing.__self__
+            server.process.kill()
+            server.process.wait()
+            self.assertEqual([r['Path'] for r in listing('a')], ['a/f'])
+        self.assertEqual(events[0][0], 'discovery_restart')
 
     def test_server_that_keeps_failing_reports_exit_code_and_log(self):
         with Discovery(self.config, Runner(), self.source, self.rules()) as server:

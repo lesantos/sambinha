@@ -36,6 +36,15 @@ class LogLevelTests(Sandbox):
                 self.assertNotIn("-vv", args)
                 self.assertEqual(kwargs.get("on_output") is not None, expected == "DEBUG")
 
+    def test_discovery_restart_is_visible_at_summary_level_but_not_error_level(self):
+        for level, expected in (("summary", True), ("error", False)):
+            with self.subTest(level=level):
+                log = RunLog(self.root / f"logs-{level}", file_level=level, terminal_level="error")
+                log.event("discovery_restart", job="j", reason="BrokenPipeError", server="x", restarts=1)
+                log.stream.flush()
+                self.assertEqual("discovery_restart" in log.path.read_text(), expected)
+                log.close()
+
     def test_default_file_and_terminal_only_report_errors_and_summaries(self):
         config = with_job_overrides(self.config, log_file_level="summary", log_terminal_level="summary", dry_run=True)
         output = io.StringIO()

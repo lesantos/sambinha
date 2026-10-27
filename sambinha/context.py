@@ -90,7 +90,7 @@ class Context:
         self.runner, self.log = runner, log
         self.files, self.now = files, now
         self.selection = Selection(job.exclude_files, config, runner,
-                                   ignored_roots=(job.source,))
+                                   ignored_roots=(job.source,), on_event=self.event)
         self.selected_dirs = selected_dirs
         self.forecast = forecast
         self.progress = progress

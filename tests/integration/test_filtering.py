@@ -162,7 +162,7 @@ class FilteringTests(Sandbox):
         self.assertEqual(files, {'root.txt', 'nested/leaf/keep.txt'})
         self.assertEqual(directories, {'nested', 'nested/leaf'})
         self.assertEqual(calls, ['', 'nested', 'nested/leaf'])
-        server.assert_called_once_with(self.config, selection.runner, root, rules)
+        server.assert_called_once_with(self.config, selection.runner, root, rules, selection.on_event)
 
     def test_invalid_native_pattern_stops_before_copy(self):
         self.file('file')

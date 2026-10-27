@@ -75,8 +75,10 @@ class _ListParser:
 class Discovery:
     """Own the server and cancel all work on timeout, failure or interruption."""
 
-    def __init__(self, config, runner, root, exclude_file):
+    def __init__(self, config, runner, root, exclude_file, on_event=None):
         self.config, self.runner = config, runner
+        # Optional ``on_event(name, **values)``: reports server restarts in the run log.
+        self.on_event = on_event
         self.root, self.exclude_file = Path(root), exclude_file
         self.process = None
         self.connection = None
@@ -267,7 +269,11 @@ class Discovery:
                 for path, is_dir in self.index.get(relative, ())]
 
     def _restart(self, cause):
-        self.restarts.append(f"{type(cause).__name__}: {self._server_state()}")
+        state = self._server_state()
+        self.restarts.append(f"{type(cause).__name__}: {state}")
+        if self.on_event:
+            self.on_event("discovery_restart", reason=type(cause).__name__, server=state,
+                          restarts=len(self.restarts))
         self._stop_server()
         self._spawn()
 

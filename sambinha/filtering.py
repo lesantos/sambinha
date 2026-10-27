@@ -71,8 +71,9 @@ def path_groups(paths):
 
 
 class Selection:
-    def __init__(self, exclude_file, config, runner, *, ignored_roots=()):
+    def __init__(self, exclude_file, config, runner, *, ignored_roots=(), on_event=None):
         self.exclude_file, self.config, self.runner = exclude_file, config, runner
+        self.on_event = on_event
         self.ignored_roots = tuple(ignored_roots)
         self._included = {}
 
@@ -82,7 +83,7 @@ class Selection:
         if not self.exclude_file:
             yield None
         else:
-            with Discovery(self.config, self.runner, root, self.exclude_file) as discovery:
+            with Discovery(self.config, self.runner, root, self.exclude_file, self.on_event) as discovery:
                 yield discovery.listing
 
     def listing(self, root, files_only=False, *, recursive=True, apply_exclusions=True):
@@ -112,7 +113,7 @@ class Selection:
         queue = [""]
         included_files = set()
         visited = 0
-        with Discovery(self.config, self.runner, root, self.exclude_file) as discovery:
+        with Discovery(self.config, self.runner, root, self.exclude_file, self.on_event) as discovery:
             while queue:
                 relative = queue.pop()
                 if relative and path_has_symlink(root, relative):

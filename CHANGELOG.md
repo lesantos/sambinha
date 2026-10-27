@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.18.5 — 2026-10-27
+
+Log every restart of the private rclone server used for filtered discovery. Since 0.18.1 a dropped connection restarts the server and repeats the listing, but the reason was kept only in memory, so a run that restarted several times left no trace of why. Each restart now writes a `discovery_restart` event (visible at the `summary` and `detailed` levels, not at `error`) with the exception type, whether rclone was still running or its exit code, the tail of its log and the restart count. No change in behavior otherwise.
+
 ## 0.18.4 — 2026-10-27
 
 Fix an unstable test. `test_nested_directory_replaced_by_another_directory_is_detected` recreated the replaced file right after the scan, and on kernels with a coarse filesystem clock (Linux 5.15 on ext4) the new file kept the same `mtime_ns` and content, so the change went unnoticed and the test failed most runs. It now waits for the clock to advance like the neighbouring tests. No change to the package code; the full suite (823 tests) passes.

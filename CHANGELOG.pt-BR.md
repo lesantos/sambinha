@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.18.5 — 2026-10-27
+
+Registrar em log cada reinício do servidor rclone privado da descoberta filtrada. Desde a 0.18.1 uma conexão perdida reinicia o servidor e repete a listagem, mas o motivo ficava só em memória, então uma execução que reiniciou várias vezes não deixava rastro do porquê. Cada reinício agora grava um evento `discovery_restart` (visível nos níveis `summary` e `detailed`, não em `error`) com o tipo da exceção, se o rclone ainda estava em execução ou o código de saída, o final do log dele e a contagem de reinícios. Sem outra mudança de comportamento.
+
 ## 0.18.4 — 2026-10-27
 
 Corrigir um teste instável. `test_nested_directory_replaced_by_another_directory_is_detected` recriava o arquivo trocado logo após o scan e, em kernels com relógio de sistema de arquivos grosso (Linux 5.15 em ext4), o arquivo novo ficava com o mesmo `mtime_ns` e o mesmo conteúdo, a mudança passava despercebida e o teste falhava na maioria das execuções. Agora ele espera o relógio avançar, como os testes vizinhos. Sem mudança no código do pacote; a suíte completa (823 testes) passa.
