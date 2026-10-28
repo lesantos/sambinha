@@ -103,8 +103,16 @@ def compress(ctx, batch, work: Path):
             members[name] = int(fields["Size"])
             # Absent for empty files and for formats without per-member CRCs.
             crcs[name] = int(fields["CRC"], 16) if fields.get("CRC") else None
-    if members != {f.path: f.size for f in batch.files}:
-        raise BackupError("Lote incompleto ou caminhos incorretos; envio interrompido")
+    expected = {f.path: f.size for f in batch.files}
+    if members != expected:
+        missing = sorted(set(expected) - set(members))
+        extra = sorted(set(members) - set(expected))
+        resized = sorted(p for p in set(expected) & set(members) if expected[p] != members[p])
+        detail = "; ".join(f"{label} ({len(names)}): {[*names[:3]]!r}" for label, names in
+                           (("ausentes no 7z", missing), ("extras no 7z", extra), ("tamanho diferente", resized))
+                           if names)
+        raise BackupError(f"Lote incompleto ou caminhos incorretos; envio interrompido: {batch.key} "
+                          f"({len(members)} membros, {len(expected)} esperados) {detail}")
     # The inventory's own read pass must agree with what 7-Zip read for the same member. Only
     # files hashed in this run carry a CRC (hash mode, no cache hit); empty members have none.
     for item in batch.files:

@@ -7,7 +7,7 @@ import re
 import stat
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from .retention import DAY
@@ -32,7 +32,7 @@ class RunLog:
         self.terminal_level = terminal_level
         self.job_levels = {} if job_levels is None else dict(job_levels)
         self.id = uuid.uuid4().hex
-        self.path = directory / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{self.id}.jsonl"
+        self.path = directory / f"{datetime.now().astimezone():%Y%m%dT%H%M%S}-{self.id}.jsonl"
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         # A retention pass in another invocation must not remove an open log.
         fcntl.flock(fd, fcntl.LOCK_SH)
@@ -90,7 +90,7 @@ class RunLog:
         to_terminal = visible(terminal_level)
         if not to_file and not to_terminal:
             return
-        record = {"time": datetime.now(UTC).isoformat(), "event": event, **details}
+        record = {"time": datetime.now().astimezone().isoformat(), "event": event, **details}
         # Redact values before JSON escaping so multiline secrets are covered.
         def clean(value):
             if isinstance(value, str):
