@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.19.5 — 2026-10-29
+
+Corrigir um aviso de lint (`RUF015`) em um teste; o programa não muda. O `ruff check` passa limpo e a suíte completa passa.
+
 ## 0.19.4 — 2026-10-29
 
 Fazer o inventário de um job `simple` com `verify_source_changes = false` ler muito menos de um compartilhamento de rede. Para cada arquivo o inventário abria um identificador só de metadados, pedia os atributos mais duas vezes e o caminho mais uma, e então fechava, embora, com as checagens desligadas, nenhuma dessas respostas fosse comparada com nada e a listagem já tivesse fornecido os mesmos atributos. Em um CIFS (cerca de 3 requisições por arquivo, uma thread), um inventário de 487 mil arquivos levava dezenas de minutos sem nenhum evento no log. Nessa combinação o inventário passa a usar os atributos da listagem do diretório e não abre o arquivo; o resultado é idêntico (caminho, tamanho, data, modo), e arquivos que não são regulares continuam recusados com o mesmo erro. `verify_source_changes = true` e o modo `hash` não mudam. O inventário continua sequencial de propósito: em disco rígido ou NAS, leituras em paralelo podem atrapalhar mais do que ajudar. A suíte completa passa.

@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.19.5 — 2026-10-29
+
+Fix a lint finding (`RUF015`) in a test; no change to the program. `ruff check` is clean and the full suite passes.
+
 ## 0.19.4 — 2026-10-29
 
 Make the inventory of a `simple` job with `verify_source_changes = false` read far less from a network mount. For every file the inventory opened a metadata-only handle, asked for its attributes twice more and for the path once more, then closed it, although with the checks off none of those answers was compared with anything and the listing had already supplied the same attributes. On a CIFS mount (about 3 requests per file, one thread) an inventory of 487,000 files took tens of minutes with no event in the log. In that combination the inventory now uses the attributes from the directory listing and does not open the file; the result is identical (path, size, date, mode), and files that are not regular are still refused with the same error. `verify_source_changes = true` and `hash` mode are unchanged. The inventory stays sequential on purpose: on a spinning disk or a NAS, parallel reads can hurt more than help. The full suite passes.

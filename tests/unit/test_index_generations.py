@@ -188,7 +188,7 @@ class RecoveryPublicationBoundsTests(Sandbox):
             publish(ctx,state)
         names=[call.args[0] for call in ctx.event.call_args_list]
         self.assertIn('index_size',names)
-        values=[call.kwargs for call in ctx.event.call_args_list if call.args[0]=='index_size'][0]
+        values=next(call.kwargs for call in ctx.event.call_args_list if call.args[0]=='index_size')
         self.assertGreater(values['state_bytes'],0)
         self.assertGreater(values['controls_bytes'],0)
         self.assertEqual(values['controls'],1)
