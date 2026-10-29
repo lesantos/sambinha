@@ -31,8 +31,10 @@ from .tempdirs import prefix
 
 PREFIX = INDEXES + '/'
 GENERATION = re.compile(r'[0-9]{20}-[0-9a-f]{32}\Z')
-MAX_METADATA = 64 * 1024 * 1024
-MAX_CONTROLS_METADATA = 256 * 1024 * 1024
+# The state is parsed whole (about twice its size in memory, more while reading) and recovery also keeps
+# every control in memory, so these bounds are sized for machines with a few GB free, not for "unlimited".
+MAX_METADATA = 256 * 1024 * 1024
+MAX_CONTROLS_METADATA = 512 * 1024 * 1024
 
 
 def listing(storage, only=None):
@@ -285,8 +287,9 @@ def publish(ctx, state):
                 controls[entry['key']] = read_control(path, entry['key'])
         recovery_state = {k: v for k, v in state.items() if k not in ('index_pending', 'fingerprints')}
         atomic_json(work / STATE_FILE, recovery_state)
-        if (work / STATE_FILE).stat().st_size > MAX_METADATA:
-            raise BackupError('Índice excede limite de metadados (state.json)')
+        state_bytes = (work / STATE_FILE).stat().st_size
+        if state_bytes > MAX_METADATA:
+            raise BackupError(f'Índice excede limite de metadados (state.json): {state_bytes} bytes, limite {MAX_METADATA}')
         archive = work / 'control.tar.gz'
         control_bytes = 0
         with tarfile.open(archive, 'w:gz') as tar:
@@ -297,8 +300,11 @@ def publish(ctx, state):
                 size = path.stat().st_size
                 control_bytes += size
                 if size > MAX_METADATA or control_bytes > MAX_CONTROLS_METADATA:
-                    raise BackupError('Controles excedem limite de metadados')
+                    raise BackupError(f'Controles excedem limite de metadados: {key} tem {size} bytes, soma {control_bytes}, '
+                                      f'limites {MAX_METADATA} e {MAX_CONTROLS_METADATA}')
                 tar.add(path, arcname='controls/' + key + '.json')
+        ctx.event('index_size', state_bytes=state_bytes, controls_bytes=control_bytes, controls=len(controls),
+                  archive_bytes=archive.stat().st_size, limit_state=MAX_METADATA, limit_controls=MAX_CONTROLS_METADATA)
         key = PREFIX + generation + '.tar.gz'
         ctx.storage.put(archive, key, standard="control")
         marker = work / 'commit.json'

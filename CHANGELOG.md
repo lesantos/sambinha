@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.19.3 — 2026-10-29
+
+Raise the size limits of the recovery index so that a large backup can be published, and report its size. A run of 487,000 files in 4,204 batches finished every upload and then failed at the very last step with `Índice excede limite de metadados (state.json)`: the index was refused when `state.json` passed 64 MiB, so the state was not committed and nothing was confirmed. The bounds are now 256 MiB for `state.json` (and for each control) and 512 MiB for all controls together; they still exist on purpose, because the state is parsed whole (about twice its size in memory, more while it is read) and recovery keeps every control in memory, so they are sized for a machine with a few GB free rather than removed. The error now says how large the state was and what the limit is, and a new `index_size` event (summary level) records the sizes of `state.json`, of the controls and of the published archive on every successful publication, so growth can be followed before a limit is reached. The full suite passes.
+
 ## 0.19.2 — 2026-10-28
 
 Name the failing batch when its archive does not match the inventory, and write the run log in the machine's timezone. The error `Lote incompleto ou caminhos incorretos; envio interrompido` is raised after compression and before upload, so the run log held no event saying which batch failed or why; the message now carries the batch key, the number of members found and expected, and up to three paths that are missing, extra or have a different size. The run log (`time` of every event and the log file name) and the `deletion_at` dates of deletion forecasts used UTC; they are now written in the local timezone with its offset (`2026-10-28T12:38:13-03:00`). Parsers that read ISO 8601 keep working. Log retention uses the file date, so existing logs are unaffected; history names at the destination and archive listings still use UTC on purpose. The full suite passes.

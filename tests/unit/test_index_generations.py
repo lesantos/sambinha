@@ -163,3 +163,32 @@ class RecoveryPublicationBoundsTests(Sandbox):
         with patch('sambinha.index_generations.MAX_CONTROLS_METADATA',100), self.assertRaisesRegex(BackupError,'metadados'):
             publish(ctx,state)
         ctx.storage.put.assert_not_called()
+
+    def test_limits_fit_a_large_backup_and_errors_report_sizes(self):
+        from sambinha import index_generations
+        from sambinha.index_generations import publish
+        from sambinha.logging import SUMMARY_EVENTS
+        self.assertGreaterEqual(index_generations.MAX_METADATA, 256 * 1024 * 1024)
+        self.assertGreaterEqual(index_generations.MAX_CONTROLS_METADATA, 512 * 1024 * 1024)
+        self.assertIn('index_size', SUMMARY_EVENTS)
+        job=replace(self.config.jobs[0],logic='batch')
+        state={'schema':1,'identity':identity(job),'active':{},'retired':[]}
+        ctx=Mock(config=self.config,job=job,now=1000,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
+        with patch('sambinha.index_generations.MAX_METADATA',64), self.assertRaisesRegex(BackupError,r'state\.json\): \d+ bytes, limite 64'):
+            publish(ctx,state)
+
+    def test_index_size_event_is_logged_before_upload(self):
+        from sambinha.index_generations import publish
+        job=replace(self.config.jobs[0],logic='batch')
+        control=plan([File('a',1,'a'*64,'b'*32,100,0o640)],100)[0].control()
+        state={'schema':1,'identity':identity(job),'active':{control['archive']:control},'retired':[]}
+        ctx=Mock(config=self.config,job=job,now=1000,directory=self.root/'transaction',identity=identity(job),controls_directory=self.root/'controls')
+        ctx.storage.put.side_effect=RuntimeError('stop before upload')
+        with self.assertRaisesRegex(RuntimeError,'stop before upload'):
+            publish(ctx,state)
+        names=[call.args[0] for call in ctx.event.call_args_list]
+        self.assertIn('index_size',names)
+        values=[call.kwargs for call in ctx.event.call_args_list if call.args[0]=='index_size'][0]
+        self.assertGreater(values['state_bytes'],0)
+        self.assertGreater(values['controls_bytes'],0)
+        self.assertEqual(values['controls'],1)

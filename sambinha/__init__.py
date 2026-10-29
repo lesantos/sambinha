@@ -1,2 +1,2 @@
 """Sambinha: domain logic independent of transfer services."""
-__version__ = "0.19.2"
+__version__ = "0.19.3"
