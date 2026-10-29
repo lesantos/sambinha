@@ -14,7 +14,7 @@ from pathlib import Path
 from .errors import BackupError, ForeignStateError, UnsupportedStateError
 from .inventory import safe_relative
 from .local_paths import reject_symlinks
-from .names import FINGERPRINTS_FILE, NAMESPACE
+from .names import FINGERPRINTS_FILE, INVENTORY_COUNT_FILE, NAMESPACE
 
 # State-file schema: 1 (pre-0.13) and 2 (0.13, confirmed generations) carry a
 # legacy path-based identity; 3 carries the name-based identity below. Older
@@ -241,6 +241,23 @@ def load_fingerprints(directory: Path):
 def save_fingerprints(directory: Path, cache):
     """Private per-machine cache (st_dev/st_ino): never part of state.json or the published index."""
     atomic_json(directory / FINGERPRINTS_FILE, cache, compact=True)
+
+
+def load_inventory_count(directory: Path):
+    """File count of the last inventory, used only to estimate progress; None when unknown or unreadable."""
+    try:
+        count = json.loads((directory / INVENTORY_COUNT_FILE).read_text())["files"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return count if type(count) is int and count > 0 else None
+
+
+def save_inventory_count(directory: Path, count: int):
+    """Best effort: a hint for the progress estimate must never fail a backup."""
+    try:
+        atomic_json(directory / INVENTORY_COUNT_FILE, {"files": count}, compact=True)
+    except OSError:
+        pass
 
 
 def drop_fingerprints(directory: Path):

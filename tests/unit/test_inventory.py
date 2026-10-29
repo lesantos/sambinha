@@ -155,6 +155,58 @@ class ListingInventoryTests(Sandbox):
                 listing_mtime_ns(bad)
 
 
+class InventoryProgressTests(Sandbox):
+    def progress(self):
+        calls = []
+        return SimpleNamespace(enabled=True, update=lambda *args, **kwargs: calls.append((args, kwargs))), calls
+
+    def listing(self, prefix):
+        directory = self.source / prefix if prefix else self.source
+        return [{'Path': (prefix + '/' if prefix else '') + entry.name, 'IsDir': entry.is_dir(follow_symlinks=False),
+                 'Size': entry.stat(follow_symlinks=False).st_size, 'ModTimeNs': entry.stat(follow_symlinks=False).st_mtime_ns}
+                for entry in os.scandir(directory)]
+
+    def test_expected_count_gives_a_percentage_that_stays_below_the_total_until_the_end(self):
+        for index in range(6):
+            self.file(f'd{index % 2}/f{index}')
+        for walk in (lambda progress, **kw: scan(self.source, mode='simple', progress=progress, **kw),
+                     lambda progress, **kw: scan_from_listing(self.source, self.listing, progress=progress, **kw)):
+            progress, calls = self.progress()
+            walk(progress, expected=4)
+            known = [(a[2], a[3], k['indeterminate']) for a, k in calls[:-1] if len(a) > 3 and a[3]]
+            self.assertTrue(known)
+            self.assertTrue(all(total == 4 and done <= 3 and not indeterminate for done, total, indeterminate in known))
+            self.assertEqual(max(done for done, _, _ in known), 3)
+
+    def test_without_an_expected_count_the_walk_stays_indeterminate(self):
+        self.file('a/one')
+        progress, calls = self.progress()
+        scan_from_listing(self.source, self.listing, progress=progress)
+        self.assertTrue(calls[0][1]['indeterminate'])
+        self.assertTrue(all(k['indeterminate'] for a, k in calls[:-1]))
+
+    def test_inventory_count_is_remembered_between_runs_and_bad_files_are_ignored(self):
+        from sambinha.names import INVENTORY_COUNT_FILE
+        from sambinha.state import load_inventory_count, save_inventory_count
+        directory = self.root / 'state' / 'job'
+        self.assertIsNone(load_inventory_count(directory))
+        save_inventory_count(directory, 487336)
+        self.assertEqual(load_inventory_count(directory), 487336)
+        for bad in ('', 'x', '{}', '{"files": "7"}', '{"files": 0}', '{"files": true}', '[1]'):
+            (directory / INVENTORY_COUNT_FILE).write_text(bad)
+            with self.subTest(bad=bad):
+                self.assertIsNone(load_inventory_count(directory))
+
+    def test_planning_steps_are_named_in_the_first_tenth_of_the_scope(self):
+        from sambinha.context import Context
+        scoped = SimpleNamespace(update=lambda *a, **k: steps.append((a[0], a[2], a[3])))
+        steps = []
+        progress = SimpleNamespace(scope=lambda start, end: scoped if (start, end) == (0, 0.1) else None)
+        Context.step(SimpleNamespace(progress=progress, source=self.source), 'Planejando lotes', 1)
+        Context.step(SimpleNamespace(progress=None, source=self.source), 'ignorado', 2)
+        self.assertEqual(steps, [('Planejando lotes', 1, 5)])
+
+
 class VolatileInodeTests(Sandbox):
     def listing(self, prefix):
         with os.scandir(self.source / prefix) as entries:

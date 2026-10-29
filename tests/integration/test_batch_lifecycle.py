@@ -1,6 +1,6 @@
 import io
-import os
 import json
+import os
 import shutil
 import unittest
 from contextlib import redirect_stdout
@@ -75,6 +75,15 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertEqual({p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()},
                          {'a', 'b', 'c', 'd', 'sub/e'})
         self.assertEqual({(p.stat().st_mode & 0o777) for p in output.rglob('*') if p.is_file()}, {0o644})
+
+    def test_inventory_count_is_saved_after_the_walk_but_not_by_a_dry_run(self):
+        for name in ('a', 'b', 'c'):
+            self.file(name)
+        path = self.config.state_dir / 'test' / 'inventory_count.json'
+        self.assertEqual(self.execute(with_job_overrides(self.config, dry_run=True)), 0, self.output.getvalue())
+        self.assertFalse(path.exists())
+        self.assertEqual(self.execute(), 0, self.output.getvalue())
+        self.assertEqual(json.loads(path.read_text()), {'files': 3})
 
     def test_batch_alert_only_at_end_all_jobs_finish_and_exit_is_success(self):
         self.seed()

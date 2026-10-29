@@ -195,7 +195,13 @@ class Context:
         whose "inventory" is rebuilt from controls and was never filtered)."""
         return () if self.rebalancing else self.file_sizes.keys()
 
+    def step(self, stage, number, total=5):
+        """Name the planning stage in the progress line: planning owns the first tenth of the upload scope."""
+        if self.progress:
+            self.progress.scope(0, 0.1).update(stage, self.source, number, total, force=True)
+
     def protect_deletions(self, allowed=False):
+        self.step("Conferindo remoções", 0)
         included = self.selection.include_paths(self.before_files, self.selected_paths())
         self.removed = sorted(included - self.selected_paths())
         if not allowed and len(included) >= self.job.deletion_min_files:

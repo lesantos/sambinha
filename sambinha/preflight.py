@@ -14,7 +14,7 @@ from .inventory import File, scan, scan_from_listing
 from .mounts import check_mounts, uses_mountpoint_command
 from .process import credential_values, show_progress
 from .retention import DAY
-from .state import load_fingerprints
+from .state import load_fingerprints, load_inventory_count, save_inventory_count
 from .versions import check_compressor_version
 
 
@@ -75,14 +75,21 @@ def _read_inventory(config, job, runner, now, reading, log=None):
     embedded = previous.pop("fingerprints", None)
     loaded = (embedded if embedded else load_fingerprints(config.state_dir / job.name)) if caching else {}
     fingerprints = {}
+    # The previous inventory's file count turns the walk's counters into an estimated percentage
+    # (the true total is unknown until the walk ends); the walk takes the upper part of this scope.
+    expected = load_inventory_count(config.state_dir / job.name)
+    walking = reading.scope(0.1, 1) if reading else None
     with selection.source_listing(job.source, metadata=job.inventory_from_listing) as listing:
         if job.inventory_from_listing:
-            files = scan_from_listing(job.source, listing, selected_dirs_out=selected_dirs, progress=reading)
+            files = scan_from_listing(job.source, listing, selected_dirs_out=selected_dirs, progress=walking,
+                                      expected=expected)
         else:
             files = scan(job.source, listing=listing, selected_dirs_out=selected_dirs,
                          cache=None if force else loaded, cache_out=fingerprints if caching else None,
-                         mode=job.verification_mode, progress=reading,
-                         verify_source_changes=job.verify_source_changes)
+                         mode=job.verification_mode, progress=walking,
+                         verify_source_changes=job.verify_source_changes, expected=expected)
+    if not job.dry_run:
+        save_inventory_count(config.state_dir / job.name, len(files))
     return JobInventory(files, selected_dirs, fingerprints,
                         now if force else previous["last_full_scan"], previous, force, loaded, legacy)
 

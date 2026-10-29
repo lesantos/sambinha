@@ -9,6 +9,7 @@ CONTROL = NAMESPACE + "/control.tar.gz"
 JOB_MARKER = NAMESPACE + "/job.json"
 STATE_FILE = "state.json"
 FINGERPRINTS_FILE = "fingerprints.json"
+INVENTORY_COUNT_FILE = "inventory_count.json"
 # rclone filter that keeps the reserved namespace out of sync/check/restore/listing commands.
 NAMESPACE_EXCLUDE = ("--exclude", "/" + NAMESPACE + "/**")
 

@@ -206,7 +206,12 @@ def listing_mtime_ns(text) -> int:
 LISTING_FILE_MODE = 0o755
 
 
-def scan_from_listing(root: Path, listing, *, selected_dirs_out=None, progress=None) -> list[File]:
+def _estimate(done, expected):
+    """Files counted so far against the last inventory's count, held below 100% until the walk ends."""
+    return min(done, int(expected * 0.99)) if expected else 0
+
+
+def scan_from_listing(root: Path, listing, *, selected_dirs_out=None, progress=None, expected=None) -> list[File]:
     """Inventory built only from discovery records (path, size, date): no ``stat`` per file.
 
     Same traversal and order as ``scan`` (entries of a directory sorted by date and name, in
@@ -220,8 +225,9 @@ def scan_from_listing(root: Path, listing, *, selected_dirs_out=None, progress=N
 
     def report(current):
         if progress:
-            progress.update("Inventário simples", root / current,
-                            activity=f"diretórios: {visited} | arquivos: {len(result)}", indeterminate=True)
+            progress.update("Inventário simples", root / current, _estimate(len(result), expected),
+                            expected, activity=f"diretórios: {visited} | arquivos: {len(result)}",
+                            indeterminate=not expected)
 
     def walk(prefix):
         nonlocal visited
@@ -271,7 +277,7 @@ def path_has_symlink(root, relative, cache=None):
 
 def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cache_out=None,
          mode="hash", progress=None, listing=None, selected_dirs_out=None,
-         verify_source_changes=True) -> list[File]:
+         verify_source_changes=True, expected=None) -> list[File]:
     """Discover and inspect each directory once, in mtime/name DFS order.
 
     A filtered listing supplies only direct child names from rclone. Metadata
@@ -294,7 +300,8 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
                 activity += f" | bytes: {read}/{size}"
             # The total is unknown until discovery ends. Do not manufacture a
             # percentage or perform an extra walk just to obtain a denominator.
-            progress.update(current_stage, current_directory, activity=activity, indeterminate=True)
+            progress.update(current_stage, current_directory, _estimate(len(result), expected), expected,
+                            activity=activity, indeterminate=not expected)
 
     def inspect(fd, relative, before):
         report(stage, directory)

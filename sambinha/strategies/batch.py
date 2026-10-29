@@ -138,6 +138,7 @@ def snapshot(state):
 
 
 def _plan_batches(ctx):
+    ctx.step("Planejando lotes", 1)
     confirmed = {**ctx.state.get("excluded", {}), **ctx.state["active"]}
     destination_times = {}
     for control in confirmed.values():
@@ -158,7 +159,9 @@ def _plan_batches(ctx):
     current_files = {f.path: f.metadata() for f in ctx.files}
     # Archives stored by an interrupted earlier run come first, so the same
     # members form the same batch again and its upload is skipped (_pending_uploads).
+    ctx.step("Lendo o diário de envios", 2)
     ctx.journal = {} if ctx.rebalancing or requested(ctx.job) else journal.usable(ctx, confirmed, current_files)
+    ctx.step("Agrupando arquivos em lotes", 3)
     previous = {**{key: journal.entry_control(entry) for key, entry in ctx.journal.items()}, **old}
     batches = plan(ctx.files, ctx.job.max_bytes, extension=ctx.job.archive_format, previous=previous,
                    individual_percent=ctx.job.individual_batch_percent, rebalance=ctx.rebalancing)
@@ -419,7 +422,9 @@ def batch(ctx: Context):
     if not ctx.job.dry_run:
         for key, control in {**ctx.state.get("excluded", {}), **old}.items():
             cached_control(ctx.config, ctx.job, key, control, memo=ctx.control_memo)
+    ctx.step("Conferindo lotes no destino", 4)
     pending = _pending_uploads(ctx, batches, old, active)
+    ctx.step("Lotes conferidos", 5)
     _upload_pending(ctx, pending, active)
     next_state["active"] = active
     if (ctx.state_path.exists() and next_state == ctx.state and not pending and not ctx.inventory_changed
