@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from sambinha.batches import plan
 from sambinha.context import Context
 from sambinha.errors import BackupError
+from sambinha.filtering import Selection
 from sambinha.inventory import scan
 from sambinha.metadata import cached_control, control_directory, prepare_controls, read_control, write_control
 from sambinha.state import atomic_json, identity
@@ -47,6 +48,31 @@ class DailyMetadataTests(Sandbox):
         self.assertEqual(result['unchanged_files'], 2)
         for key, control in state['active'].items():
             self.assertEqual(json.loads((self.root / 'metadata' / job.name / (key + '.json')).read_text()), control)
+
+    def test_daily_follows_the_job_source_check_setting(self):
+        for setting in (True, False):
+            with self.subTest(verify_source_changes=setting):
+                job, _ = self.baseline()
+                job = replace(job, verify_source_changes=setting)
+                with patch('sambinha.verification.scan', wraps=scan) as walk:
+                    verify_local_metadata_job(self.config, job, Mock(), Mock())
+                self.assertIs(walk.call_args.kwargs['verify_source_changes'], setting)
+
+    def test_daily_uses_the_listing_inventory_and_skips_link_checks_for_present_paths(self):
+        job, _ = self.baseline()
+        job = replace(job, inventory_from_listing=True)
+        seen = []
+        original = Selection.include_paths
+        def spy(selection, paths, current=()):
+            seen.append(set(current))
+            return original(selection, paths, current)
+        with patch('sambinha.verification.scan_from_listing', side_effect=lambda *a, **k: scan(self.source, mode='simple')) as listed, \
+             patch('sambinha.verification.scan', side_effect=AssertionError('walk')), \
+             patch.object(Selection, 'include_paths', spy):
+            result = verify_local_metadata_job(self.config, job, Mock(), Mock())
+        listed.assert_called_once()
+        self.assertEqual(seen, [{'a.txt', 'b.txt'}])
+        self.assertFalse(result['needs_update'])
 
     def test_daily_reports_new_changed_deleted_files_and_affected_batches(self):
         job, _ = self.baseline()

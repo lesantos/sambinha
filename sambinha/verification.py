@@ -8,12 +8,12 @@ from .archive_recovery import check_archive
 from .batches import plan
 from .errors import BackupError
 from .filtering import Selection
-from .inventory import scan
+from .inventory import scan, scan_from_listing
 from .metadata import cached_control, control_directory, local_state, member_metadata, prepare_controls, read_control
 from .mounts import check_mounts
 from .names import STATE_FILE
 from .recovery_index import read_index
-from .state import indexed_files
+from .state import indexed_files, load_inventory_count
 from .storage import Storage
 from .tempdirs import prefix
 
@@ -31,10 +31,18 @@ def verify_local_metadata_job(config, job, runner, log, state=None, *, progress=
                 for key, value in state['active'].items()}
     previous = {path: metadata for control in controls.values() for path, metadata in member_metadata(control).items()}
     selection = Selection(job.exclude_files, config, runner, ignored_roots=(job.source,))
-    with selection.source_listing(job.source) as listing:
-        files = scan(job.source, listing=listing, mode="simple", progress=progress)
+    # Same choices as the backup's own inventory: the job's source checks (default on) and, when the
+    # job asks for it, the listing alone instead of one stat per file.
+    expected = load_inventory_count(config.state_dir / job.name)
+    with selection.source_listing(job.source, metadata=job.inventory_from_listing) as listing:
+        if job.inventory_from_listing:
+            files = scan_from_listing(job.source, listing, progress=progress, expected=expected)
+        else:
+            files = scan(job.source, listing=listing, mode="simple", progress=progress,
+                         verify_source_changes=job.verify_source_changes, expected=expected)
     current = {item.path: (item.size, item.mtime_ns) for item in files}
-    included = selection.include_paths(previous)
+    # Paths of the present inventory are selected by construction: no link check for each of them.
+    included = selection.include_paths(previous, current.keys())
     added = current.keys() - included
     removed = included - current.keys()
     modified = {path for path in current.keys() & included if current[path] != previous[path]}
