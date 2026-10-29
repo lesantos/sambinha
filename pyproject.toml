@@ -21,7 +21,8 @@ test = [
     "pytest-xdist>=3.5,<4",
     "pytest-cov>=5,<8",
 ]
-dev = ["ruff", "mypy", "pytest", "pytest-xdist", "pytest-cov"]
+# ruff is pinned to a minor series: new minors add or rename rules and change what `ruff check` reports.
+dev = ["ruff>=0.17,<0.18", "mypy", "pytest", "pytest-xdist", "pytest-cov"]
 
 [project.scripts]
 sambinha = "sambinha.cli:main"
