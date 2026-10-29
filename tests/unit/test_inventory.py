@@ -277,6 +277,27 @@ class VolatileInodeTests(Sandbox):
             result = scan(self.source, mode='simple', verify_source_changes=False)
         self.assertEqual(result[0].size, 3)
 
+    def test_simple_scan_without_source_checks_does_not_open_files(self):
+        self.file('a/one', b'1')
+        self.file('two', b'22')
+        expected = scan(self.source, mode='simple')
+        opened = []
+        original = os.open
+        def spy(path, *args, **kwargs):
+            opened.append(str(path))
+            return original(path, *args, **kwargs)
+        with patch('sambinha.inventory.os.open', side_effect=spy):
+            actual = scan(self.source, mode='simple', verify_source_changes=False)
+        self.assertEqual(actual, expected)
+        # Only the directories are opened (a, and the root by the caller); no file is.
+        self.assertNotIn('one', opened)
+        self.assertNotIn('two', opened)
+
+    def test_simple_scan_without_source_checks_rejects_special_files(self):
+        os.mkfifo(self.source / 'pipe')
+        with self.assertRaisesRegex(BackupError, 'regulares'):
+            scan(self.source, mode='simple', verify_source_changes=False)
+
     def test_hash_cache_does_not_reuse_fingerprints_after_inode_renumbering(self):
         self.file('file', b'original')
         cache, new_cache = {}, {}

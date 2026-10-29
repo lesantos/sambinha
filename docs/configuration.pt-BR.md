@@ -305,7 +305,7 @@ Isso vale para backup e verificação manual. O preflight pertence a cada job. U
 
 `verification_mode` e o cache de fingerprints aplicam-se aos inventários batch. Jobs `logic = "simple"` delegam as decisões de sincronização ao rclone: `simple` usa comparação tamanho/data; `hash` passa `--checksum`. A verificação manual usa `rclone check`.
 
-Jobs batch conferem se os arquivos de origem permanecem estáveis durante a leitura e a compactação. Defina `verify_source_changes = false` dentro do job para ignorar essas checagens e deixar as próximas alterações para backups futuros. Com o padrão `true`, um arquivo alterado é retentado até três vezes após a primeira leitura; se continuar mudando, o backup falha. Essa opção não altera o funcionamento de `rclone sync` nos jobs simples.
+Jobs batch conferem se os arquivos de origem permanecem estáveis durante a leitura e a compactação. Defina `verify_source_changes = false` dentro do job para ignorar essas checagens e deixar as próximas alterações para backups futuros. Com o padrão `true`, um arquivo alterado é retentado até três vezes após a primeira leitura; se continuar mudando, o backup falha. Com `false` e `verification_mode = "simple"`, o inventário obtém tamanho, data e modo de cada arquivo da listagem do diretório, sem abrir o arquivo. Essa opção não altera o funcionamento de `rclone sync` nos jobs simples.
 
 Para comparar o conteúdo por SHA-256 e MD5, configure:
 

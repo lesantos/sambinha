@@ -229,7 +229,16 @@ def scan(root: Path, included_files=None, included_dirs=None, *, cache=None, cac
 
     def inspect(fd, relative, before):
         report(stage, directory)
-        attempts = 4 if verify_source_changes else 1
+        if mode == "simple" and not verify_source_changes:
+            # Nothing is read and nothing is compared, so opening the file only to stat it
+            # again (open, two fstat, stat, close) would cost several round trips per file
+            # on a network mount for the same answer the listing already gave.
+            if not stat.S_ISREG(before.st_mode):
+                raise BackupError(f"Apenas arquivos regulares são aceitos: {relative}")
+            item, opened = _metadata(relative, before), before
+            attempts = 0
+        else:
+            attempts = 4 if verify_source_changes else 1
         for attempt in range(attempts):
             try:
                 if verify_source_changes:
