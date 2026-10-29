@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from sambinha import inventory
 from sambinha.errors import BackupError, JobError
 from sambinha.filtering import SKIP_LINK_FLAGS, Selection, frozen_rules, path_groups, retired_paths
 from tests.helpers import FakeRunner, Sandbox
@@ -122,6 +123,20 @@ class SelectionTests(Sandbox):
         self.file('real/x.txt')
         selection = self.selection(FakeRunner(), rules=False, ignored_roots=[self.source])
         self.assertEqual(selection.include_paths({'link/x.txt', 'real/x.txt'}), {'real/x.txt'})
+
+    def test_current_inventory_paths_are_not_checked_for_links(self):
+        self.file('real/x.txt')
+        self.file('gone/y.txt')
+        selection = self.selection(FakeRunner(), rules=False, ignored_roots=[self.source])
+        checked = []
+        original = inventory.path_has_symlink
+        def spy(root, relative, cache=None):
+            checked.append(relative)
+            return original(root, relative, cache)
+        with patch('sambinha.filtering.path_has_symlink', side_effect=spy):
+            included = selection.include_paths({'real/x.txt', 'gone/y.txt'}, current={'real/x.txt'})
+        self.assertEqual(included, {'real/x.txt', 'gone/y.txt'})
+        self.assertEqual(checked, ['gone/y.txt'])
 
     def test_include_paths_classifies_only_paths_missing_from_the_current_inventory(self):
         def classify(command, **options):

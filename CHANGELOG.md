@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.19.6 — 2026-10-29
+
+Stop checking every inventoried file for symbolic links a second and third time. Right after the inventory, the planner asked `include_paths` about every path of the saved state (about 487,000 files), and for each one it looked at the path on the source mount to see whether a link hides it; the directories were cached but the file itself was not, so each call cost one request to the network share. It ran twice (planning batches and the deletion guard), about 6 minutes each on a CIFS mount, with no message in the log and the progress bar stopped. Paths that are in the present inventory are now skipped by that check: the inventory walk never follows or records links, so they cannot be behind one. The check still runs for every other path (files removed from the source or newly excluded), which is the case it exists for: a directory replaced by a link must not make its old files look deleted. The result of `include_paths` is the same. The full suite passes.
+
 ## 0.19.5 — 2026-10-29
 
 Fix a lint finding (`RUF015`) in a test; no change to the program. `ruff check` is clean and the full suite passes.

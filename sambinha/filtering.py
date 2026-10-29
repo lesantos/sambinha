@@ -144,15 +144,16 @@ class Selection:
         dummy tree. Only the rest (removed or newly excluded files) is classified.
         """
         paths = set(paths)
+        # The inventory walk never follows or records a symbolic link, so its paths need no link
+        # check; only the rest (removed or newly excluded files) is inspected. On a network mount
+        # that check costs one round trip per file, which adds up to many minutes for a large tree.
+        known = paths.intersection(current)
+        paths -= known
         cache = {}
         paths = {p for p in paths if not any(path_has_symlink(root, p, cache)
                                             for root in self.ignored_roots)}
         if not self.exclude_file or not paths:
-            return paths
-        known = paths.intersection(current)
-        paths -= known
-        if not paths:
-            return known
+            return known | paths
         cache_key = frozenset(paths)
         if cache_key in self._included:
             return known | self._included[cache_key]

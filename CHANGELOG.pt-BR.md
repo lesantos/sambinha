@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.19.6 — 2026-10-29
+
+Parar de checar links simbólicos de todos os arquivos inventariados uma segunda e uma terceira vez. Logo depois do inventário, o planejador consultava `include_paths` para cada caminho do estado salvo (cerca de 487 mil arquivos) e, para cada um, olhava o caminho no compartilhamento de origem para ver se um link o escondia; os diretórios ficavam em cache, mas o arquivo não, então cada chamada custava uma requisição à rede. Isso rodava duas vezes (planejamento dos lotes e proteção contra remoções), cerca de 6 minutos cada em um CIFS, sem nenhuma mensagem no log e com a barra de progresso parada. Os caminhos que estão no inventário atual agora ficam fora dessa checagem: o inventário não segue nem registra links, então eles não podem estar atrás de um. A checagem continua para todos os outros caminhos (arquivos removidos da origem ou recém-excluídos), que é o caso para o qual ela existe: um diretório trocado por um link não pode fazer seus arquivos antigos parecerem apagados. O resultado de `include_paths` é o mesmo. A suíte completa passa.
+
 ## 0.19.5 — 2026-10-29
 
 Corrigir um aviso de lint (`RUF015`) em um teste; o programa não muda. O `ruff check` passa limpo e a suíte completa passa.
