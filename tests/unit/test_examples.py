@@ -56,15 +56,28 @@ class ExampleTests(unittest.TestCase):
                     section.add(match[1])
         expected = {field.name for field in fields(Config)} - {'jobs', 'environment'} - JOB_SCOPED_OPTIONS
         self.assertEqual(global_keys, expected)
-        expected_jobs = {field.name for field in fields(Job)} - RUN_SCOPED_FIELDS - {
-            'max_delete', 'max_delete_percent', 'deletion_min_files'}
+        # Each example job lists only the options that apply to its kind (active or commented). The simple
+        # local job also shows the S3-only options as comments, for when its destination becomes S3.
+        every = {field.name for field in fields(Job)} - RUN_SCOPED_FIELDS
+        batch_only = {'recovery_index_versions', 'batch_workers', 'resume', 'fingerprint_cache',
+                      'fingerprint_full_scan_days', 'verify_source_changes', 'inventory_from_listing', 'file_mode',
+                      'compression_text_level', 'compression_compressed_level', 'compression_other_level',
+                      'compression_text_extensions', 'compression_compressed_extensions', 'compression_threads',
+                      'individual_batch_percent', 'batch_size_alert_percent', 'max_megabytes', 'compressor',
+                      'archive_format', 'max_delete_percent', 'deletion_min_files', 'control_storage_class'}
+        simple_only = {'transfer_workers', 'max_delete', 'fast_list'}
+        local_only = {'destination_mount'}
         examples = tomllib.loads((ROOT / 'sambinha.example.toml').read_text())['jobs']
         self.assertGreaterEqual(len(job_keys), 2)
         for index, (keys, example) in enumerate(zip(job_keys, examples, strict=False)):
-            expected = expected_jobs | ({'max_delete'} if example['logic'] == 'simple'
-                                        else {'max_delete_percent', 'deletion_min_files'})
+            expected = every - batch_only if example['logic'] == 'simple' else every - simple_only
+            if example['type'] == 'local':
+                expected -= {'control_storage_class'}
+            else:
+                expected -= local_only
             with self.subTest(job=index):
                 self.assertEqual(keys, expected)
+        self.assertEqual(set().union(*job_keys), every)
 
     def test_active_toml_example_remains_valid(self):
         with patch.dict('os.environ', {'CRONITOR_URL': ''}):

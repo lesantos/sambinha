@@ -85,6 +85,23 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertEqual(self.execute(), 0, self.output.getvalue())
         self.assertEqual(json.loads(path.read_text()), {'files': 3})
 
+    def test_deleted_and_changed_files_are_retained_for_their_own_periods(self):
+        config = with_job_overrides(self.config, deleted_days=30, version_days=5)
+        self.seed()
+        self.assertEqual(self.execute(config, now=1500), 0, self.output.getvalue())
+        def retired(since):
+            return [(e['reason'], e['retention_days']) for e in self.state()['retired'] if e['retired_at'] >= since]
+        (self.source / 'individual').write_bytes(b'j' * 31)  # alone in its batch: a changed version only
+        self.assertEqual(self.execute(config, now=2000), 0, self.output.getvalue())
+        self.assertEqual(retired(2000), [('version', 5)])
+        (self.source / 'c').unlink()  # its batch also held d, which stays: a deleted file
+        self.assertEqual(self.execute(config, now=3000), 0, self.output.getvalue())
+        self.assertEqual(retired(3000), [('deleted', 30)])
+        (self.source / 'a').write_bytes(b'changed!')  # a and b shared a batch: one changed, one deleted
+        (self.source / 'b').unlink()
+        self.assertEqual(self.execute(config, now=4000), 0, self.output.getvalue())
+        self.assertEqual(retired(4000), [('deleted', 30)])
+
     def test_batch_alert_only_at_end_all_jobs_finish_and_exit_is_success(self):
         self.seed()
         (self.source / 'a').write_bytes(b'a' * 25)

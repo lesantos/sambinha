@@ -2,39 +2,35 @@
 # Source links are ignored; conflicting destination links are replaced without touching targets.
 # Paths are relative to THIS configuration file; ~ and environment variables work.
 [backup]
+# Directory for the state of each job (state.json, upload journal, caches), one subfolder per job.
 state_dir = "./state"
+
+# Directory for the JSON-lines run logs (one file per invocation); old ones are removed according to
+# log_retention_days.
 log_dir = "./logs"
-# Confirmed metadata generations; data follows retention.
-metadata_dir = "./metadata" # Local batch JSON mirrors, beside state and logs.
-# Optional shared directory for temporary files; it must exist and be writable.
+
+# Local mirrors of each batch's JSON control, beside state and logs. verify-local-metadata reads them, and
+# they let a run adopt batches already stored when the state is lost.
+metadata_dir = "./metadata"
+
+# Optional directory for temporary files (archives being built, discovery); it must exist and be writable.
+# Without it the system temporary directory (TMPDIR) is used.
 # temp_dir = "/mnt/ssd/sambinha-tmp"
-# Keep logs written in the last 14 days; 0 disables automatic cleanup.
-# Old inactive Sambinha logs are removed during non-simulated invocations.
-# Independent levels: error, summary (default), or detailed.
-# summary records errors, alerts, per-job summaries, and the final result.
-# detailed includes per-file events; it does not change rclone's internal -vv.
-# Batch history retention; simple jobs keep rclone backup-dir files indefinitely.
-# Soft Cronitor alert for more than this many impending permanent deletions.
-# Does not stop backups or change deadlines; run daily for advance notice.
-# Daily source verification uses only local JSONs and size/time; no S3 reads.
-# 0 disables the check after backup; set 1 to check once per day after backups.
-# Independent activities (select a batch job):
-# sambinha verify-local-metadata --job documents-s3         # daily; reports needs_update
-# sambinha verify-destination-metadata --job documents-s3   # monthly; compare JSON replicas
-# sambinha verify-destination-integrity --job documents-s3                # manual; 7-Zip integrity test
-# Default: compare size in bytes and nanosecond modification time without reading contents.
-# Use "hash" for backup inventories; daily batch verify-local-metadata still compares only size/time.
-# P1: in hash mode, reuse hashes only when device/inode/size/mtime/ctime/mode all match.
-# These options never enable content hashing in simple mode.
-# P2: bounded raw file lists and concurrent transfers in one rclone process.
-# P4: each worker has separate staging, subprocess state and uploads.
+
+# rclone executable: a name found in PATH or a full path.
 rclone = "rclone"
-# Point to a rclone configuration; empty uses ~/.config/rclone/rclone.conf.
+
+# rclone configuration file that defines the remotes (such as aws). Empty uses ~/.config/rclone/rclone.conf.
 rclone_config = "./rclone.example.conf"
+
+# Time limit, in seconds, for each external rclone call, and for each directory listing of the source in
+# batch discovery. Large trees on slow shares need a large value.
 timeout = 3600
+
 # Optional private dotenv file; ~ and inherited variables work in its path.
 # Relative paths start at the directory of this TOML, not the working directory.
 # secrets_file = "~/.config/sambinha/secrets.env"
+
 # Already-exported terminal variables take precedence over file values.
 # The file is read as data, not executed; a missing/invalid file stops execution.
 # Set CRONITOR_URL in the file/environment; never commit the credential-bearing URL.
@@ -43,102 +39,222 @@ timeout = 3600
 
 # The same source may have multiple independent jobs/destinations/strategies.
 [[jobs]]
+# Job name (letters, digits, _ and -). It names the job's state and metadata folders and is what --job
+# selects.
 name = "documents-local"
-recovery_index_versions = 3
+
+# Batch jobs: days the old archives of files that disappeared from the source are kept before permanent
+# removal. The period counts per archive, not per file: an archive that holds both a deleted and a changed
+# file keeps the longer of deleted_days and version_days. Simple jobs use the larger of the two for
+# everything.
 deleted_days = 10
+
+# Batch jobs: days the old archives of files that changed are kept before permanent removal, so earlier
+# versions stay recoverable that long. With 0 they expire immediately, at the next cleanup. Simple jobs use
+# the larger of version_days and deleted_days for everything.
 version_days = 2
+
+# Keep logs written in the last N days; older inactive Sambinha logs are removed on non-simulated runs. 0
+# disables the cleanup.
 log_retention_days = 14
+
+# What the run log file records: error (errors only), summary (errors, alerts, per-job summaries and the
+# final result) or detailed (also per-file events). It does not change rclone's own verbosity.
 log_file_level = "summary"
+
+# What is printed on the terminal, with the same levels as log_file_level (error, summary or detailed).
+# Independent of the file level.
 log_terminal_level = "summary"
+
+# Soft Cronitor alert when more than this many permanent deletions are about to happen. It does not stop the
+# backup or change deadlines.
 deletion_alert_threshold = 1000
+
+# After a backup, run the local source check (size and date against the local JSON controls, no S3 reads)
+# when this many days passed since the last one. 0 disables it. The same check, and the other verifications,
+# can be run by hand: sambinha verify-local-metadata --job NAME (reports needs_update),
+# verify-destination-metadata (compares the JSON replicas) and verify-destination-integrity (7-Zip integrity
+# test of the archives).
 verify_interval_days = 0
+
+# How files are compared: "simple" uses size and modification time in nanoseconds without reading contents;
+# "hash" also computes SHA-256/MD5 in batch inventories. The daily local check always compares only size and
+# date.
 verification_mode = "simple"
-fingerprint_cache = true
-verify_source_changes = true # Retry source races up to 3 times; then fail.
-inventory_from_listing = false # Build the inventory from the listing (batch, simple, exclude_files, verify_source_changes=false); mode 0o755.
-# file_mode = 0o644 # Restore only: permissions of restored files (default: those recorded).
-fingerprint_full_scan_days = 7
+
+# Concurrent transfers inside rclone for simple jobs.
 transfer_workers = 4
-batch_workers = 2
+
+# true only reports what would be done and changes nothing.
 dry_run = false
-resume = "auto" # "fresh" discards resume caches/journals every run (batch jobs).
+
+# Folder to back up.
 source = "~/Documents"
+
+# Where the backup goes: a local folder, or an rclone remote and bucket such as aws:BUCKET/prefix. Give each
+# job an exclusive prefix.
 destination = "~/Backups/documents-simple"
+
+# Destination type: "local" (folder or mounted disk) or "s3".
 type = "local"
+
+# "simple": one rclone sync that keeps replaced and deleted files in a history folder. "batch": groups files
+# into 7-Zip archives with recovery index and controls.
 logic = "simple"
-# Batch compression (only used if this job becomes logic = "batch"): three tiers chosen by file
-# extension, each at its own 7-Zip level 0-9 (0 = store). See the batch job below for the extension lists.
-compression_text_level = 1        # text: very compressible, cheap level
-compression_compressed_level = 0  # already compressed (jpg, mp4, zip...): stored
-compression_other_level = 1             # every other extension (executables, databases, images...)
-# compression_text_extensions = [...]        # defaults listed in the batch job below
-# compression_compressed_extensions = [...]
-compression_threads = 2
-# Dedicated archive at this % of max_megabytes; keep normal batch open.
-individual_batch_percent = 100
-# Final Cronitor failure only; 0 disables; does not interrupt jobs.
-batch_size_alert_percent = 200
-# Per-job disk checks (default true); false skips only that capacity check.
-# For Seafile/FUSE sources reporting zero capacity, set check_source_disk = false.
-# Destination also covers restore output; S3 has no local destination disk.
-# Batch/recovery temporary storage and mount/path checks remain enabled.
+
+# Check the free capacity of the source disk before running. Set false for sources that report zero capacity
+# (such as Seafile/FUSE). Only this capacity check is skipped; temporary-storage and mount/path checks stay
+# on.
 check_source_disk = true
+
+# Check the free capacity of a local destination (also covers the restore output). S3 has no local
+# destination disk.
 check_destination_disk = true
-# When THIS job fails, true continues the next jobs; false stops the invocation.
+
+# When this job fails: true continues with the next jobs; false stops the invocation.
 continue_on_job_error = true
-# Batch settings, if this job is changed to logic = "batch"
-# max_megabytes = 1024
-# compressor = "7z"
-# archive_format = "7z"
+
+# S3 storage class of the archives.
 # S3 setting; does not affect a local destination.
 # storage_class = "GLACIER_IR"
-# control_storage_class = "STANDARD"
-# Optional rclone tuning, S3 only (ignored for local destinations):
-# fast_list = true            # --fast-list for simple jobs: fewer listing requests, more memory
-# s3_chunk_size = "64M"       # --s3-chunk-size for uploads (multi-GB archives)
-# s3_upload_concurrency = 8   # --s3-upload-concurrency, 1-64
-# Native rclone exclusion patterns; paths are relative to this TOML.
+
+# S3 simple jobs (ignored for local destinations): pass --fast-list to rclone, with fewer listing requests
+# and memory proportional to the number of objects.
+# fast_list = true
+
+# S3: --s3-chunk-size of uploads (for example 64M), useful for multi-GB archives. Ignored for local
+# destinations.
+# s3_chunk_size = "64M"
+
+# S3: --s3-upload-concurrency, parts uploaded in parallel (1-64). Ignored for local destinations.
+# s3_upload_concurrency = 8
+
+# File with native rclone exclusion patterns, relative to this TOML. It is read when the job starts and a
+# missing or unreadable file stops the job.
 exclude_files = "./excludes.example.txt"
-# Pin expected mounted volumes (must be mounted and nonempty), if applicable.
+
+# Expected mount point of the source: the volume must be mounted and not empty, or the job stops.
 # source_mount = "/mnt/dados"
+
+# Expected mount point of a local destination, checked the same way. Leave empty or omit it for S3.
 # destination_mount = "/mnt/backup"
-# Absolute rclone deletion limit for this job; old versions go to backup-dir.
+
+# Simple jobs: absolute limit of deletions per run (rclone --max-delete); older versions go to the history
+# folder. Has no effect on batch jobs, which use max_delete_percent.
 max_delete = 100
 
 [[jobs]]
+# Job name (letters, digits, _ and -). It names the job's state and metadata folders and is what --job
+# selects.
 name = "documents-s3"
+
+# How many generations of the recovery index (the archive from which the state can be rebuilt) are kept at
+# the destination; older ones are removed.
 recovery_index_versions = 3
+
+# Batch jobs: days the old archives of files that disappeared from the source are kept before permanent
+# removal. The period counts per archive, not per file: an archive that holds both a deleted and a changed
+# file keeps the longer of deleted_days and version_days. Simple jobs use the larger of the two for
+# everything.
 deleted_days = 10
+
+# Batch jobs: days the old archives of files that changed are kept before permanent removal, so earlier
+# versions stay recoverable that long. With 0 they expire immediately, at the next cleanup. Simple jobs use
+# the larger of version_days and deleted_days for everything.
 version_days = 2
+
+# Keep logs written in the last N days; older inactive Sambinha logs are removed on non-simulated runs. 0
+# disables the cleanup.
 log_retention_days = 14
+
+# What the run log file records: error (errors only), summary (errors, alerts, per-job summaries and the
+# final result) or detailed (also per-file events). It does not change rclone's own verbosity.
 log_file_level = "summary"
+
+# What is printed on the terminal, with the same levels as log_file_level (error, summary or detailed).
+# Independent of the file level.
 log_terminal_level = "summary"
+
+# Soft Cronitor alert when more than this many permanent deletions are about to happen. It does not stop the
+# backup or change deadlines.
 deletion_alert_threshold = 1000
+
+# After a backup, run the local source check (size and date against the local JSON controls, no S3 reads)
+# when this many days passed since the last one. 0 disables it. The same check, and the other verifications,
+# can be run by hand: sambinha verify-local-metadata --job NAME (reports needs_update),
+# verify-destination-metadata (compares the JSON replicas) and verify-destination-integrity (7-Zip integrity
+# test of the archives).
 verify_interval_days = 0
+
+# How files are compared: "simple" uses size and modification time in nanoseconds without reading contents;
+# "hash" also computes SHA-256/MD5 in batch inventories. The daily local check always compares only size and
+# date.
 verification_mode = "simple"
+
+# In hash mode, reuse a file's hashes when device, inode, size, mtime, ctime and mode are all unchanged,
+# avoiding full reads of the source. Batch jobs only; it never enables hashing in simple mode.
 fingerprint_cache = true
-verify_source_changes = true # Retry source races up to 3 times; then fail.
-inventory_from_listing = false # Build the inventory from the listing (batch, simple, exclude_files, verify_source_changes=false); mode 0o755.
-# file_mode = 0o644 # Restore only: permissions of restored files (default: those recorded).
+
+# Batch jobs: true checks that source files stay stable while read and compressed, retrying up to 3 times
+# and failing if they keep changing; false skips these checks and leaves later changes to the next backup.
+verify_source_changes = true
+
+# Batch jobs: true builds the inventory from the size and date of the rclone listing, with no stat per file
+# (faster on network shares). Requires logic = "batch", verification_mode = "simple", verify_source_changes
+# = false and exclude_files. Files are recorded with mode 0o755.
+inventory_from_listing = false
+
+# Restore only: permission bits (for example 0o644) applied to restored files. Without it, the recorded mode
+# is used.
+# file_mode = 0o644
+
+# In hash mode with fingerprint_cache = true, forces a complete re-read of every file after this many days,
+# even when the cache looks valid, to catch changes the file metadata did not reveal.
 fingerprint_full_scan_days = 7
-transfer_workers = 4
+
+# Batches prepared, compressed and uploaded at the same time, each with its own staging area. More workers
+# use more temporary space, CPU and memory.
 batch_workers = 2
+
+# true only reports what would be done and changes nothing.
 dry_run = false
+
+# "auto" resumes an interrupted batch run from the journals and caches; "fresh" discards them on every run.
 resume = "auto"
+
+# Folder to back up.
 source = "~/Documents"
+
+# Where the backup goes: a local folder, or an rclone remote and bucket such as aws:BUCKET/prefix. Give each
+# job an exclusive prefix.
 # aws is the remote in rclone.example.conf; create the bucket first.
 # Prefer separate prefixes: overlapping jobs can overwrite data/recovery controls.
 # Bucket name must be globally unique.
 destination = "aws:YOUR-BUCKET/documents-batches"
+
+# Destination type: "local" (folder or mounted disk) or "s3".
 type = "s3"
+
+# "simple": one rclone sync that keeps replaced and deleted files in a history folder. "batch": groups files
+# into 7-Zip archives with recovery index and controls.
 logic = "batch"
+
+# 7-Zip level (0-9, 0 = store) for text files.
 # Three compression tiers inside each batch archive, chosen by the file's LAST extension
 # (case-insensitive; "a.tar.gz" -> "gz"; ".bashrc" and "Makefile" have none). Levels are 7-Zip 0-9 (0 = store).
 # Text goes first (cheapest), then "other", then already compressed data, which is stored as is.
-compression_text_level = 1        # tier 1: extensions in compression_text_extensions
-compression_other_level = 1             # tier 2 "other": every extension in neither list
-compression_compressed_level = 0  # tier 3: extensions in compression_compressed_extensions
+compression_text_level = 1
+
+# 7-Zip level (0-9, 0 = store) for every extension that is in neither list.
+compression_other_level = 1
+
+# 7-Zip level (0-9, 0 = store) for already compressed files (images, video, archives...).
+compression_compressed_level = 0
+
+# Threads used by each compressor command (1-64).
 compression_threads = 2
+
+# Extensions compressed at compression_text_level.
 # Entries are bare extensions (no dot, no spaces; case and a leading dot are ignored). An extension may not
 # appear twice or in both lists. The keyword "<none>" stands for files WITHOUT extension; put it in at most
 # one list (text by default); in neither, such files use the "other" tier. Edit the lists freely:
@@ -170,6 +286,8 @@ compression_text_extensions = [
     "sha256", "sha512", "cue", "nfo", "lrc", "m3u", "m3u8", "pls", "xpm",
     "pbm", "pgm", "ppm",
 ]
+
+# Extensions treated as already compressed (compression_compressed_level).
 compression_compressed_extensions = [
     "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif",
     "heic", "heif", "jxl", "jp2", "j2k", "mp4", "m4v", "mov", "mkv",
@@ -185,27 +303,45 @@ compression_compressed_extensions = [
     "kmz", "vsdx", "pdf", "woff", "woff2", "gpg", "pgp", "age", "kdbx",
     "kdb", "aes", "enc",
 ]
-# Dedicated archive at this % of max_megabytes; keep normal batch open.
+
+# A file whose size reaches this percentage of max_megabytes gets an archive of its own; smaller files are
+# grouped.
 individual_batch_percent = 100
-# Final Cronitor failure only; 0 disables; does not interrupt jobs.
+
+# Final Cronitor failure when a batch grows beyond this percentage of max_megabytes. 0 disables it, it does
+# not interrupt the job, and single-file batches never trigger it.
 batch_size_alert_percent = 200
-# Per-job disk checks (default true); false skips only that capacity check.
-# For Seafile/FUSE sources reporting zero capacity, set check_source_disk = false.
-# Destination also covers restore output; S3 has no local destination disk.
-# Batch/recovery temporary storage and mount/path checks remain enabled.
+
+# Check the free capacity of the source disk before running. Set false for sources that report zero capacity
+# (such as Seafile/FUSE). Only this capacity check is skipped; temporary-storage and mount/path checks stay
+# on.
 check_source_disk = true
+
+# Check the free capacity of a local destination (also covers the restore output). S3 has no local
+# destination disk.
 check_destination_disk = true
-# When THIS job fails, true continues the next jobs; false stops the invocation.
+
+# When this job fails: true continues with the next jobs; false stops the invocation.
 continue_on_job_error = true
-# Native exclusion patterns, optional for this job too.
+
+# File with native rclone exclusion patterns, relative to this TOML. It is read when the job starts and a
+# missing or unreadable file stops the job.
 exclude_files = "./excludes.example.txt"
-# Expected mounted source volume, if applicable.
+
+# Expected mount point of the source: the volume must be mounted and not empty, or the job stops.
 # source_mount = "/mnt/dados"
-# There is no local mount for an S3 destination; keep this empty or omitted.
-# destination_mount = ""
-max_megabytes = 1024 # MB of original data (1 MB = 1,048,576 bytes); existing groups may grow
-compressor = "7z" # or 7zz, any executable implementing the 7-Zip CLI
-archive_format = "7z" # 7z or zip
+
+# Target size of each batch, in MB of original data (1 MB = 1,048,576 bytes). Existing groups may grow past
+# it.
+max_megabytes = 1024
+
+# 7-Zip executable: 7z, 7zz or any program implementing the 7-Zip command line.
+compressor = "7z"
+
+# Batch archive format: 7z or zip.
+archive_format = "7z"
+
+# S3 storage class of the archives.
 # Cold default: GLACIER_IR, immediate retrieval, retrieval fees, 90-day minimum
 # billed duration and 128 KiB minimum billed object size.
 # GLACIER: cheaper storage, asynchronous restore, 90-day minimum.
@@ -218,10 +354,22 @@ archive_format = "7z" # 7z or zip
 # No prices are hardcoded: cost depends on region, volume and API operations.
 # See https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html
 storage_class = "GLACIER_IR"
-control_storage_class = "STANDARD" # JSON controls and indexes; archive class remains storage_class.
-# Optional rclone tuning, S3 only (ignored for local destinations):
-# fast_list = true            # --fast-list for simple jobs: fewer listing requests, more memory
-# s3_chunk_size = "64M"       # --s3-chunk-size for uploads (multi-GB archives)
-# s3_upload_concurrency = 8   # --s3-upload-concurrency, 1-64
+
+# S3 storage class of the JSON controls and indexes (they need immediate access, so not GLACIER or
+# DEEP_ARCHIVE). The archive class stays storage_class.
+control_storage_class = "STANDARD"
+
+# S3: --s3-chunk-size of uploads (for example 64M), useful for multi-GB archives. Ignored for local
+# destinations.
+# s3_chunk_size = "64M"
+
+# S3: --s3-upload-concurrency, parts uploaded in parallel (1-64). Ignored for local destinations.
+# s3_upload_concurrency = 8
+
+# Batch jobs: blocks the run when more than this percentage of the files already backed up disappeared from
+# the source, to protect against mounts that came up empty.
 max_delete_percent = 50
+
+# Batch jobs: the max_delete_percent protection only applies when at least this many files were already
+# backed up.
 deletion_min_files = 20
