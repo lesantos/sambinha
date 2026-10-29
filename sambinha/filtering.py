@@ -78,12 +78,16 @@ class Selection:
         self._included = {}
 
     @contextmanager
-    def source_listing(self, root):
-        """Supply native filtered child names to the single inventory walk."""
+    def source_listing(self, root, *, metadata=False):
+        """Supply native filtered child names to the single inventory walk.
+
+        With ``metadata`` each record also has ``Size`` and ``ModTimeNs`` (see ``scan_from_listing``).
+        """
         if not self.exclude_file:
             yield None
         else:
-            with Discovery(self.config, self.runner, root, self.exclude_file, self.on_event) as discovery:
+            with Discovery(self.config, self.runner, root, self.exclude_file, self.on_event,
+                           metadata=metadata) as discovery:
                 yield discovery.listing
 
     def listing(self, root, files_only=False, *, recursive=True, apply_exclusions=True):

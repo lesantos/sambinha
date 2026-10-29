@@ -65,7 +65,7 @@ def restore_workspace(output, *, dry_run=False):
         raise
 
 
-def publish_file(source, output, metadata, *, preserve_permissions):
+def publish_file(source, output, metadata, *, preserve_permissions, file_mode=None):
     """Publish without overwriting, using a hard link when the filesystem permits it."""
     target = output / metadata["path"]
     with directory(target.parent, create=True) as parent:
@@ -83,7 +83,7 @@ def publish_file(source, output, metadata, *, preserve_permissions):
                 with os.fdopen(os.dup(target_fd), "wb") as stream, os.fdopen(os.dup(source_fd), "rb") as content:
                     shutil.copyfileobj(content, stream)
             if preserve_permissions:
-                os.fchmod(target_fd, metadata["mode"] & 0o777)
+                os.fchmod(target_fd, (metadata["mode"] if file_mode is None else file_mode) & 0o777)
             os.utime(target_fd, ns=(metadata["mtime_ns"], metadata["mtime_ns"]))
         finally:
             os.close(source_fd)
@@ -132,7 +132,8 @@ def restore_job(config, job, runner, log, output, selectors=()):
         for path, metadata in selected.items():
             if job.check_destination_disk:
                 check_disk(output, "restauração")
-            publish_file(staged / path, output, metadata, preserve_permissions=preserve_permissions)
+            publish_file(staged / path, output, metadata, preserve_permissions=preserve_permissions,
+                         file_mode=job.file_mode)
             log.event("restored", job=job.name, path=path)
         if job.check_destination_disk:
             check_disk(output, "restauração")

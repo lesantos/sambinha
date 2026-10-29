@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import shutil
 import unittest
@@ -46,6 +47,34 @@ class StableBatchLifecycleTests(Sandbox):
         self.assertEqual(self.execute(now=2001), 0)
         summary = next(e for e in self.events if e['event'] == 'summary')
         self.assertEqual(summary['rebuilt_batches'], 0)
+
+    def test_inventory_from_the_listing_keeps_the_same_batches_and_restores_with_file_mode(self):
+        rules = self.root / 'rules.txt'
+        rules.write_text('*.tmp\n')
+        for name in ('a', 'b', 'c', 'd', 'sub/e'):
+            self.file(name, name.encode() * 4, mode=0o755)
+        self.file('skip.tmp', b'x', mode=0o755)
+        os.mkfifo(self.source / 'pipe')
+        walked = replace(self.config, jobs=(self.job(exclude_files=rules, verify_source_changes=False,
+                                                    verification_mode='simple'),))
+        self.assertEqual(self.execute(walked), 0, self.output.getvalue())
+        first = self.state()
+        listed = replace(self.config, jobs=(self.job(exclude_files=rules, verify_source_changes=False, verification_mode='simple',
+                                                     inventory_from_listing=True, file_mode=0o644),))
+        self.assertEqual(self.execute(listed, now=2000), 0, self.output.getvalue())
+        summary = next(e for e in self.events if e['event'] == 'summary')
+        self.assertEqual((summary['rebuilt_batches'], summary['bytes_transferred'], summary['new_files']), (0, 0, 0))
+        self.assertEqual(self.state()['active'].keys(), first['active'].keys())
+        (self.source / 'a').write_bytes(b'changed ' * 4)
+        self.assertEqual(self.execute(listed, now=3000), 0, self.output.getvalue())
+        self.assertEqual(next(e for e in self.events if e['event'] == 'summary')['modified_files'], 1)
+        output = self.root / 'restored'
+        with redirect_stdout(io.StringIO()):
+            recover(listed, 'restore', output=output)
+        self.assertEqual((output / 'a').read_bytes(), b'changed ' * 4)
+        self.assertEqual({p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()},
+                         {'a', 'b', 'c', 'd', 'sub/e'})
+        self.assertEqual({(p.stat().st_mode & 0o777) for p in output.rglob('*') if p.is_file()}, {0o644})
 
     def test_batch_alert_only_at_end_all_jobs_finish_and_exit_is_success(self):
         self.seed()

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from sambinha import inventory
 from sambinha.errors import BackupError
-from sambinha.inventory import fingerprint, metadata, scan
+from sambinha.inventory import fingerprint, listing_mtime_ns, metadata, scan, scan_from_listing
 from tests.helpers import Sandbox, tick
 
 
@@ -106,6 +106,53 @@ class InventoryTests(Sandbox):
 def altered(info, **changes):
     fields = ('st_dev', 'st_ino', 'st_mode', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
     return SimpleNamespace(**{**{field: getattr(info, field) for field in fields}, **changes})
+
+
+class ListingInventoryTests(Sandbox):
+    def listing(self, prefix):
+        """Records shaped like the discovery's, taken from the real directory."""
+        directory = self.source / prefix if prefix else self.source
+        return [{'Path': (prefix + '/' if prefix else '') + entry.name, 'IsDir': entry.is_dir(follow_symlinks=False),
+                 'Size': entry.stat(follow_symlinks=False).st_size, 'ModTimeNs': entry.stat(follow_symlinks=False).st_mtime_ns}
+                for entry in os.scandir(directory)]
+
+    def test_listing_inventory_matches_the_walk_in_order_and_values(self):
+        for index, name in enumerate(['b.txt', 'a/z.txt', 'a/y/deep.txt', 'c/one', 'top', 'a/same1', 'a/same2']):
+            path = self.file(name, b'x' * (index + 1))
+            os.utime(path, ns=(10**18, 10**18 + (index % 3) * 10**9 + index))
+        (self.source / 'empty').mkdir()
+        os.utime(self.source / 'a', ns=(10**18, 10**18 + 5 * 10**9))
+        os.utime(self.source / 'a' / 'y', ns=(10**18, 10**18 + 1))
+        expected_dirs, actual_dirs = set(), set()
+        expected = scan(self.source, mode='simple', verify_source_changes=False, selected_dirs_out=expected_dirs)
+        actual = scan_from_listing(self.source, self.listing, selected_dirs_out=actual_dirs)
+        self.assertEqual([(f.path, f.size, f.mtime_ns) for f in actual], [(f.path, f.size, f.mtime_ns) for f in expected])
+        self.assertEqual({f.mode for f in actual}, {0o755})
+        self.assertEqual(actual_dirs, expected_dirs)
+        self.assertTrue(all(f.sha256 == '' and f.md5 == '' for f in actual))
+
+    def test_listing_inventory_never_touches_the_files(self):
+        self.file('a/one')
+        with patch('sambinha.inventory.os.stat', side_effect=AssertionError('stat')), \
+             patch('sambinha.inventory.os.lstat', side_effect=AssertionError('lstat')):
+            result = scan_from_listing(self.source, self.listing)
+        self.assertEqual([f.path for f in result], ['a/one'])
+
+    def test_listing_inventory_rejects_foreign_paths_and_the_reserved_namespace(self):
+        with self.assertRaises(BackupError):
+            scan_from_listing(self.source, lambda prefix: [{'Path': 'elsewhere/x', 'IsDir': False, 'Size': 1, 'ModTimeNs': 1}] if not prefix else [])
+        with self.assertRaisesRegex(BackupError, 'reservado'):
+            scan_from_listing(self.source, lambda prefix: [{'Path': '.sambinha', 'IsDir': True, 'Size': -1, 'ModTimeNs': 1}] if not prefix
+                              else [{'Path': '.sambinha/x', 'IsDir': False, 'Size': 1, 'ModTimeNs': 1}])
+
+    def test_modtime_is_parsed_to_exact_nanoseconds(self):
+        self.assertEqual(listing_mtime_ns('2026-10-20T11:19:55.880000000-03:00'), listing_mtime_ns('2026-10-20T14:19:55.88Z'))
+        self.assertEqual(listing_mtime_ns('1970-01-01T00:00:01.000000001Z'), 10**9 + 1)
+        self.assertEqual(listing_mtime_ns('1970-01-01T00:00:02Z'), 2 * 10**9)
+        self.assertEqual(listing_mtime_ns('1970-01-01T01:00:00+01:00'), 0)
+        for bad in ('', 'ontem', '1970-01-01', None, 5):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                listing_mtime_ns(bad)
 
 
 class VolatileInodeTests(Sandbox):

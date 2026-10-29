@@ -180,6 +180,22 @@ class ConfigurationTests(Sandbox):
             with self.subTest(values=values), self.assertRaises(ConfigError):
                 validate(replace(self.config, jobs=(replace(batch, **values),)))
 
+    def test_inventory_from_listing_needs_its_conditions_and_file_mode_is_bounded(self):
+        def with_job(**values):
+            return replace(self.config, jobs=(replace(self.config.jobs[0], **values),))
+        good = {'logic': 'batch', 'verification_mode': 'simple', 'verify_source_changes': False,
+                'exclude_files': Path('excludes.txt'), 'inventory_from_listing': True}
+        validate(with_job(**good))
+        for change in ({'verify_source_changes': True}, {'verification_mode': 'hash'}, {'exclude_files': None}):
+            with self.subTest(change=change), self.assertRaisesRegex(ConfigError, 'inventory_from_listing'):
+                validate(with_job(**{**good, **change}))
+        with self.assertRaises(ConfigError):
+            validate(with_job(inventory_from_listing='yes'))
+        validate(with_job(file_mode=0o644))
+        for bad in (-1, 0o1000, '644', True):
+            with self.subTest(file_mode=bad), self.assertRaisesRegex(ConfigError, 'file_mode'):
+                validate(with_job(file_mode=bad))
+
     def test_invalid_new_global_values_and_cli_actions(self):
         for values in ({'verify_interval_days': -1}, {'fingerprint_cache': 'yes'},
                        {'verify_source_changes': 'yes'},

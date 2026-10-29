@@ -10,7 +10,7 @@ from .errors import BackupError, job_errors
 from .filtering import Selection
 from .fresh import discard_journals, drop_caches, requested
 from .index_generations import backup_state
-from .inventory import File, scan
+from .inventory import File, scan, scan_from_listing
 from .mounts import check_mounts, uses_mountpoint_command
 from .process import credential_values, show_progress
 from .retention import DAY
@@ -75,11 +75,14 @@ def _read_inventory(config, job, runner, now, reading, log=None):
     embedded = previous.pop("fingerprints", None)
     loaded = (embedded if embedded else load_fingerprints(config.state_dir / job.name)) if caching else {}
     fingerprints = {}
-    with selection.source_listing(job.source) as listing:
-        files = scan(job.source, listing=listing, selected_dirs_out=selected_dirs,
-                     cache=None if force else loaded, cache_out=fingerprints if caching else None,
-                     mode=job.verification_mode, progress=reading,
-                     verify_source_changes=job.verify_source_changes)
+    with selection.source_listing(job.source, metadata=job.inventory_from_listing) as listing:
+        if job.inventory_from_listing:
+            files = scan_from_listing(job.source, listing, selected_dirs_out=selected_dirs, progress=reading)
+        else:
+            files = scan(job.source, listing=listing, selected_dirs_out=selected_dirs,
+                         cache=None if force else loaded, cache_out=fingerprints if caching else None,
+                         mode=job.verification_mode, progress=reading,
+                         verify_source_changes=job.verify_source_changes)
     return JobInventory(files, selected_dirs, fingerprints,
                         now if force else previous["last_full_scan"], previous, force, loaded, legacy)
 

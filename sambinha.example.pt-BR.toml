@@ -55,6 +55,8 @@ verify_interval_days = 0
 verification_mode = "simple"
 fingerprint_cache = true
 verify_source_changes = true # Retenta alterações na origem até 3 vezes; depois falha.
+inventory_from_listing = false # Monta o inventário pela listagem (batch, simple, exclude_files, verify_source_changes=false); modo 0o755.
+# file_mode = 0o644 # Só na restauração: permissões dos arquivos restaurados (padrão: as registradas).
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
@@ -116,6 +118,8 @@ verify_interval_days = 0
 verification_mode = "simple"
 fingerprint_cache = true
 verify_source_changes = true # Retenta alterações na origem até 3 vezes; depois falha.
+inventory_from_listing = false # Monta o inventário pela listagem (batch, simple, exclude_files, verify_source_changes=false); modo 0o755.
+# file_mode = 0o644 # Só na restauração: permissões dos arquivos restaurados (padrão: as registradas).
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2

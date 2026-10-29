@@ -14,7 +14,7 @@ from .secrets import expand, read_environment
 JOB_SCOPED_OPTIONS = frozenset({"recovery_index_versions", "deleted_days", "version_days", "log_retention_days",
                                 "log_file_level", "log_terminal_level", "deletion_alert_threshold",
                                 "verify_interval_days", "verification_mode", "fingerprint_cache",
-                                "fingerprint_full_scan_days", "verify_source_changes",
+                                "fingerprint_full_scan_days", "verify_source_changes", "inventory_from_listing", "file_mode",
                                 "transfer_workers", "batch_workers", "dry_run"})
 JOB_ONLY_OPTIONS = JOB_SCOPED_OPTIONS | {"control_storage_class"}
 EXTENSION_OPTIONS = ("compression_text_extensions", "compression_compressed_extensions")
@@ -75,6 +75,11 @@ class Job:
     fingerprint_cache: bool = True
     fingerprint_full_scan_days: int = 7
     verify_source_changes: bool = True
+    # Batch + simple + exclude_files + verify_source_changes=false: build the inventory from the discovery
+    # listing (size, date) without one stat per file. Files are then recorded with mode 0o755.
+    inventory_from_listing: bool = False
+    # Restore only: permission bits for restored files instead of the recorded ones (e.g. 0o644).
+    file_mode: int | None = None
     transfer_workers: int = 4
     batch_workers: int = 2
     dry_run: bool = False

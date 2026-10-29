@@ -10,7 +10,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from .errors import BackupError
-from .inventory import safe_relative
+from .inventory import listing_mtime_ns, safe_relative
 from .process import child_environment
 from .tempdirs import prefix
 
@@ -21,11 +21,22 @@ class _TooLarge(Exception):
     """A recursive listing exceeded the in-memory entry budget."""
 
 
-class _ListParser:
-    """Incrementally extract ``(Path, IsDir)`` from ``{"list": [{...}, ...]}``."""
+def _size(item):
+    size = item["Size"]
+    if type(size) is not int:
+        raise ValueError("tamanho inválido")
+    return size
 
-    def __init__(self, limit):
+
+class _ListParser:
+    """Incrementally extract ``(Path, IsDir)`` from ``{"list": [{...}, ...]}``.
+
+    With ``metadata`` each entry also carries ``Size`` and the ``ModTime`` in nanoseconds.
+    """
+
+    def __init__(self, limit, metadata=False):
         self.limit, self.buffer, self.started, self.done = limit, "", False, False
+        self.metadata = metadata
         self.decoder = json.JSONDecoder()
         self.raw = b""
 
@@ -61,7 +72,10 @@ class _ListParser:
                 item, position = self.decoder.raw_decode(buffer, position)
             except json.JSONDecodeError:
                 break
-            entries.append((item["Path"], item["IsDir"]))
+            if self.metadata:
+                entries.append((item["Path"], item["IsDir"], _size(item), listing_mtime_ns(item["ModTime"])))
+            else:
+                entries.append((item["Path"], item["IsDir"]))
             if len(entries) > self.limit:
                 return True
         self.buffer = buffer[position:]
@@ -75,8 +89,10 @@ class _ListParser:
 class Discovery:
     """Own the server and cancel all work on timeout, failure or interruption."""
 
-    def __init__(self, config, runner, root, exclude_file, on_event=None):
+    def __init__(self, config, runner, root, exclude_file, on_event=None, *, metadata=False):
         self.config, self.runner = config, runner
+        # Also keep each entry's size and date (for an inventory built from the listing alone).
+        self.metadata = metadata
         # Optional ``on_event(name, **values)``: reports server restarts in the run log.
         self.on_event = on_event
         self.root, self.exclude_file = Path(root), exclude_file
@@ -180,7 +196,7 @@ class Discovery:
         """POST one RC operation. With ``limit`` the list is parsed incrementally.
 
         The streamed result is ``{"list": [(path, is_dir), ...]}``, keeping only
-        names and the directory flag; if more than ``limit`` entries arrive the
+        names and the directory flag (plus size and date when ``metadata`` is set); if more than ``limit`` entries arrive the
         connection is dropped and ``_TooLarge`` raised, so memory stays bounded.
         """
         self._remaining(deadline)
@@ -190,7 +206,7 @@ class Discovery:
         response = self.connection.getresponse()
         chunks = []
         entries = []
-        parser = _ListParser(limit) if limit is not None and response.status == 200 else None
+        parser = _ListParser(limit, self.metadata) if limit is not None and response.status == 200 else None
         while True:
             # Refresh the remaining budget on every read, rather than granting
             # a fresh full timeout each time the server sends another chunk.
@@ -265,6 +281,9 @@ class Discovery:
             self._load_subtree(top)
         if not top or top in self.oversized:
             return self._flat(relative)
+        if self.metadata:
+            return [{"Path": path, "IsDir": is_dir, "Size": size, "ModTimeNs": mtime_ns}
+                    for path, is_dir, size, mtime_ns in self.index.get(relative, ())]
         return [{"Path": path, "IsDir": is_dir}
                 for path, is_dir in self.index.get(relative, ())]
 
@@ -282,7 +301,7 @@ class Discovery:
         # A fixed fs keeps anchored rules relative to the original source.
         records = self._call("operations/list", {
             "fs": str(self.root), "remote": relative, "_async": False,
-            "opt": {"recurse": False, "noModTime": True, "noMimeType": True},
+            "opt": {"recurse": False, "noModTime": not self.metadata, "noMimeType": True},
         }, deadline)["list"]
         self._remaining(deadline)
         if not isinstance(records, list):
@@ -292,6 +311,8 @@ class Discovery:
             parent = PurePosixPath(path).parent.as_posix()
             if parent != (relative or ".") or type(item["IsDir"]) is not bool:
                 raise ValueError("caminho fora do diretório consultado")
+            if self.metadata:
+                item["Size"], item["ModTimeNs"] = _size(item), listing_mtime_ns(item["ModTime"])
         self._remaining(deadline)
         return records
 
@@ -301,19 +322,20 @@ class Discovery:
         try:
             records = self._call("operations/list", {
                 "fs": str(self.root), "remote": top, "_async": False,
-                "opt": {"recurse": True, "noModTime": True, "noMimeType": True},
+                "opt": {"recurse": True, "noModTime": not self.metadata, "noMimeType": True},
             }, deadline, limit=self.max_entries)["list"]
         except _TooLarge:
             self.oversized.add(top)
             self._reconnect()
             return
         index = {}
-        for path, is_dir in records:
+        for entry in records:
+            path, is_dir = entry[0], entry[1]
             safe_relative(path)
             parent = PurePosixPath(path).parent.as_posix()
             if path.split("/", 1)[0] != top or type(is_dir) is not bool:
                 raise ValueError("caminho fora do subdiretório consultado")
-            index.setdefault(parent, []).append((path, is_dir))
+            index.setdefault(parent, []).append(entry)
         self._remaining(deadline)
         self.index.update(index)
         self.subtrees.add(top)

@@ -199,7 +199,7 @@ class SelectionTests(Sandbox):
         entered = []
 
         @contextmanager
-        def discovery(config, runner, root, exclude, on_event=None):
+        def discovery(config, runner, root, exclude, on_event=None, *, metadata=False):
             entered.append(root)
             yield Mock(listing='LISTING')
         with patch('sambinha.filtering.Discovery', discovery), self.selection(FakeRunner()).source_listing(self.source) as listing:

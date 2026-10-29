@@ -37,6 +37,18 @@ class RestorePublicationTests(Sandbox):
                 self.assertEqual(target.read_bytes(), b'existing')
                 self.assertEqual(source.read_bytes(), b'restored')
 
+    def test_file_mode_overrides_the_recorded_permissions_only_when_given(self):
+        from sambinha.restore import publish_file
+        for override, expected in ((None, 0o600), (0o644, 0o644)):
+            with self.subTest(file_mode=override):
+                name = f'f{expected}'
+                source = self.file(name, b'restored', mode=0o600)
+                metadata = {'path': name, 'mode': 0o600, 'mtime_ns': 10**18}
+                output = self.root / f'restored{expected}'
+                output.mkdir()
+                publish_file(source, output, metadata, preserve_permissions=True, file_mode=override)
+                self.assertEqual((output / name).stat().st_mode & 0o777, expected)
+
     def test_parent_changed_to_symlink_is_rejected_without_writing_outside_output(self):
         from sambinha.restore import publish_file
         source = self.file('dir/file', b'restored')

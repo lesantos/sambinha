@@ -1,9 +1,11 @@
 """Stable source inventories with strong fingerprints and race detection."""
+import datetime
 import errno
 import hashlib
 import json
 import os
 import queue
+import re
 import stat
 import threading
 import zlib
@@ -185,6 +187,73 @@ def same_metadata(a, b):
 def signature(info):
     return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
             stat.S_IMODE(info.st_mode)]
+
+
+_MODTIME = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?(Z|[+-]\d\d:\d\d)")
+
+
+def listing_mtime_ns(text) -> int:
+    """Nanoseconds since the epoch from an rclone ``ModTime`` (RFC 3339, up to 9 fractional digits)."""
+    match = _MODTIME.fullmatch(text) if isinstance(text, str) else None
+    if not match:
+        raise ValueError("ModTime inválido")
+    base = datetime.datetime.fromisoformat(match[1] + ("+00:00" if match[3] == "Z" else match[3]))
+    return int(base.timestamp()) * 1_000_000_000 + int((match[2] or "0").ljust(9, "0"))
+
+
+# Mode recorded for files inventoried from the listing, which carries none: it is only used to
+# restore permissions, and a job can override it at restore time with ``file_mode``.
+LISTING_FILE_MODE = 0o755
+
+
+def scan_from_listing(root: Path, listing, *, selected_dirs_out=None, progress=None) -> list[File]:
+    """Inventory built only from discovery records (path, size, date): no ``stat`` per file.
+
+    Same traversal and order as ``scan`` (entries of a directory sorted by date and name, in
+    place), so batches are planned identically. Links and special files are absent from the
+    listing, which rclone produces with its link-skipping flags.
+    """
+    from .local_paths import directory as open_directory
+
+    result = []
+    visited = 0
+
+    def report(current):
+        if progress:
+            progress.update("Inventário simples", root / current,
+                            activity=f"diretórios: {visited} | arquivos: {len(result)}", indeterminate=True)
+
+    def walk(prefix):
+        nonlocal visited
+        report(prefix)
+        entries = []
+        for record in listing(prefix):
+            relative = safe_relative(record["Path"])
+            if PurePosixPath(relative).parent.as_posix() != (prefix or "."):
+                raise BackupError(f"Caminho fora do diretório consultado: {relative}")
+            entries.append((record["ModTimeNs"], relative.rsplit("/", 1)[-1], record["IsDir"], record["Size"], relative))
+        entries.sort(key=lambda entry: (entry[0], entry[1]))
+        visited += 1
+        initial_count = len(result)
+        for mtime_ns, name, is_dir, size, relative in entries:
+            try:
+                name.encode("utf-8")
+            except UnicodeEncodeError:
+                raise BackupError(f"Nome de arquivo não é UTF-8 válido: {relative!r}") from None
+            if is_dir:
+                walk(relative)
+            else:
+                if relative.split("/")[0] == NAMESPACE:
+                    raise BackupError(".sambinha é reservado para metadados")
+                result.append(File(relative, size, "", "", mtime_ns, LISTING_FILE_MODE))
+        if prefix and selected_dirs_out is not None and len(result) > initial_count:
+            selected_dirs_out.add(prefix)
+
+    with open_directory(root):
+        walk("")
+    if progress:
+        progress.update("Inventário simples", root, 1, 1)
+    return result
 
 
 def path_has_symlink(root, relative, cache=None):

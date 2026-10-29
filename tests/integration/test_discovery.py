@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from sambinha.discovery import Discovery, _ListParser
 from sambinha.errors import BackupError
 from sambinha.filtering import Selection
+from sambinha.inventory import scan, scan_from_listing
 from sambinha.process import Runner, Terminated
 from tests.helpers import REAL_TOOLS, Sandbox
 
@@ -50,6 +51,30 @@ class DiscoveryTests(Sandbox):
         self.assertEqual(start.call_count, 1)
         self.assertEqual(start.call_args.args[0][1], 'rcd')
         self.assertNotIn('--recursive', start.call_args.args[0])
+
+    def test_inventory_from_the_listing_equals_the_walk_and_leaves_out_links_and_special_files(self):
+        for index, name in enumerate(['top.txt', 'a/x/y/deep.txt', 'a/x/skip.tmp', 'a/b.txt', 'b/ação/ü ñ.txt',
+                                      'b/[lit]*?/f', 'cache/private', 'c/one', 'c/two', 'c/three']):
+            path = self.file(name, b'x' * (index + 1))
+            os.utime(path, ns=(10**18, 10**18 + (index % 4) * 10**9 + index * 7))
+        (self.source / 'empty').mkdir()
+        (self.source / 'link').symlink_to(self.root, target_is_directory=True)
+        (self.source / 'filelink').symlink_to(self.source / 'top.txt')
+        os.mkfifo(self.source / 'pipe')
+        for oversized in (False, True):
+            with self.subTest(oversized=oversized):
+                selection = Selection(self.rules(), self.config, Runner())
+                limit = 1 if oversized else 500_000
+                with patch('sambinha.discovery.MAX_SUBTREE_ENTRIES', limit):
+                    with selection.source_listing(self.source) as plain:
+                        expected = scan(self.source, listing=plain, mode='simple', verify_source_changes=False)
+                    with selection.source_listing(self.source, metadata=True) as listing:
+                        actual = scan_from_listing(self.source, listing)
+                self.assertEqual([(f.path, f.size, f.mtime_ns) for f in actual],
+                                 [(f.path, f.size, f.mtime_ns) for f in expected])
+                self.assertNotIn('pipe', [f.path for f in actual])
+                self.assertFalse([f for f in actual if f.path.startswith('link') or f.path == 'filelink'])
+                self.assertGreater(len(actual), 5)
 
     def tree(self):
         for name in ['top.txt', 'a/x/y/deep.txt', 'a/x/skip.tmp', 'a/b.txt', 'b/ação/ü ñ.txt',

@@ -55,6 +55,8 @@ verify_interval_days = 0
 verification_mode = "simple"
 fingerprint_cache = true
 verify_source_changes = true # Retry source races up to 3 times; then fail.
+inventory_from_listing = false # Build the inventory from the listing (batch, simple, exclude_files, verify_source_changes=false); mode 0o755.
+# file_mode = 0o644 # Restore only: permissions of restored files (default: those recorded).
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2
@@ -116,6 +118,8 @@ verify_interval_days = 0
 verification_mode = "simple"
 fingerprint_cache = true
 verify_source_changes = true # Retry source races up to 3 times; then fail.
+inventory_from_listing = false # Build the inventory from the listing (batch, simple, exclude_files, verify_source_changes=false); mode 0o755.
+# file_mode = 0o644 # Restore only: permissions of restored files (default: those recorded).
 fingerprint_full_scan_days = 7
 transfer_workers = 4
 batch_workers = 2

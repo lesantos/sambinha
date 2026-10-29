@@ -49,7 +49,7 @@ def _validate_job(job: Job, seen: set[str]):
         raise ConfigError(f"Job duplicado: {job.name}")
     seen.add(job.name)
     for name in ("check_source_disk", "check_destination_disk", "continue_on_job_error", "dry_run",
-                 "fingerprint_cache", "verify_source_changes"):
+                 "fingerprint_cache", "verify_source_changes", "inventory_from_listing"):
         if type(getattr(job, name)) is not bool:
             raise ConfigError(f"{name} deve ser booleano: {job.name}")
     for name in ("deleted_days", "version_days", "log_retention_days", "deletion_alert_threshold", "verify_interval_days"):
@@ -96,6 +96,13 @@ def _validate_job(job: Job, seen: set[str]):
     if job.s3_upload_concurrency is not None and (type(job.s3_upload_concurrency) is not int
                                                   or not 1 <= job.s3_upload_concurrency <= 64):
         raise ConfigError(f"s3_upload_concurrency deve ser um inteiro entre 1 e 64: {job.name}")
+    if job.file_mode is not None and (type(job.file_mode) is not int or not 0 <= job.file_mode <= 0o777):
+        raise ConfigError(f"file_mode deve ser um inteiro entre 0 e 0o777 (ex.: 0o644): {job.name}")
+    if job.inventory_from_listing and not (
+            job.logic == "batch" and job.verification_mode == "simple" and not job.verify_source_changes
+            and job.exclude_files is not None):
+        raise ConfigError("inventory_from_listing exige logic = \"batch\", verification_mode = \"simple\", "
+                          f"verify_source_changes = false e exclude_files: {job.name}")
     if job.archive_format not in {"7z", "zip"}:
         raise ConfigError("archive_format deve ser 7z ou zip")
     if job.logic == "simple":

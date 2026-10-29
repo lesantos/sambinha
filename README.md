@@ -2,7 +2,7 @@
 
 [Português do Brasil](README.pt-BR.md)
 
-Sambinha **0.19.6** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
+Sambinha **0.19.7** backs up files to a local folder, mounted disk or Amazon S3. It keeps previous versions and records each execution. Requires Linux or macOS, Python 3.12+, rclone 1.60+ and 7-Zip 22.00+.
 
 Jobs run to completion in TOML order. Destinations may not overlap each other; one job's destination may be a later job's source. Review the [interaction rules](docs/configuration.md#sequential-jobs-and-overlapping-paths).
 
@@ -33,7 +33,7 @@ git pull --ff-only origin main
 .venv/bin/sambinha --version
 ```
 
-To install an exact release instead of `main`, fetch the tags and check one out (`git fetch --tags`, then `git checkout v0.19.6`); to return to `main`, run `git checkout main`. Read [CHANGELOG.md](CHANGELOG.md) before restarting scheduled jobs: some releases remove or rename options, and Sambinha refuses a configuration that still uses them. A good check after updating is `.venv/bin/sambinha --config sambinha.toml --dry-run`.
+To install an exact release instead of `main`, fetch the tags and check one out (`git fetch --tags`, then `git checkout v0.19.7`); to return to `main`, run `git checkout main`. Read [CHANGELOG.md](CHANGELOG.md) before restarting scheduled jobs: some releases remove or rename options, and Sambinha refuses a configuration that still uses them. A good check after updating is `.venv/bin/sambinha --config sambinha.toml --dry-run`.
 
 Notes:
 - `pip install --upgrade .` only reinstalls when the version in `pyproject.toml` changed. If you are testing an unreleased commit with the same version, add `--force-reinstall --no-deps`.
