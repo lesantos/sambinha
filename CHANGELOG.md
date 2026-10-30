@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.19.12 — 2026-10-29
+
+State in the examples and guides that `fingerprint_cache` and `fingerprint_full_scan_days` only apply with `verification_mode = "hash"`. The names do not say so, and with the default `"simple"` mode they do nothing useful: no content is hashed or re-read. In that mode `fingerprint_full_scan_days` still renews a timestamp in the state when it expires, which causes an occasional extra publication of the index. The comments of both options in `sambinha.example.toml` and `sambinha.example.pt-BR.toml`, and the TOML snippets in the configuration and performance guides (English and Portuguese), now say so. No change in behavior.
+
 ## 0.19.11 — 2026-10-29
 
 Document what a backup reads from S3 and stop recommending a monthly destination check. A routine backup to S3 reads one small marker object (the latest published generation), lists the bucket once to confirm that every planned batch is still there with the recorded size, and asks the destination for the checksum that S3 already stores for each batch it uploads; it never downloads archives. `verify-destination-metadata` costs about two requests per batch (a metadata request and the download of the batch's JSON), many times the routine listing, and only adds that the remote JSON controls match the local ones, since the backup already confirms presence and size. It is now described as an on-demand check (after losing or restoring the local state, moving to another machine, or as an occasional safeguard) instead of a monthly routine, in the batch checks, configuration, S3, usage and performance guides (English and Portuguese) and in the command's help text. The Portuguese usage guide no longer says the batch strategy avoids S3 inventory calls without mentioning the single listing. No change in behavior.

@@ -191,8 +191,9 @@ verify_interval_days = 0
 # sempre compara só tamanho e data.
 verification_mode = "simple"
 
-# No modo hash, reaproveita os hashes de um arquivo quando dispositivo, inode, tamanho, mtime, ctime e modo
-# estão inalterados, evitando ler a origem inteira. Só jobs batch; nunca ativa hashes no modo simple.
+# Só com verification_mode = "hash" (ignorada em "simple", o padrão, que nunca calcula hashes): reaproveita
+# os hashes de um arquivo quando dispositivo, inode, tamanho, mtime, ctime e modo estão inalterados,
+# evitando ler a origem inteira. Só jobs batch.
 fingerprint_cache = true
 
 # Jobs batch: true confere se os arquivos da origem ficam estáveis durante a leitura e a compactação,
@@ -209,8 +210,10 @@ inventory_from_listing = false
 # o modo registrado.
 # file_mode = 0o644
 
-# No modo hash com fingerprint_cache = true, força uma releitura completa de todos os arquivos após tantos
-# dias, mesmo com o cache parecendo válido, para pegar mudanças que os metadados do arquivo não revelaram.
+# Só com verification_mode = "hash" e fingerprint_cache = true: força uma releitura completa de todos os
+# arquivos após tantos dias, mesmo com o cache parecendo válido, para pegar mudanças que os metadados do
+# arquivo não revelaram. No modo "simple" nenhum conteúdo é lido, então ela não tem efeito útil: só renova
+# um carimbo de data no estado, o que causa uma publicação extra ocasional do índice.
 fingerprint_full_scan_days = 7
 
 # Lotes preparados, compactados e enviados ao mesmo tempo, cada um com sua área de preparo. Mais workers

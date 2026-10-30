@@ -191,8 +191,9 @@ verify_interval_days = 0
 # date.
 verification_mode = "simple"
 
-# In hash mode, reuse a file's hashes when device, inode, size, mtime, ctime and mode are all unchanged,
-# avoiding full reads of the source. Batch jobs only; it never enables hashing in simple mode.
+# Only with verification_mode = "hash" (ignored in "simple", the default, which never hashes): reuse a
+# file's hashes when device, inode, size, mtime, ctime and mode are all unchanged, avoiding full reads of
+# the source. Batch jobs only.
 fingerprint_cache = true
 
 # Batch jobs: true checks that source files stay stable while read and compressed, retrying up to 3 times
@@ -208,8 +209,10 @@ inventory_from_listing = false
 # is used.
 # file_mode = 0o644
 
-# In hash mode with fingerprint_cache = true, forces a complete re-read of every file after this many days,
-# even when the cache looks valid, to catch changes the file metadata did not reveal.
+# Only with verification_mode = "hash" and fingerprint_cache = true: forces a complete re-read of every file
+# after this many days, even when the cache looks valid, to catch changes the file metadata did not reveal.
+# In "simple" mode no content is read, so it has no useful effect: it only renews a timestamp in the state,
+# which causes an occasional extra publication of the index.
 fingerprint_full_scan_days = 7
 
 # Batches prepared, compressed and uploaded at the same time, each with its own staging area. More workers

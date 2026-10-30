@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.19.12 — 2026-10-29
+
+Informar nos exemplos e nos guias que `fingerprint_cache` e `fingerprint_full_scan_days` só valem com `verification_mode = "hash"`. Os nomes não dizem isso, e no modo `"simple"`, o padrão, elas não têm efeito útil: nenhum conteúdo é calculado nem relido. Nesse modo, `fingerprint_full_scan_days` ainda renova um carimbo de data no estado quando vence, o que causa uma publicação extra ocasional do índice. Os comentários das duas opções em `sambinha.example.toml` e `sambinha.example.pt-BR.toml`, e os trechos de TOML dos guias de configuração e desempenho (em inglês e português), agora dizem isso. Nenhuma mudança de comportamento.
+
 ## 0.19.11 — 2026-10-29
 
 Documentar o que um backup lê da S3 e deixar de recomendar uma checagem mensal do destino. Um backup de rotina para a S3 lê um pequeno objeto marcador (a última geração publicada), lista o bucket uma vez para confirmar que cada lote planejado ainda está lá com o tamanho registrado e pede ao destino o checksum que a S3 já guarda de cada lote que envia; nunca baixa os arquivos de lote. O `verify-destination-metadata` custa cerca de duas requisições por lote (uma consulta de metadados e o download do JSON do lote), muitas vezes a listagem de rotina, e só acrescenta que os JSONs de controle remotos coincidem com os locais, já que o backup confirma presença e tamanho. Agora ele é descrito como uma checagem sob demanda (depois de perder ou restaurar o estado local, ao mudar para outra máquina, ou como garantia ocasional) em vez de rotina mensal, nos guias de verificação de lotes, configuração, S3, uso e desempenho (em inglês e português) e no texto de ajuda do comando. O guia de uso em português deixa de dizer que a estratégia batch evita consultas S3 de inventário sem mencionar a listagem única. Nenhuma mudança de comportamento.

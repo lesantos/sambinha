@@ -394,6 +394,7 @@ name = "media"
 source = "~/Files"
 destination = "/mnt/backup/media"
 logic = "batch"
+# Estas duas opções só valem com verification_mode = "hash"; no modo "simple" são ignoradas.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_workers = 4

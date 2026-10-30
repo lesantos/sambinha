@@ -72,6 +72,7 @@ source = "~/Files"
 destination = "/mnt/backup/files"
 logic = "batch"
 verification_mode = "simple" # Padrão; use "hash" para comparar o conteúdo.
+# Estas duas opções só valem com verification_mode = "hash"; no modo "simple" são ignoradas.
 fingerprint_cache = true
 fingerprint_full_scan_days = 7
 transfer_workers = 4
