@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.20.0 — 2026-10-30
+
+Make deletion alerts and batch progress easier to follow. The `deletion_alert_threshold` now counts only files that were really removed from the source: members of a retired batch that are still in the source (they only moved to a rebuilt batch) no longer inflate the count that triggers the alert. When the alert fires, `deletion_candidate` lines naming the removed files and their permanent-deletion date are written at the default `summary` log level; the files that only changed batch are logged as `deletion_rebatched`, only at `detailed`, and `deletion_alert` gains `removed` and `rebatched` totals. On an interactive terminal, batch uploads now show the overall line followed by one line per active worker (batch, its own percentage, stage and directory) instead of every worker overwriting a single line; the block fits the terminal height and each line its width. Nothing changes without a terminal. The full suite passes.
+
 ## 0.19.13 — 2026-10-30
 
 Stop failing when a local control mirror holds an older archive size or md5 than the committed index. A job aborted with `Controle local diverge do índice` for a batch whose members were identical: the archive had been rebuilt with another compression level (0.18.0 moved to three tiers) and rewritten at the destination by a run that lost its state, while the mirror, which is only written when missing, kept the old `archive_size` and `archive_md5`. The mirror is only a copy of the committed index, so when the members match and only the archive size or md5 differ, the mirror is now rewritten from the index (not in a dry run) and the run continues; differing members are still an error. Nothing is read from the destination for this. `verify-destination-metadata` still compares the index with the real object size and the stored JSON. The full suite passes.

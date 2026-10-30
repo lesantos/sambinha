@@ -19,6 +19,32 @@ class ForecastUnitTests(unittest.TestCase):
         forecast.add('two', [(retirement('h/c', ['c'], 'deleted', 0, 10), ['c'])])
         self.assertEqual(notify.call_count, 1)
 
+    def test_summary_lists_removed_files_and_rebatched_ones_stay_detailed(self):
+        log = Mock()
+        forecast = DeletionForecast(1, log, Mock())
+        forecast.add('one', [(retirement('h/a', ['a', 'b', 'c'], 'deleted', 0, 10), ['a', 'b', 'c'])], present={'c'})
+        events = {name: [c.kwargs['path'] for c in log.event.call_args_list if c.args[0] == name]
+                  for name in ('deletion_candidate', 'deletion_rebatched')}
+        self.assertEqual(events, {'deletion_candidate': ['a', 'b'], 'deletion_rebatched': ['c']})
+        alert = next(c.kwargs for c in log.event.call_args_list if c.args[0] == 'deletion_alert')
+        self.assertEqual((alert['count'], alert['removed'], alert['rebatched']), (2, 2, 1))
+
+    def test_threshold_ignores_files_that_only_moved_to_another_batch(self):
+        log, notify = Mock(), Mock()
+        forecast = DeletionForecast(2, log, notify)
+        files = ['a', 'b', 'c', 'd']
+        forecast.add('one', [(retirement('h/a', files, 'deleted', 0, 10), files)], present={'b', 'c', 'd'})
+        notify.assert_not_called()
+        self.assertFalse(forecast.sent)
+        forecast.add('one', [(retirement('h/a', files, 'deleted', 0, 10), files)], present={'d'})
+        notify.assert_called_once()
+        self.assertIn('3 arquivos/versões', forecast.message)
+
+    def test_event_levels_for_deletions(self):
+        from sambinha.logging import SUMMARY_EVENTS
+        self.assertIn('deletion_candidate', SUMMARY_EVENTS)
+        self.assertNotIn('deletion_rebatched', SUMMARY_EVENTS)
+
     def test_dates_two_days_one_day_and_zero_day_retention(self):
         for days, lead in ((10, 2), (2, 2), (1, 1), (0, 0)):
             with self.subTest(days=days):

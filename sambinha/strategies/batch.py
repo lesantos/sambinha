@@ -358,6 +358,10 @@ def _run_workers(ctx, items, workers, active):
             # Mark failure inside the worker before it accepts more work.
             stopped.set()
             raise
+        finally:
+            lane = ctx.batch_progress.get(item.key)
+            if lane is not None:
+                lane.release()
 
     remaining = iter(items)
     pool = ThreadPoolExecutor(max_workers=workers)
@@ -408,7 +412,8 @@ def _upload_pending(ctx, pending, active):
     heavy_keys = {item.key for item in heavy}
     light = [item for item in pending if item.key not in heavy_keys]
     scopes = (ctx.progress.scope(0.1, 0.85).parallel(
-        [sum(max(1, f.size) for f in item.files) for item in pending]) if ctx.progress else [])
+        [sum(max(1, f.size) for f in item.files) for item in pending],
+        [item.key.rsplit("/", 1)[-1].removesuffix(".7z")[:18] for item in pending]) if ctx.progress else [])
     ctx.batch_progress = {item.key: progress for item, progress in zip(pending, scopes, strict=False)}
     for items, workers in ((light, min(ctx.job.batch_workers, len(light))), (heavy, 1)):
         if items:

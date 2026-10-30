@@ -1,7 +1,9 @@
 import io
+import itertools
 import json
 import re
 import threading
+import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest.mock import Mock, patch
@@ -10,6 +12,7 @@ from sambinha.config import with_job_overrides
 from sambinha.engine import run
 from sambinha.inventory import scan
 from sambinha.progress import Progress
+from sambinha.terminal import cell_width
 from tests.helpers import Sandbox, Terminal
 
 
@@ -172,3 +175,44 @@ class ProgressTests(Sandbox):
              self.assertRaises(RuntimeError):
             run(self.config, runner=Mock())
         self.assertNotIn('100.0%', terminal.getvalue())
+
+
+class WorkerLinesTests(unittest.TestCase):
+    def test_each_parallel_worker_owns_a_line_until_released(self):
+        terminal = Terminal()
+        progress = Progress(terminal, clock=Mock(side_effect=itertools.count(0, 1)))
+        first, second = progress.parallel([1, 1], ['batch-aaa', 'batch-bbb'])
+        first.scope(0, 0.5).update('Comprimindo', '/dados/a', 1, 2, force=True)
+        second.update('Enviando', '/dados/b', 1, 4, force=True)
+        screen = terminal.getvalue().rsplit('\r\033[2K', 1)[-1]
+        lines = screen.split('\n')
+        self.assertEqual(len(lines), 3)
+        self.assertIn('2 em paralelo', lines[0])
+        self.assertIn('batch-aaa', lines[1])
+        self.assertIn('Comprimindo', lines[1])
+        self.assertIn('batch-bbb', lines[2])
+        self.assertIn('25.0%', lines[2])
+        first.release()
+        self.assertEqual(progress.root._rendered_rows, 2)
+        second.release()
+        self.assertEqual(progress.root._rendered_rows, 1)
+        self.assertEqual(progress.root.lanes, {})
+
+    def test_lane_lines_never_exceed_the_terminal_width_and_redraw_erases_all_rows(self):
+        terminal = Terminal()
+        progress = Progress(terminal, clock=Mock(side_effect=itertools.count(0, 1)))
+        lanes = progress.parallel([1, 1, 1], ['batch-1', 'batch-2', 'batch-3'])
+        with patch('sambinha.progress.terminal_columns', return_value=40):
+            for lane in lanes:
+                lane.update('Comprimindo', '/muito/longo/' * 10, 1, 2, force=True)
+        last = terminal.getvalue().rsplit('\r\033[2K', 1)[-1]
+        self.assertTrue(all(cell_width(line) <= 39 for line in last.split('\n')))
+        self.assertIn('\033[1A\r\033[2K' * 2, terminal.getvalue())
+
+    def test_workers_stay_silent_outside_a_terminal(self):
+        output = io.StringIO()
+        progress = Progress(output)
+        lane, = progress.parallel([1], ['batch-1'])
+        lane.update('Enviando', '/dados', 1, 2, force=True)
+        lane.release()
+        self.assertEqual(output.getvalue(), '')

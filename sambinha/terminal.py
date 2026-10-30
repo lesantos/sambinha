@@ -12,6 +12,13 @@ def terminal_columns(stream):
         return max(1, shutil.get_terminal_size(fallback=(80, 24)).columns)
 
 
+def terminal_rows(stream):
+    try:
+        return max(1, os.get_terminal_size(stream.fileno()).lines)
+    except (AttributeError, OSError, ValueError, TypeError):
+        return max(1, shutil.get_terminal_size(fallback=(80, 24)).lines)
+
+
 def cell_width(text):
     def width(char):
         if unicodedata.combining(char) or unicodedata.category(char) in {"Mn", "Me"}:
@@ -90,3 +97,16 @@ def progress_line(percent, stage, directory, activity, columns, *, indeterminate
         # On very narrow terminals prefer counters to the stage/path.
         parts = [prefix] + ([counters] if counters else [])
     return shorten(" | ".join(parts), budget)
+
+
+def lane_line(lane, columns):
+    """One worker's line: label, own percentage, stage and directory, never wider than the terminal."""
+    budget = max(0, columns - 1)
+    head = f"  {lane['label']} {min(100, lane['fraction'] * 100):5.1f}%"
+    activity = compact_activity(lane["activity"]) if lane.get("activity") else ""
+    parts = [head, lane["stage"]] + ([activity] if activity else [])
+    fixed = " | ".join(parts)
+    remaining = budget - cell_width(fixed) - 3
+    if remaining >= 4:
+        return shorten(fixed + " | " + shorten(lane["directory"], remaining, tail=True), budget)
+    return shorten(fixed, budget)

@@ -34,27 +34,39 @@ class DeletionForecast:
     def __init__(self, threshold, log, notify):
         self.threshold, self.log, self.notify = threshold, log, notify
         self.records = {}
+        self.present = {}
         self.sent = False
         self.count_reported = 0
         self.message = ""
 
-    def add(self, job, candidates):
+    def add(self, job, candidates, present=None):
+        """present: paths still in the source (None = unknown). Members of a retired batch that are
+        still present only moved to another batch; they are logged as deletion_rebatched (detailed only)."""
         for entry, files in candidates:
             self.records[(job, entry["key"], entry["expires"])] = (entry, list(files))
-        count = sum(len(files) for entry, files in self.records.values())
+            self.present[(job, entry["key"], entry["expires"])] = present
+        listing = []
+        for (name, key, expires), (entry, files) in sorted(self.records.items()):
+            present = self.present[(name, key, expires)]
+            for path in files:
+                listing.append((name, key, expires, entry, path, present is not None and path in present))
+        # Only files really gone from the source count: members that merely moved to a rebuilt batch
+        # stay in the source and are never deleted for good.
+        removed = [item for item in listing if not item[5]]
+        count = len(removed)
         if count <= self.threshold or count == self.count_reported:
             return
         self.count_reported = count
-        first = min(entry["expires"] for entry, files in self.records.values())
+        rebatched = len(listing) - count
+        first = min(item[2] for item in removed)
         self.message = (f"Alerta de exclusão definitiva: {count} arquivos/versões acima do limite "
                         f"{self.threshold}; primeira data {date(first)}. Confira os arquivos no log; "
                         "o backup e os prazos continuam normalmente.")
-        self.log.event("deletion_alert", count=count, threshold=self.threshold,
-                       first_deletion_at=date(first), message=self.message)
-        for (name, key, expires), (entry, files) in sorted(self.records.items()):
-            for path in files:
-                self.log.event("deletion_candidate", job=name, path=path, object=key,
-                               reason=entry.get("reason"), deletion_at=date(expires))
+        self.log.event("deletion_alert", count=count, threshold=self.threshold, removed=count,
+                       rebatched=rebatched, first_deletion_at=date(first), message=self.message)
+        for name, key, expires, entry, path, moved in listing:
+            self.log.event("deletion_rebatched" if moved else "deletion_candidate", job=name, path=path,
+                           object=key, reason=entry.get("reason"), deletion_at=date(expires))
         # Alert now, before any imminent purge; do not raise or require approval.
         self.notify(self.message)
         self.sent = True

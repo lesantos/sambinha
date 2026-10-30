@@ -38,7 +38,7 @@ Batch retention starts when a successful execution detects edits/deletions. Clea
 
 `exclude_files` uses native rclone syntax via `--exclude-from`. The rule file is frozen when its job starts. Paths are relative to the source root; anchored patterns, directories, Unicode and wildcard alternatives follow rclone's own matcher. Excluded files are neither transferred nor treated as deleted. Their history remains protected. A legacy batch containing both selected and excluded paths is retained in `excluded`, while current selected files are stored separately. Historical names are matched through temporary empty-file trees, including old file/directory replacements. Filter results are cached only within that execution.
 
-The batch-only advisory `deletion_alert_threshold` defaults to 1000. It counts impending permanent removals from batch history; simple `--backup-dir` history is not counted or pruned by Sambinha.
+The batch-only advisory `deletion_alert_threshold` defaults to 1000. It counts files that were really removed from the source and are due for permanent removal from batch history (files that only moved to a rebuilt batch are not counted); simple `--backup-dir` history is not counted or pruned by Sambinha. When the limit is exceeded, `deletion_alert` reports the total plus `removed` (files really gone from the source) and `rebatched` (files that only moved to another batch). `deletion_candidate` lists the removed files with their permanent-deletion date at the default `summary` log level; `deletion_rebatched` lists the moved ones and is written only at `detailed`.
 
 ## Mass removal protection
 

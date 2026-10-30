@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.20.0 — 2026-10-30
+
+Facilitar o acompanhamento dos alertas de exclusão e do progresso dos lotes. O `deletion_alert_threshold` agora conta apenas os arquivos realmente removidos da origem: membros de um lote aposentado que continuam na origem (apenas mudaram para um lote reconstruído) deixam de inflar a contagem que dispara o alerta. Quando o alerta dispara, linhas `deletion_candidate` com os arquivos removidos e a data de exclusão definitiva são gravadas no nível de log `summary`, o padrão; os arquivos que só trocaram de lote saem como `deletion_rebatched`, somente em `detailed`, e o `deletion_alert` ganha os totais `removed` e `rebatched`. Em terminal interativo, os uploads de lotes mostram a linha global seguida de uma linha por worker ativo (lote, percentual próprio, etapa e diretório), em vez de todos os workers sobrescreverem uma única linha; o bloco se ajusta à altura do terminal e cada linha à sua largura. Sem terminal, nada muda. A suíte completa passa.
+
 ## 0.19.13 — 2026-10-30
 
 Parar de falhar quando um espelho local de controle guarda um tamanho ou md5 de arquivo mais antigo que o do índice commitado. Um job abortava com `Controle local diverge do índice` para um lote de membros idênticos: o arquivo tinha sido reconstruído com outro nível de compressão (a 0.18.0 passou a três níveis) e regravado no destino por uma execução que perdeu o estado, enquanto o espelho, que só é gravado quando falta, manteve o `archive_size` e o `archive_md5` antigos. O espelho é só uma cópia do índice commitado; agora, quando os membros coincidem e só o tamanho ou o md5 do arquivo diferem, o espelho é regravado a partir do índice (menos em simulação) e a execução segue; membros diferentes continuam sendo erro. Nada é lido do destino para isso. O `verify-destination-metadata` continua comparando o índice com o tamanho real do objeto e com o JSON guardado. A suíte completa passa.

@@ -15,7 +15,7 @@ from .state import private_directory
 
 ERROR_EVENTS = {"error", "notification_error", "mass_deletion_blocked"}
 SUMMARY_EVENTS = ERROR_EVENTS | {"summary", "restore_summary", "verification_complete", "metadata_verification_complete",
-                                "integrity_complete", "end", "deletion_alert", "batch_size_alert",
+                                "integrity_complete", "end", "deletion_alert", "deletion_candidate", "batch_size_alert",
                                 "rebalance_summary", "index_recovered", "retired_control_missing",
                                 "orphans", "fresh_start", "temp_cleanup", "discovery_restart", "batches_adopted", "index_size"}
 

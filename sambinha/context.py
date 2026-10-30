@@ -242,7 +242,7 @@ class Context:
         candidates = [(entry, paths[entry["key"]]) for entry in self.state["retired"]
                       if alert_time(entry, self.job.deleted_days, self.job.version_days) <= self.now
                       and all(p in included for p in paths[entry["key"]])]
-        self.forecast.add(self.job.name, candidates)
+        self.forecast.add(self.job.name, candidates, None if self.rebalancing else set(self.selected_paths()))
 
     def scheduled(self, entry):
         self.event("deletion_scheduled", path=entry["key"], files=entry["files"],
