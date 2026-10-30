@@ -195,7 +195,8 @@ class ControlMemoTests(Sandbox):
         memo = {}
         cached_control(self.config, job, key, control, memo=memo)
         path = control_directory(self.config, job) / (key + '.json')
-        write_control(self.config, job, key, {**control, 'archive_size': 999}, memo=memo)
+        stale = {**control, 'files': [{**control['files'][0], 'size': 999}]}
+        write_control(self.config, job, key, stale, memo=memo)
         self.assertNotIn(key, memo)
         with self.assertRaisesRegex(BackupError, 'diverge do índice'):
             cached_control(self.config, job, key, control, memo=memo)
@@ -211,7 +212,19 @@ class ControlMemoTests(Sandbox):
         memo = {}
         cached_control(self.config, job, key, control, memo=memo)
         with self.assertRaisesRegex(BackupError, 'diverge do índice'):
-            cached_control(self.config, job, key, {**control, 'archive_size': 1}, memo=memo)
+            cached_control(self.config, job, key, {**control, 'files': [{**control['files'][0], 'size': 1}]}, memo=memo)
+
+    def test_stale_archive_size_or_md5_refreshes_the_mirror_instead_of_failing(self):
+        job, key, control = self.setup_job()
+        path = control_directory(self.config, job) / (key + '.json')
+        for stale in ({'archive_size': 999}, {'archive_md5': 'b' * 32}, {'archive_size': 1, 'archive_md5': 'c' * 32}):
+            with self.subTest(stale=stale):
+                write_control(self.config, job, key, {**control, **stale})
+                self.assertEqual(cached_control(self.config, job, key, control), control)
+                self.assertEqual(json.loads(path.read_text()), control)
+        write_control(self.config, job, key, {**control, 'archive_size': 999})
+        self.assertEqual(cached_control(self.config, job, key, control, write_missing=False), control)
+        self.assertEqual(json.loads(path.read_text())['archive_size'], 999)
 
     def test_context_validates_controls_once_and_batch_reuses_the_result(self):
         job, key, control = self.setup_job()

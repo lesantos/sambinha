@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-O Sambinha **0.19.12** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux ou macOS, Python 3.12+, rclone 1.60+ e 7-Zip 22.00+.
+O Sambinha **0.19.13** faz backup para uma pasta local, disco montado ou Amazon S3. Mantém versões anteriores e registra cada execução. Requer Linux ou macOS, Python 3.12+, rclone 1.60+ e 7-Zip 22.00+.
 
 Os jobs executam até o fim na ordem do TOML. Destinos não podem se sobrepor; o destino de um job pode ser a origem de outro job posterior. Confira as [regras de interação](docs/configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos).
 

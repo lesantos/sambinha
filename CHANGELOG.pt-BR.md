@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 0.19.13 — 2026-10-30
+
+Parar de falhar quando um espelho local de controle guarda um tamanho ou md5 de arquivo mais antigo que o do índice commitado. Um job abortava com `Controle local diverge do índice` para um lote de membros idênticos: o arquivo tinha sido reconstruído com outro nível de compressão (a 0.18.0 passou a três níveis) e regravado no destino por uma execução que perdeu o estado, enquanto o espelho, que só é gravado quando falta, manteve o `archive_size` e o `archive_md5` antigos. O espelho é só uma cópia do índice commitado; agora, quando os membros coincidem e só o tamanho ou o md5 do arquivo diferem, o espelho é regravado a partir do índice (menos em simulação) e a execução segue; membros diferentes continuam sendo erro. Nada é lido do destino para isso. O `verify-destination-metadata` continua comparando o índice com o tamanho real do objeto e com o JSON guardado. A suíte completa passa.
+
 ## 0.19.12 — 2026-10-29
 
 Informar nos exemplos e nos guias que `fingerprint_cache` e `fingerprint_full_scan_days` só valem com `verification_mode = "hash"`. Os nomes não dizem isso, e no modo `"simple"`, o padrão, elas não têm efeito útil: nenhum conteúdo é calculado nem relido. Nesse modo, `fingerprint_full_scan_days` ainda renova um carimbo de data no estado quando vence, o que causa uma publicação extra ocasional do índice. Os comentários das duas opções em `sambinha.example.toml` e `sambinha.example.pt-BR.toml`, e os trechos de TOML dos guias de configuração e desempenho (em inglês e português), agora dizem isso. Nenhuma mudança de comportamento.

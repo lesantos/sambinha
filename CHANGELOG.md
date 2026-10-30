@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 0.19.13 — 2026-10-30
+
+Stop failing when a local control mirror holds an older archive size or md5 than the committed index. A job aborted with `Controle local diverge do índice` for a batch whose members were identical: the archive had been rebuilt with another compression level (0.18.0 moved to three tiers) and rewritten at the destination by a run that lost its state, while the mirror, which is only written when missing, kept the old `archive_size` and `archive_md5`. The mirror is only a copy of the committed index, so when the members match and only the archive size or md5 differ, the mirror is now rewritten from the index (not in a dry run) and the run continues; differing members are still an error. Nothing is read from the destination for this. `verify-destination-metadata` still compares the index with the real object size and the stored JSON. The full suite passes.
+
 ## 0.19.12 — 2026-10-29
 
 State in the examples and guides that `fingerprint_cache` and `fingerprint_full_scan_days` only apply with `verification_mode = "hash"`. The names do not say so, and with the default `"simple"` mode they do nothing useful: no content is hashed or re-read. In that mode `fingerprint_full_scan_days` still renews a timestamp in the state when it expires, which causes an occasional extra publication of the index. The comments of both options in `sambinha.example.toml` and `sambinha.example.pt-BR.toml`, and the TOML snippets in the configuration and performance guides (English and Portuguese), now say so. No change in behavior.

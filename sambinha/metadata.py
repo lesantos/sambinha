@@ -63,9 +63,14 @@ def cached_control(config, job, key, expected, *, write_missing=True, memo=None)
         control = expected
     else:
         control = read_control(path, key)
-        if (member_metadata(control) != member_metadata(expected) or
-                control.get("archive_size") != expected.get("archive_size")):
+        if member_metadata(control) != member_metadata(expected):
             raise BackupError(f"Controle local diverge do índice: {path}")
+        if any(control.get(name) != expected.get(name) for name in ("archive_size", "archive_md5")):
+            # Same members, different archive bytes (e.g. another 7-Zip version rebuilt it): the
+            # committed index is authoritative, so refresh the stale mirror instead of failing.
+            if write_missing:
+                write_control(config, job, key, expected, memo=memo)
+            control = expected
     if memo is not None and (write_missing or path.exists()):
         memo[key] = (expectation, control)
     return control
