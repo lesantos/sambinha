@@ -1,5 +1,9 @@
 # Novidades do Sambinha
 
+## 1.0.0 — 2026-10-30
+
+Primeira versão estável, e o repositório agora é público. Nenhuma mudança de comportamento desde a 0.20.0: as opções, os formatos de estado e índice, o layout do destino e a linha de comando são os que a 0.20.0 entregou, e a partir desta versão seguem versionamento semântico (uma quebra de compatibilidade exige uma nova versão maior). Todo o histórico do Git foi varrido com o gitleaks antes da publicação e nenhum segredo foi encontrado. A suíte completa passa.
+
 ## 0.20.0 — 2026-10-30
 
 Facilitar o acompanhamento dos alertas de exclusão e do progresso dos lotes. O `deletion_alert_threshold` agora conta apenas os arquivos realmente removidos da origem: membros de um lote aposentado que continuam na origem (apenas mudaram para um lote reconstruído) deixam de inflar a contagem que dispara o alerta. Quando o alerta dispara, linhas `deletion_candidate` com os arquivos removidos e a data de exclusão definitiva são gravadas no nível de log `summary`, o padrão; os arquivos que só trocaram de lote saem como `deletion_rebatched`, somente em `detailed`, e o `deletion_alert` ganha os totais `removed` e `rebatched`. Em terminal interativo, os uploads de lotes mostram a linha global seguida de uma linha por worker ativo (lote, percentual próprio, etapa e diretório), em vez de todos os workers sobrescreverem uma única linha; o bloco se ajusta à altura do terminal e cada linha à sua largura. Sem terminal, nada muda. A suíte completa passa.

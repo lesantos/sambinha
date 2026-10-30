@@ -1,5 +1,9 @@
 # Sambinha changes
 
+## 1.0.0 — 2026-10-30
+
+First stable release, and the repository is now public. No change in behavior since 0.20.0: the options, the state and index formats, the destination layout and the command line are the ones 0.20.0 shipped, and from this version they follow semantic versioning (a breaking change needs a new major version). The full Git history was scanned with gitleaks before publishing and no secret was found. The full suite passes.
+
 ## 0.20.0 — 2026-10-30
 
 Make deletion alerts and batch progress easier to follow. The `deletion_alert_threshold` now counts only files that were really removed from the source: members of a retired batch that are still in the source (they only moved to a rebuilt batch) no longer inflate the count that triggers the alert. When the alert fires, `deletion_candidate` lines naming the removed files and their permanent-deletion date are written at the default `summary` log level; the files that only changed batch are logged as `deletion_rebatched`, only at `detailed`, and `deletion_alert` gains `removed` and `rebatched` totals. On an interactive terminal, batch uploads now show the overall line followed by one line per active worker (batch, its own percentage, stage and directory) instead of every worker overwriting a single line; the block fits the terminal height and each line its width. Nothing changes without a terminal. The full suite passes.
