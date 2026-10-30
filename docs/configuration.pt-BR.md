@@ -362,7 +362,7 @@ Restaurar do S3 baixa os objetos selecionados e pode gerar custos de recuperaç�
 
 ```bash
 sambinha verify-local-metadata --job documents-s3         # Diário: tamanho/data da origem contra JSONs locais
-sambinha verify-destination-metadata --job documents-s3   # Mensal: sincronia dos JSONs e tamanho dos lotes
+sambinha verify-destination-metadata --job documents-s3   # Sob demanda: JSONs remotos contra os locais (não é rotina)
 sambinha verify-destination-integrity --job documents-s3                # Manual: teste de integridade do 7-Zip
 ```
 

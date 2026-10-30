@@ -102,11 +102,11 @@ Batch jobs emit indexed file and batch counts. Simple jobs log the `rclone sync`
 
 ## Compatibility and operational limits
 
-Existing 0.3.x state remains compatible; intact legacy batches stay intact. Legacy archives without a recorded upload size cannot receive the monthly archive-size check until replaced after changes; daily source checks and manual 7-Zip tests remain available. The earlier 0.2.0 rename introduced `sambinha`, `sambinha.toml` and `.sambinha`; states from another metadata namespace are rejected. Keep an old destination and state together, and use a new destination/state to migrate an older namespace. Begin with simulation.
+Existing 0.3.x state remains compatible; intact legacy batches stay intact. Legacy archives without a recorded upload size cannot receive the archive-size check of `verify-destination-metadata` until replaced after changes; daily source checks and manual 7-Zip tests remain available. The earlier 0.2.0 rename introduced `sambinha`, `sambinha.toml` and `.sambinha`; states from another metadata namespace are rejected. Keep an old destination and state together, and use a new destination/state to migrate an older namespace. Begin with simulation.
 
 Symbolic links are ignored. Special files and newline-bearing source filenames are rejected. `.sambinha` at the source root is reserved. Each job must keep its own source/destination separate and all jobs must stay outside state/log directories. Destinations cannot overlap each other; one job's destination may be a later job's source. See [the interaction rules](configuration.md#sequential-jobs-and-overlapping-paths). Local POSIX ownership changes are not required; S3 has no native POSIX mode bits. Without filesystem snapshots, concurrent source writes can abort a backup. In hash mode, the fingerprint cache assumes trustworthy filesystem metadata and forces periodic content scans; disable it when full reads on every run are required.
 
-Batch reuse trusts the local mirror and exclusive remote prefix ownership. Daily checks detect source updates; monthly metadata checks detect missing/different controls or archive sizes; manual integrity tests detect archive corruption. Simple sync comparison behavior follows rclone and its backend settings.
+Batch reuse trusts the local mirror and exclusive remote prefix ownership. Daily checks detect source updates; `verify-destination-metadata` (on demand) detects missing/different controls or archive sizes; manual integrity tests detect archive corruption. Simple sync comparison behavior follows rclone and its backend settings.
 
 ## Verification modes and terminal progress — 0.6.1
 

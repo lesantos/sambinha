@@ -4,10 +4,10 @@
 
 These activities apply to `logic = "batch"` and are independent of archive creation and restoration. Simple-job `verify-local-metadata` continues using `rclone check`.
 
-| Activity | Suggested frequency | Reads |
+| Activity | When to run | Reads |
 | --- | --- | --- |
-| `sambinha verify-local-metadata --job documents-s3` | Daily | Source size/time and local JSON controls |
-| `sambinha verify-destination-metadata --job documents-s3` | Monthly | Local/destination JSON controls and archive size metadata |
+| `sambinha verify-local-metadata --job documents-s3` | After backups when due (`verify_interval_days`) | Source size/time and local JSON controls |
+| `sambinha verify-destination-metadata --job documents-s3` | On demand, not routine (see below) | Local/destination JSON controls and archive size metadata |
 | `sambinha verify-destination-integrity --job documents-s3` | Manually, when needed | Archive listing and compressed contents through 7-Zip |
 
 ## Daily verification
@@ -35,13 +35,19 @@ Existing committed local state seeds a new mirror location without S3 reads. Dai
 
 Updating a batch uploads its archive and JSON control and atomically writes the identical JSON locally. Only after all batch uploads and both control copies succeed does backup publish its recovery index and commit the new local active state/catalog. Unchanged batches do not cause their remote JSONs to be rewritten.
 
-Local filesystems and S3 cannot participate in one distributed transaction. A failed step returns an error and leaves the previous committed generation authoritative; incomplete new uploads can remain unreferenced. Retry backup to finish publication. Local JSON writes and catalog updates use atomic replacement. Monthly metadata verification reports missing/different replicas; it does not overwrite remote JSONs.
+Local filesystems and S3 cannot participate in one distributed transaction. A failed step returns an error and leaves the previous committed generation authoritative; incomplete new uploads can remain unreferenced. Retry backup to finish publication. Local JSON writes and catalog updates use atomic replacement. `verify-destination-metadata` reports missing/different replicas; it does not overwrite remote JSONs.
 
-## S3 classes and monthly metadata checks
+## What a backup already reads from S3
+
+A routine backup trusts the local state and mirrors for everything about the source, and never downloads archives. For an S3 destination it still makes a few small requests: it reads the one small object that records the latest published generation (to notice a state older than the one published, for example after restoring the state folder from a backup), it lists the whole bucket once (about one request per thousand objects, a few seconds for several thousand batches) to confirm that every planned batch still exists there with the recorded size, and for each batch it uploads it asks the destination for the checksum that S3 already stores, instead of reading the file again. The listing is also what makes the next run notice an archive that disappeared from the bucket.
+
+## S3 classes and destination metadata checks
 
 Each remote `ARCHIVE.json` control and `.sambinha/control.tar.gz` recovery index is uploaded in **STANDARD**, independently of the archive's configured storage class, including GLACIER or DEEP_ARCHIVE. One bucket can hold objects in different classes; no extra bucket is required. The program does not manage bucket lifecycle rules: keep these metadata objects outside cold-storage transitions. The archives already receive their configured class at upload. See [AWS storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) and [lifecycle filters](https://docs.aws.amazon.com/AmazonS3/latest/userguide/intro-lifecycle-filters.html).
 
-`verify-destination-metadata` checks the known active, excluded and retained controls. It compares complete JSON values between local and destination copies, without calculating content hashes. It also checks the archive's stored compressed size through metadata. S3 archive bodies are never downloaded and no Glacier restore is requested. Only small JSON files are downloaded; if local state and catalog are both missing, the immediately accessible recovery index can bootstrap the mirrors. Metadata requests/downloads can incur normal S3 request charges.
+`verify-destination-metadata` checks the known active, excluded and retained controls. It compares complete JSON values between local and destination copies, without calculating content hashes. It also checks the archive's stored compressed size through metadata. S3 archive bodies are never downloaded and no Glacier restore is requested. Only small JSON files are downloaded; if local state and catalog are both missing, the immediately accessible recovery index can bootstrap the mirrors. It makes about two requests per batch (a metadata request for the archive and a download of its JSON), thousands of requests for a large backup, many times more than the listing of a routine backup. They can incur normal S3 request charges.
+
+Because every backup already confirms that each archive is present with the recorded size, the only thing this check adds is that the remote JSON controls match the local ones. That matters when the local state is lost and the recovery depends on the remote controls. It is not meant to run on a schedule: use it after losing or restoring the local state, when moving the backup to another machine, after an upgrade that changes the state format, or as an occasional safeguard. With a single machine and nobody else writing to the bucket it is rarely needed.
 
 This establishes metadata agreement and archive presence/size. It does not prove that the stored compressed contents remain intact; that is the separate integrity activity. Legacy controls without an uploaded archive size cannot support the size check and cause an explicit error.
 

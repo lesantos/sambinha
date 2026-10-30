@@ -49,7 +49,7 @@ Para recuperar `simple`, copie os arquivos atuais do destino, excluindo `.sambin
 - Extraia com `7z x arquivo.7z -o/pasta/restaurada`. Os caminhos internos já incluem a árvore a partir da raiz da origem. Compare SHA-256 e tamanho com os controles.
 - Para recuperar o estado local, reponha `state.json` e `controls/` em `<state_dir>/<job>/`, usando a mesma origem/destino/lógica da identidade no índice.
 
-`batch` confia no espelho local para evitar chamadas S3 de inventário. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. Jobs `simple` delegam a comparação ao rclone; o padrão usa tamanho/data e `verification_mode = "hash"` passa `--checksum`. Não há inventário nem cache de fingerprints do Sambinha para esses jobs.
+`batch` confia no espelho local para evitar chamadas S3 por arquivo; a única consulta de inventário é uma listagem do bucket por execução, que confere a existência e o tamanho de cada lote. Exclusões/corrupção feitas externamente no destino precisam ser corrigidas recuperando/reconstruindo o índice; não apague o estado local. Jobs `simple` delegam a comparação ao rclone; o padrão usa tamanho/data e `verification_mode = "hash"` passa `--checksum`. Não há inventário nem cache de fingerprints do Sambinha para esses jobs.
 
 Links simbólicos são ignorados. Arquivos especiais e nomes com quebras de linha são rejeitados com erro explícito. Cada job deve manter sua própria origem/destino separados, e todos devem ficar fora dos diretórios de estado/logs. Destinos entre jobs não podem se sobrepor, mas um destino pode ser origem de um job posterior; veja [as regras de interação](configuration.pt-BR.md#jobs-sequenciais-e-caminhos-sobrepostos). `.sambinha` na raiz da origem é reservado. Atributos locais não exigem troca de proprietário; S3 não oferece permissões POSIX nativas. A simulação cria apenas o log e faz leitura/preflight; não cria lotes/estado, transfere ou apaga arquivos, nem notifica Cronitor.
 
@@ -184,7 +184,7 @@ Veja [interrupção e retomada](batch-lifecycle.pt-BR.md#interrupção-e-retomad
 
 Jobs batch emitem contagens indexadas de arquivos e lotes. Jobs simples registram a estratégia `rclone sync` e o `max_delete` absoluto por job; uma falha pode ocorrer depois de parte da sincronização ter sido aplicada. Veja [performance](performance.pt-BR.md) para sync nativo e perfis batch.
 
-Estados 0.3.x continuam compatíveis. Lotes antigos sem tamanho de envio registrado não permitem a checagem mensal do tamanho até serem substituídos após mudanças; checagem diária da origem e integridade manual continuam disponíveis. No modo hash, o cache pressupõe metadados de filesystem confiáveis e força leituras completas periódicas; desative-o quando precisar de leitura completa em toda execução.
+Estados 0.3.x continuam compatíveis. Lotes antigos sem tamanho de envio registrado não permitem a checagem de tamanho do `verify-destination-metadata` até serem substituídos após mudanças; checagem diária da origem e integridade manual continuam disponíveis. No modo hash, o cache pressupõe metadados de filesystem confiáveis e força leituras completas periódicas; desative-o quando precisar de leitura completa em toda execução.
 
 ## Modos de verificação e progresso no terminal — 0.6.1
 

@@ -87,7 +87,7 @@ def parser():
     restore.add_argument("--output", type=Path, help="Pasta nova ou vazia para restauração")
     restore.add_argument("--path", dest="paths", action="append", default=[], help="Arquivo ou pasta do índice; repetível")
     for name, text in (("verify-local-metadata", "Comparar a origem com os controles locais (diário)"),
-                       ("verify-destination-metadata", "Comparar controles locais e do destino (mensal)"),
+                       ("verify-destination-metadata", "Comparar controles locais e do destino (sob demanda)"),
                        ("verify-destination-integrity", "Testar a integridade dos lotes no destino (manual)")):
         actions.add_parser(name, parents=[common], help=text)
     return result

@@ -4,10 +4,10 @@
 
 Estas atividades são independentes da criação e da restauração dos lotes e se aplicam a `logic = "batch"`. Em jobs simples, `verify-local-metadata` continua usando `rclone check`.
 
-| Atividade | Frequência sugerida | Leitura |
+| Atividade | Quando executar | Leitura |
 | --- | --- | --- |
-| `sambinha verify-local-metadata --job documents-s3` | Diária | Tamanho/data da origem e JSONs locais |
-| `sambinha verify-destination-metadata --job documents-s3` | Mensal | JSONs locais/do destino e metadados do tamanho dos lotes |
+| `sambinha verify-local-metadata --job documents-s3` | Após o backup, quando vencida (`verify_interval_days`) | Tamanho/data da origem e JSONs locais |
+| `sambinha verify-destination-metadata --job documents-s3` | Sob demanda, não é rotina (veja abaixo) | JSONs locais/do destino e metadados do tamanho dos lotes |
 | `sambinha verify-destination-integrity --job documents-s3` | Manual, quando necessário | Listagem e conteúdo compactado pelo 7-Zip |
 
 ## Verificação diária
@@ -35,13 +35,19 @@ O estado local já confirmado inicializa um novo diretório de cache sem consult
 
 Atualizar um lote envia o arquivo compactado e seu JSON e grava atomicamente o mesmo JSON localmente. Somente depois de concluir todos os envios e as duas cópias dos controles, o backup publica o índice de recuperação e confirma o novo estado/catálogo ativo local. Lotes inalterados não provocam reenvio dos respectivos JSONs remotos.
 
-O disco local e o S3 não participam de uma transação distribuída única. Uma falha retorna erro e mantém a geração confirmada anterior como referência; envios novos incompletos podem ficar sem referência. Repita o backup para concluir a publicação. Gravações locais dos JSONs e do catálogo usam substituição atômica. A verificação mensal aponta cópias ausentes/diferentes e não sobrescreve os JSONs remotos.
+O disco local e o S3 não participam de uma transação distribuída única. Uma falha retorna erro e mantém a geração confirmada anterior como referência; envios novos incompletos podem ficar sem referência. Repita o backup para concluir a publicação. Gravações locais dos JSONs e do catálogo usam substituição atômica. `verify-destination-metadata` aponta cópias ausentes/diferentes e não sobrescreve os JSONs remotos.
 
-## Classes S3 e checagem mensal dos metadados
+## O que um backup já lê da S3
+
+Um backup de rotina confia no estado e nas cópias locais para tudo o que diz respeito à origem e nunca baixa os lotes. Para um destino S3 ele ainda faz algumas requisições pequenas: lê o único objeto pequeno que registra a última geração publicada (para perceber um estado mais antigo que o publicado, por exemplo depois de restaurar a pasta de estado de um backup), lista o bucket inteiro uma vez (cerca de uma requisição por mil objetos, alguns segundos para alguns milhares de lotes) para confirmar que cada lote planejado ainda existe lá com o tamanho registrado, e, para cada lote que envia, pede ao destino o checksum que a S3 já guarda, em vez de ler o arquivo de novo. A listagem também é o que faz a execução seguinte perceber um arquivo que sumiu do bucket.
+
+## Classes S3 e checagem dos metadados do destino
 
 Cada controle remoto `LOTE.json` e o índice `.sambinha/control.tar.gz` são enviados em **STANDARD**, independentemente da classe configurada para os lotes, inclusive GLACIER ou DEEP_ARCHIVE. Um bucket pode conter objetos em classes diferentes; não é necessário outro bucket. O programa não administra regras de ciclo de vida do bucket: mantenha esses metadados fora das transições para classes sem acesso imediato. Os lotes já recebem a classe escolhida no envio. Veja [classes S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) e [filtros de ciclo de vida](https://docs.aws.amazon.com/AmazonS3/latest/userguide/intro-lifecycle-filters.html).
 
-`verify-destination-metadata` confere os controles conhecidos ativos, excluídos e retidos. Compara todos os valores dos JSONs locais e do destino, sem calcular hashes de conteúdo. Confere também o tamanho compactado registrado por consultas de metadados do lote. Nunca baixa os lotes S3 nem solicita restore Glacier. Baixa apenas os JSONs pequenos; se faltarem tanto o estado quanto o catálogo local, o índice de recuperação com acesso imediato pode inicializar as cópias. Consultas e downloads de metadados podem gerar as cobranças normais de requisições S3.
+`verify-destination-metadata` confere os controles conhecidos ativos, excluídos e retidos. Compara todos os valores dos JSONs locais e do destino, sem calcular hashes de conteúdo. Confere também o tamanho compactado registrado por consultas de metadados do lote. Nunca baixa os lotes S3 nem solicita restore Glacier. Baixa apenas os JSONs pequenos; se faltarem tanto o estado quanto o catálogo local, o índice de recuperação com acesso imediato pode inicializar as cópias. Faz cerca de duas requisições por lote (uma consulta de metadados do lote e o download do seu JSON), milhares de requisições em um backup grande, muitas vezes mais que a listagem de um backup de rotina. Elas podem gerar as cobranças normais de requisições S3.
+
+Como todo backup já confirma que cada lote está presente com o tamanho registrado, o único acréscimo desta checagem é que os JSONs de controle remotos coincidem com os locais. Isso importa quando o estado local se perde e a recuperação depende dos controles remotos. Ela não foi feita para rodar em agenda: use-a depois de perder ou restaurar o estado local, ao mudar o backup para outra máquina, após uma atualização que mude o formato do estado, ou como uma garantia ocasional. Com uma única máquina e ninguém mais gravando no bucket, ela raramente é necessária.
 
 Isso comprova a concordância dos metadados e a presença/tamanho dos lotes, sem comprovar a integridade do conteúdo compactado. Essa é a atividade separada de integridade. Controles antigos sem tamanho compactado registrado geram erro explícito na checagem de tamanho.
 

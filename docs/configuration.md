@@ -211,7 +211,7 @@ Restoration from S3 **downloads the selected objects** and can incur retrieval c
 
 ```bash
 sambinha verify-local-metadata --job documents-s3         # Daily source size/time against local JSONs
-sambinha verify-destination-metadata --job documents-s3   # Monthly JSON replica/size check
+sambinha verify-destination-metadata --job documents-s3   # On demand: remote JSON controls vs local (not routine)
 sambinha verify-destination-integrity --job documents-s3                # Manual 7-Zip integrity test
 ```
 
