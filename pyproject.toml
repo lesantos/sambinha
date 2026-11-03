@@ -17,7 +17,7 @@ dependencies = ["python-dotenv>=1.0,<2"]
 test = [
     "moto[s3,server]>=5.0,<6",
     "coverage>=7.6,<8",
-    "pytest>=8,<9",
+    "pytest>=8,<10",
     "pytest-xdist>=3.5,<4",
     "pytest-cov>=5,<8",
 ]
